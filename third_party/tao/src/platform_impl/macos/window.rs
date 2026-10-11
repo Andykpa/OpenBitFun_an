@@ -6,7 +6,6 @@
 use std::{
   collections::VecDeque,
   convert::TryInto,
-  f64,
   ffi::CStr,
   os::raw::c_void,
   sync::{
@@ -40,11 +39,7 @@ use crate::{
     WindowAttributes, WindowId as RootWindowId, WindowSizeConstraints,
   },
 };
-use core_graphics::{
-  base::CGFloat,
-  display::{CGDisplay, CGDisplayMode},
-  geometry::CGPoint,
-};
+use core_graphics::{base::CGFloat, display::CGDisplay, geometry::CGPoint};
 use objc2::{
   msg_send,
   rc::Retained,
@@ -53,8 +48,8 @@ use objc2::{
 use objc2_app_kit::{
   self as appkit, NSApp, NSApplicationPresentationOptions, NSBackingStoreType, NSColor, NSEvent,
   NSEventModifierFlags, NSEventSubtype, NSEventType, NSRequestUserAttentionType, NSScreen, NSView,
-  NSWindow, NSWindowButton, NSWindowCollectionBehavior, NSWindowFullScreenButton,
-  NSWindowOrderingMode, NSWindowSharingType, NSWindowStyleMask,
+  NSWindow, NSWindowButton, NSWindowCollectionBehavior, NSWindowOrderingMode, NSWindowSharingType,
+  NSWindowStyleMask,
 };
 use objc2_foundation::{
   ns_string, MainThreadMarker, NSArray, NSAutoreleasePool, NSDictionary, NSInteger, NSPoint,
@@ -266,7 +261,6 @@ fn create_window(
       }
       if pl_attrs.titlebar_buttons_hidden {
         for titlebar_button in &[
-          NSWindowFullScreenButton,
           NSWindowButton::MiniaturizeButton,
           NSWindowButton::CloseButton,
           NSWindowButton::ZoomButton,
@@ -435,9 +429,18 @@ extern "C" fn is_focusable(this: &Object, _: Sel) -> Bool {
 // Window chrome belongs to the window, not its replaceable content view.
 // Wry replaces TaoView with its WebView parent during window construction.
 pub(super) unsafe fn traffic_light_inset(window: &NSWindow) -> Option<LogicalPosition<f64>> {
-  let configured: Bool = *window.get_ivar("hasTrafficLightInset");
+  // These ivars are registered on TaoWindow above and accessed on the AppKit main thread.
+  let configured = window
+    .class()
+    .instance_variable(CStr::from_bytes_with_nul(b"hasTrafficLightInset\0").unwrap())
+    .unwrap();
+  let configured: Bool = *configured.load(window);
   if configured.as_bool() {
-    let position: NSPoint = *window.get_ivar("trafficLightInset");
+    let inset = window
+      .class()
+      .instance_variable(CStr::from_bytes_with_nul(b"trafficLightInset\0").unwrap())
+      .unwrap();
+    let position: NSPoint = *inset.load(window);
     Some(LogicalPosition::new(position.x, position.y))
   } else {
     None
@@ -511,7 +514,6 @@ pub struct SharedState {
   /// bar in exclusive fullscreen but want to restore the original options when
   /// transitioning back to borderless fullscreen.
   save_presentation_opts: Option<NSApplicationPresentationOptions>,
-  pub saved_desktop_display_mode: Option<(CGDisplay, CGDisplayMode)>,
   pub current_theme: Theme,
 }
 
@@ -548,7 +550,6 @@ pub struct UnownedWindow {
   decorations: AtomicBool,
   cursor_state: Weak<Mutex<CursorState>>,
   transparent: bool,
-  pub inner_rect: Option<PhysicalSize<u32>>,
 }
 
 unsafe impl Send for UnownedWindow {}
@@ -615,7 +616,10 @@ impl UnownedWindow {
       }
 
       // register for drag and drop operations.
-      ns_window.registerForDraggedTypes(&NSArray::arrayWithObject(appkit::NSFilenamesPboardType));
+      // Keep the filename-list format paired with the legacy drag delegates.
+      #[allow(deprecated)]
+      let filenames_type = appkit::NSFilenamesPboardType;
+      ns_window.registerForDraggedTypes(&NSArray::arrayWithObject(filenames_type));
     }
 
     // Since `win_attribs` is put into a mutex below, we'll just copy these
@@ -630,9 +634,6 @@ impl UnownedWindow {
     let focused = win_attribs.focused;
     let decorations = win_attribs.decorations;
     let visible_on_all_workspaces = win_attribs.visible_on_all_workspaces;
-    let inner_rect = win_attribs
-      .inner_size
-      .map(|size| size.to_physical(scale_factor));
 
     let cloned_preferred_theme = win_attribs.preferred_theme;
 
@@ -643,7 +644,6 @@ impl UnownedWindow {
       shared_state: Arc::new(Mutex::new(win_attribs.into())),
       decorations: AtomicBool::new(decorations),
       cursor_state,
-      inner_rect,
       transparent,
     });
 

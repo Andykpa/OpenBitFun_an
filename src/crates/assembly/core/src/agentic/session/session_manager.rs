@@ -2555,6 +2555,9 @@ impl SessionManager {
                 config: manager_config,
             };
 
+            let mut model_inputs = Self::load_ai_config_for_model_resolution()
+                .await
+                .and_then(|ai| serde_json::to_value((&ai.models, &ai.default_models)).ok());
             loop {
                 match receiver.recv().await {
                     Ok(ConfigUpdateEvent::ModelsReconciled {
@@ -2575,6 +2578,15 @@ impl SessionManager {
                         | ConfigUpdateEvent::DefaultAIModelUpdated { .. }
                         | ConfigUpdateEvent::ConfigReloaded,
                     ) => {
+                        let next_inputs = Self::load_ai_config_for_model_resolution()
+                            .await
+                            .and_then(|ai| {
+                                serde_json::to_value((&ai.models, &ai.default_models)).ok()
+                            });
+                        if next_inputs.is_some() && next_inputs == model_inputs {
+                            continue;
+                        }
+                        model_inputs = next_inputs;
                         manager
                             .reconcile_loaded_session_reasoning_presets(
                                 "model_configuration_updated",
@@ -4213,39 +4225,71 @@ impl SessionManager {
         model_id: &str,
         reasoning_preset: Option<&str>,
     ) -> OpenBitFunResult<()> {
+        self.update_session_model_selection_in_storage(
+            None,
+            session_id,
+            model_id,
+            reasoning_preset,
+            true,
+            |_| Ok(()),
+        )
+        .await
+        .map(|_| ())
+    }
+
+    pub(crate) async fn update_session_model_selection_in_storage(
+        &self,
+        storage_path: Option<&Path>,
+        session_id: &str,
+        model_id: &str,
+        reasoning_preset: Option<&str>,
+        include_internal: bool,
+        validate_binding: impl FnOnce(&Session) -> OpenBitFunResult<()>,
+    ) -> OpenBitFunResult<Session> {
+        let _mutation_guard = self.acquire_session_mutation(session_id).await?;
+        let storage_path = storage_path.map(Path::to_path_buf).or_else(|| {
+            Self::committed_session_storage_path(&self.session_storage_path_index, session_id)
+        });
+        if let Some(path) = storage_path.as_deref() {
+            self.validate_session_storage_path_binding(session_id, path)?;
+        }
+        let loaded = self.sessions.get(session_id).map(|session| session.clone());
+        // Keep the cross-process lease until the complete read/modify/write has
+        // finished. A cold selector update never reserves active-session capacity.
+        let _writer = if loaded.is_none() {
+            storage_path
+                .as_deref()
+                .map(|path| {
+                    self.persistence_manager
+                        .lock_session_writes(path, session_id)
+                })
+                .transpose()?
+        } else {
+            None
+        };
+        let was_loaded = loaded.is_some();
+        let original_session = match loaded {
+            Some(session) => session,
+            None => {
+                let path = storage_path.as_deref().ok_or_else(|| {
+                    OpenBitFunError::NotFound(format!("Session not found: {session_id}"))
+                })?;
+                let session = self
+                    .persistence_manager
+                    .load_session_header(path, session_id)
+                    .await?;
+                if !include_internal && session.kind != SessionKind::Standard {
+                    return Err(OpenBitFunError::NotFound(format!(
+                        "Session not found: {session_id}"
+                    )));
+                }
+                session
+            }
+        };
+        validate_binding(&original_session)?;
         let ai_config = Self::load_ai_config_for_model_resolution().await;
         let mut resolved_context_window = None;
         let mut auto_cleared_reasoning_preset = None;
-
-        // If the session was evicted from memory (idle > 1h), try to restore it
-        // using the storage path recorded when it was first created/restored.
-        if !self.sessions.contains_key(session_id) && self.config.enable_persistence {
-            let session_storage_path =
-                Self::committed_session_storage_path(&self.session_storage_path_index, session_id);
-            if let Some(session_storage_path) = session_storage_path {
-                debug!(
-                    "Session evicted from memory, restoring for model update: session_id={}",
-                    session_id
-                );
-                let _ = self
-                    .restore_session_from_storage_path(&session_storage_path, session_id)
-                    .await;
-            }
-        }
-
-        // Restore owns the same keyed lock internally, so acquire the mutation
-        // permit only after the optional restore completes. From here through
-        // persistence, explicit deletion cannot remove and then be recreated by
-        // a late model update.
-        let _mutation_guard = self.acquire_session_mutation(session_id).await?;
-
-        let original_session = self
-            .sessions
-            .get(session_id)
-            .map(|session| session.clone())
-            .ok_or_else(|| {
-                OpenBitFunError::NotFound(format!("Session not found: {}", session_id))
-            })?;
         let mut updated_session = original_session.clone();
         updated_session.config.model_id = Some(model_id.to_string());
         updated_session.config.reasoning_preset = reasoning_preset
@@ -4270,43 +4314,44 @@ impl SessionManager {
             resolved_context_window =
                 Self::sync_session_context_window_from_ai_config(&mut updated_session, ai_config);
         }
+        if original_session.config.model_id == updated_session.config.model_id
+            && original_session.config.reasoning_preset == updated_session.config.reasoning_preset
+            && original_session.config.max_context_tokens
+                == updated_session.config.max_context_tokens
+        {
+            if !was_loaded && self.should_persist_session_id(session_id) {
+                if let Some(path) = storage_path.as_deref() {
+                    // Repair a metadata projection left behind by an interrupted
+                    // two-file commit; an aligned snapshot performs no write.
+                    self.persistence_manager
+                        .save_session_model_selection(path, &original_session)
+                        .await?;
+                }
+            }
+            return Ok(original_session);
+        }
         let now = SystemTime::now();
         updated_session.updated_at = now;
         updated_session.last_activity_at = now;
 
         if self.should_persist_session_id(session_id) {
-            let effective_path = self.effective_session_storage_path(session_id).await;
-            if let Some(workspace_path) = effective_path {
-                if let Err(error) = self
-                    .persistence_manager
-                    .save_session(&workspace_path, &updated_session)
-                    .await
-                {
-                    if let Err(rollback_error) = self
-                        .persistence_manager
-                        .save_session(&workspace_path, &original_session)
-                        .await
-                    {
-                        return Err(OpenBitFunError::session(format!(
-                            "Session model persistence failed and rollback did not complete: session_id={session_id}, error={error}, rollback_error={rollback_error}"
-                        )));
-                    }
-                    return Err(error);
-                }
+            let effective_path = match storage_path {
+                Some(path) => Some(path),
+                None => self.effective_session_storage_path(session_id).await,
+            };
+            if let Some(path) = effective_path {
+                self.persistence_manager
+                    .save_session_model_selection(&path, &updated_session)
+                    .await?;
             }
         }
 
         if let Some(mut session) = self.sessions.get_mut(session_id) {
-            session.config.model_id = updated_session.config.model_id;
+            session.config.model_id = updated_session.config.model_id.clone();
             session.config.reasoning_preset = updated_session.config.reasoning_preset.clone();
             session.config.max_context_tokens = updated_session.config.max_context_tokens;
             session.updated_at = now;
             session.last_activity_at = now;
-        } else {
-            return Err(OpenBitFunError::NotFound(format!(
-                "Session not found: {}",
-                session_id
-            )));
         }
 
         debug!(
@@ -4329,7 +4374,7 @@ impl SessionManager {
             }
         }
 
-        Ok(())
+        Ok(updated_session)
     }
 
     /// Sets the session's own tool permission mode (in-memory + persistence).
@@ -4343,7 +4388,7 @@ impl SessionManager {
         session_id: &str,
         permission_mode: Option<PermissionMode>,
     ) -> OpenBitFunResult<()> {
-        // Match the model-selection path: an evicted session is restored before
+        // Permission updates still restore an evicted session before
         // the mutation permit is taken, because restore owns the same keyed lock.
         if !self.sessions.contains_key(session_id) && self.config.enable_persistence {
             let session_storage_path =
@@ -12829,6 +12874,289 @@ mod tests {
             .get(&session_id)
             .is_none());
         assert!(!manager.context_store.has_session(&session_id));
+    }
+
+    #[tokio::test]
+    async fn cold_session_model_update_preserves_history_and_unknown_state_without_restore() {
+        let workspace = TestWorkspace::new();
+        let paths = workspace.path_manager();
+        let persistence = Arc::new(PersistenceManager::new(paths.clone()).unwrap());
+        let manager = test_manager(persistence.clone());
+        let id = Uuid::new_v4().to_string();
+        let session = Session::new_with_id(
+            id.clone(),
+            "Cold selector".into(),
+            "Standard".into(),
+            SessionConfig {
+                workspace_path: Some(workspace.path().to_string_lossy().into_owned()),
+                model_id: Some("primary".into()),
+                ..Default::default()
+            },
+        );
+        persistence
+            .save_session(workspace.path(), &session)
+            .await
+            .unwrap();
+        let directory = paths.project_sessions_dir(workspace.path()).join(&id);
+        let state_path = directory.join("state.json");
+        let mut state: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&state_path).unwrap()).unwrap();
+        state["future_state"] = serde_json::json!({"preserve": true});
+        state["config"]["future_config"] = serde_json::json!(42);
+        std::fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
+        // A corrupt turn body would make a full restore fail. Selector writes
+        // must leave transcript bytes alone, including unknown legacy content.
+        std::fs::create_dir_all(directory.join("turns")).unwrap();
+        let turn_path = directory.join("turns").join("untouched.json");
+        std::fs::write(&turn_path, b"unreadable historical turn").unwrap();
+        let update = manager
+            .update_session_model_selection_in_storage(
+                Some(workspace.path()),
+                &id,
+                "fast",
+                Some("high"),
+                false,
+                |_| Ok(()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(update.config.reasoning_preset.as_deref(), Some("high"));
+        assert!(manager.get_session(&id).is_none());
+        assert!(manager.active_session_permits.is_empty());
+        assert!(!manager.context_store.has_session(&id));
+        let updated: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&state_path).unwrap()).unwrap();
+        assert_eq!(updated["future_state"], state["future_state"]);
+        assert_eq!(updated["config"]["future_config"], 42);
+        assert_eq!(updated["config"]["model_id"], "fast");
+        assert_eq!(
+            persistence
+                .load_session_metadata(workspace.path(), &id)
+                .await
+                .unwrap()
+                .unwrap()
+                .model_name,
+            "fast"
+        );
+        assert_eq!(
+            std::fs::read(&turn_path).unwrap(),
+            b"unreadable historical turn"
+        );
+        let bytes = std::fs::read(&state_path).unwrap();
+        manager
+            .update_session_model_selection_in_storage(
+                Some(workspace.path()),
+                &id,
+                "fast",
+                Some("high"),
+                false,
+                |_| Ok(()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(&state_path).unwrap(), bytes);
+        // Clearing a preset on the same model is a real mutation.
+        manager
+            .update_session_model_selection_in_storage(
+                Some(workspace.path()),
+                &id,
+                "fast",
+                None,
+                false,
+                |_| Ok(()),
+            )
+            .await
+            .unwrap();
+        assert!(persistence
+            .load_session_header(workspace.path(), &id)
+            .await
+            .unwrap()
+            .config
+            .reasoning_preset
+            .is_none());
+        persistence.fail_next_session_state_write_for_test(&id);
+        manager
+            .update_session_model_selection_in_storage(
+                Some(workspace.path()),
+                &id,
+                "primary",
+                None,
+                false,
+                |_| Ok(()),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(
+            persistence
+                .load_session_header(workspace.path(), &id)
+                .await
+                .unwrap()
+                .config
+                .model_id
+                .as_deref(),
+            Some("fast")
+        );
+        let state_before_failure = std::fs::read(&state_path).unwrap();
+        persistence.fail_next_session_metadata_write_for_test(&id);
+        assert!(manager
+            .update_session_model_selection_in_storage(
+                Some(workspace.path()),
+                &id,
+                "primary",
+                None,
+                false,
+                |_| Ok(())
+            )
+            .await
+            .is_err());
+        assert_eq!(std::fs::read(&state_path).unwrap(), state_before_failure);
+        assert_eq!(
+            persistence
+                .load_session_metadata(workspace.path(), &id)
+                .await
+                .unwrap()
+                .unwrap()
+                .model_name,
+            "fast"
+        );
+        assert!(manager
+            .update_session_model_selection_in_storage(
+                Some(workspace.path()),
+                &id,
+                "primary",
+                None,
+                false,
+                |_| Err(OpenBitFunError::Validation("binding denied".into()))
+            )
+            .await
+            .is_err());
+        let writer = persistence
+            .lock_session_writes(workspace.path(), &id)
+            .unwrap();
+        assert!(manager
+            .update_session_model_selection_in_storage(
+                Some(workspace.path()),
+                &id,
+                "primary",
+                None,
+                false,
+                |_| Ok(())
+            )
+            .await
+            .is_err());
+        drop(writer);
+        assert_eq!(std::fs::read(&state_path).unwrap(), state_before_failure);
+        // A restart may encounter a metadata projection from before a commit.
+        persistence
+            .update_session_metadata(workspace.path(), &id, |metadata| {
+                metadata.model_name = "primary".into()
+            })
+            .await
+            .unwrap();
+        manager
+            .update_session_model_selection_in_storage(
+                Some(workspace.path()),
+                &id,
+                "fast",
+                None,
+                false,
+                |_| Ok(()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            persistence
+                .load_session_metadata(workspace.path(), &id)
+                .await
+                .unwrap()
+                .unwrap()
+                .model_name,
+            "fast"
+        );
+    }
+
+    #[tokio::test]
+    async fn cold_session_model_update_upgrades_metadata_only_and_rejects_missing_or_internal_sessions(
+    ) {
+        let workspace = TestWorkspace::new();
+        let paths = workspace.path_manager();
+        let persistence = Arc::new(PersistenceManager::new(paths.clone()).unwrap());
+        let manager = test_manager(persistence.clone());
+        let id = Uuid::new_v4().to_string();
+        let mut session = Session::new_with_id(
+            id.clone(),
+            "Legacy".into(),
+            "Standard".into(),
+            SessionConfig {
+                workspace_path: Some(workspace.path().to_string_lossy().into_owned()),
+                model_id: Some("primary".into()),
+                ..Default::default()
+            },
+        );
+        persistence
+            .save_session(workspace.path(), &session)
+            .await
+            .unwrap();
+        std::fs::remove_file(
+            paths
+                .project_sessions_dir(workspace.path())
+                .join(&id)
+                .join("state.json"),
+        )
+        .unwrap();
+        manager
+            .update_session_model_selection_in_storage(
+                Some(workspace.path()),
+                &id,
+                "fast",
+                None,
+                false,
+                |_| Ok(()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            persistence
+                .load_session(workspace.path(), &id)
+                .await
+                .unwrap()
+                .config
+                .model_id
+                .as_deref(),
+            Some("fast")
+        );
+        session.kind = SessionKind::Subagent;
+        persistence
+            .save_session(workspace.path(), &session)
+            .await
+            .unwrap();
+        assert!(manager
+            .update_session_model_selection_in_storage(
+                Some(workspace.path()),
+                &id,
+                "fast",
+                None,
+                false,
+                |_| Ok(())
+            )
+            .await
+            .is_err());
+        assert!(manager
+            .update_session_model_selection_in_storage(
+                Some(workspace.path()),
+                "missing-session",
+                "fast",
+                None,
+                false,
+                |_| Ok(())
+            )
+            .await
+            .is_err());
+        assert!(!paths
+            .project_sessions_dir(workspace.path())
+            .join("missing-session")
+            .join("metadata.json")
+            .exists());
     }
 
     #[tokio::test]

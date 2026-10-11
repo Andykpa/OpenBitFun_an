@@ -257,6 +257,20 @@ For built-in provider overlay, trusted endpoint validation, and reasoning catalo
 cargo test -p openbitfun-core --no-default-features --features ai-adapter-runtime --lib infrastructure::ai::
 ```
 
+For model selector latency, run the catalog and session mutation owner fixtures:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features model-catalog --lib infrastructure::ai::reasoning_catalog::tests
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib session_model_update
+cargo test --locked -p openbitfun-core --no-default-features --features remote-connect,git --lib remote_attach_and_mutation_paths_preserve_workspace_ownership_facts
+```
+
+Catalog snapshots remain usable during background refresh. Selector mutations
+must not restore cold transcripts or reserve active-session capacity; preserve
+writer ownership, unknown persisted fields, legacy metadata-only sessions, and
+both state/metadata projections on failure. These fixtures cover local storage
+and remote routing contracts, not live SSH/relay/peer/dispatch connections.
+
 Configuration persistence, account settings import, backup restore, legacy
 field/deletion compatibility, local-change notifications, and save/reload/model
 concurrency regressions have feature-free fixtures:

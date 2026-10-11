@@ -2602,6 +2602,41 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
         Ok(())
     }
 
+    /// A selector mutation can edit a historical header without admitting a
+    /// runtime session. Ownership is checked against the persisted binding
+    /// while the session mutation and writer permits are held.
+    pub(crate) async fn update_session_model_selection_from_storage_path(
+        &self,
+        storage_path: &Path,
+        session_id: &str,
+        model_id: &str,
+        reasoning_preset: Option<&str>,
+        include_internal: bool,
+    ) -> OpenBitFunResult<Session> {
+        let model_id = normalize_model_selection(model_id).await?;
+        self.session_manager
+            .update_session_model_selection_in_storage(
+                Some(storage_path),
+                session_id,
+                &model_id,
+                reasoning_preset,
+                include_internal,
+                |session| {
+                    let workspace = session.config.workspace_path.as_deref().ok_or_else(|| {
+                        OpenBitFunError::Validation(format!(
+                            "Session workspace_path is missing: {session_id}"
+                        ))
+                    })?;
+                    self.ensure_runtime_ownership(
+                        Path::new(workspace),
+                        session.config.remote_connection_id.as_deref(),
+                        session.config.remote_ssh_host.as_deref(),
+                    )
+                },
+            )
+            .await
+    }
+
     /// Re-enable (or disable) the tool loop of an already persisted session.
     ///
     /// Session configs are written once at creation, so a host that changes its

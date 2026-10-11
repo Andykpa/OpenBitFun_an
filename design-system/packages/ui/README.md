@@ -133,7 +133,9 @@ by the component that needs them.
 ## Icons
 
 Use `Icon` for shared size, tone and accessible labels. General-purpose symbols
-use Lucide. Automatic reasoning uses the authored `reasoning-auto` SVG mark with
+use Lucide. The named `edit` icon uses the simple `Pen` outline without Pencil's
+cap divider, keeping compact action groups visually light.
+Automatic reasoning uses the authored `reasoning-auto` SVG mark with
 a `currentColor` mask so it follows the active theme. Manual reasoning levels use
 the product slider and text labels.
 Product consumers own capability filtering, translated names and
@@ -391,6 +393,41 @@ pressed states use shared action feedback, and keyboard focus keeps a visible
 focus ring. Use it for toolbar, dialog, and row utilities. `fill` and `primary`
 keep an opaque backing surface for persistent emphasis. Disabled quiet actions
 remain transparent and do not show hover or pressed feedback.
+
+`IconButton variant="glass"` is a translucent, blurred action over existing
+content. It uses a low-opacity tint of the shared raised surface, a softened
+subtle border and subtle blur, without an outer shadow. Hover and pressed states
+retain translucency. Unsupported blur, increased contrast and reduced transparency
+use a solid surface.
+The button itself owns the glass material and its reveal transition so an opaque
+backing or fading parent cannot prevent it from sampling the content behind it.
+
+### Capsule actions
+
+Wrap a pill-shaped `Button`, inline `Input`, or tag label in `Capsule`, matching
+its `size` to the child. Pass one `IconButton` (optionally inside `Tooltip`) to
+`action`. The slot selects circular glass presentation and compact geometry;
+the consumer keeps the action's accessible label, tone, disabled/loading state,
+and callbacks. The action is a sibling of the primary control, never a nested
+button. Pointer hover or focus within the capsule reveals it; touch keeps it
+available. Its right inset equals the top and bottom clearance at every density.
+
+```tsx
+<Capsule size="sm" action={
+  <IconButton aria-label="Remove provider" icon={<Icon name="delete" />}
+    tone="danger" onClick={requestRemoval} />
+}>
+  <Button size="sm" variant="outline" onClick={editProvider}>Provider name</Button>
+</Capsule>
+```
+
+The action floats over the intact label: do not clip, mask, hide, resize, or add
+action padding to its text when revealing the icon. Normal constrained-width
+`OverflowText` behavior remains available. `TabGroup.endAction` and removable
+`MultiSelect` tags share this contract, including existing native tab buttons.
+Leading identity icons stay in their label layout; this contract governs the
+independent trailing actions. Product CSS owns placement of capsules, not their
+action offsets, backgrounds, or visibility.
 
 For supplemental label annotations, compose `Tooltip trigger="hover-focus"
 openOnClick` with `IconButton variant="annotation" size="xs"` and an `info`
