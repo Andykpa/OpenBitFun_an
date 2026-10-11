@@ -145,7 +145,8 @@ function isProcMacroPackage(pkg) {
 const SERVICES_INTEGRATIONS_TOKIO_FEATURES = new Map([
   ['account-identity', ['rt', 'sync']],
   ['announcement', ['fs', 'sync']],
-  ['models-dev', ['fs', 'sync', 'time']],
+  // Large catalog validation/hash work uses spawn_blocking, outside async IO workers.
+  ['models-dev', ['fs', 'rt', 'sync', 'time']],
   ['browser-control', ['time']],
   ['canvas-runtime', ['fs']],
   ['deep-research', []],

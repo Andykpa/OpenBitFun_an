@@ -3331,6 +3331,7 @@
     "acpMode": "Mode",
     "acpModeLocked": "This conversation has already started, so its mode is fixed.",
     "acpModeFailed": "Failed to switch mode",
+    "defaultSaveFailed": "Model selected, but the default for future chats could not be saved.",
     "switchFailed": "Failed to switch model",
     "modelNotConfigured": "Not Configured",
     "openModelSettings": "Open model settings",

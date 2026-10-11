@@ -52,3 +52,14 @@ pnpm --dir src/web-ui run test:run src/infrastructure/config/components/modelEdi
 
 These checks cover draft isolation and source contracts, not rendered visuals
 or remote runtime behavior.
+
+For the device-scoped model catalog and non-blocking session/default selection:
+
+```bash
+pnpm --dir src/web-ui run test:run src/infrastructure/config/services/ModelCatalogStore.test.ts src/infrastructure/config/services/ConfigManager.test.ts src/flow_chat/components/ModelSelectorProviderLevels.test.tsx src/flow_chat/components/ModelSelectorExternal.test.tsx src/flow_chat/components/ModelSelectorAcpMode.test.tsx src/flow_chat/utils/modelResolution.test.ts src/flow_chat/services/flow-chat-manager/MessageModule.test.ts src/flow_chat/services/flow-chat-manager/SessionModule.test.ts
+```
+
+Keep warm catalogs while refreshing, invalidate them only for catalog/model
+facts, and isolate all snapshots and pending work by surface activation. An
+existing session commits its selection before remembering future defaults;
+explicit model reads before send must not await the future-default write.

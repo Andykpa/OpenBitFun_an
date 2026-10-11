@@ -3331,6 +3331,7 @@
     "acpMode": "模式",
     "acpModeLocked": "会话已经开始，模式不能再改。",
     "acpModeFailed": "切换模式失败",
+    "defaultSaveFailed": "模型已切换，但未能保存后续会话的默认选择。",
     "switchFailed": "切换模型失败",
     "modelNotConfigured": "未配置",
     "openModelSettings": "前往模型设置",

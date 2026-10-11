@@ -4669,12 +4669,12 @@ export class FlowChatStore {
     });
   }
 
-  public updateSessionModelName(sessionId: string, modelName: string): void {
+  public updateSessionModelName(sessionId: string, modelName: string | undefined): void {
     this.setState(prev => {
       const session = prev.sessions.get(sessionId);
       if (!session) return prev;
 
-      const normalizedModelName = modelName.trim() || 'primary';
+      const normalizedModelName = modelName === undefined ? undefined : modelName.trim() || 'primary';
       if (session.config.modelName?.trim() === normalizedModelName) {
         return prev;
       }
@@ -6788,7 +6788,7 @@ export class FlowChatStore {
   public rollbackTokenUsage(): void {
   }
 
-  public updateSessionMaxContextTokens(sessionId: string, maxContextTokens: number): void {
+  public updateSessionMaxContextTokens(sessionId: string, maxContextTokens: number | undefined): void {
     this.setState(prev => {
       const session = prev.sessions.get(sessionId);
       if (!session) return prev;

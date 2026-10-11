@@ -124,6 +124,17 @@ For session storage directory access, run
 for session storage directory resolution (these tests do not launch a file manager),
 and `cargo test -p openbitfun-desktop --lib remote_workspace_policy` after registration changes.
 
+For model selector request compatibility and configuration effect routing:
+
+```bash
+cargo test --locked -p openbitfun-desktop --lib update_session_model_distinguishes_omitted_null_and_explicit_reasoning_presets
+cargo test --locked -p openbitfun-desktop --lib backend_effect_routing_is_owned_by_the_control_transaction
+```
+
+Use the Core guide's session-model tests for cold persistence, no-op writes,
+rollback, and ownership; the Desktop adapter must not restore history for a
+model selection alone.
+
 For MiniApp Agent session and context changes, run
 `cargo test --locked -p openbitfun-desktop --lib api::miniapp_agent_api::tests`.
 This covers legacy payloads, exact context paths, trust instructions, and snapshot cleanup.
