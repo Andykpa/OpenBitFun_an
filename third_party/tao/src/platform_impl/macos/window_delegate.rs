@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-  f64,
   ffi::CStr,
   os::raw::c_void,
   sync::{Arc, Weak},
@@ -420,6 +419,8 @@ extern "C" fn dragging_entered(this: &Object, _: Sel, sender: id) -> BOOL {
   use std::path::PathBuf;
 
   let pb: Retained<NSPasteboard> = unsafe { msg_send![sender, draggingPasteboard] };
+  // Match the legacy filename-list format registered by UnownedWindow::new.
+  #[allow(deprecated)]
   let filenames =
     unsafe { NSPasteboard::propertyListForType(&pb, appkit::NSFilenamesPboardType) }.unwrap();
 
@@ -454,6 +455,8 @@ extern "C" fn perform_drag_operation(this: &Object, _: Sel, sender: id) -> BOOL 
   use std::path::PathBuf;
 
   let pb: Retained<NSPasteboard> = unsafe { msg_send![sender, draggingPasteboard] };
+  // Match the legacy filename-list format registered by UnownedWindow::new.
+  #[allow(deprecated)]
   let filenames =
     unsafe { NSPasteboard::propertyListForType(&pb, appkit::NSFilenamesPboardType) }.unwrap();
 

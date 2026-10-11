@@ -23,6 +23,14 @@ Untitled and fullscreen style masks are excluded from the layout override;
 windows without a custom inset retain upstream behavior. No notification retry,
 timer, new private API or product-specific geometry is added.
 
+The vendored macOS sources also receive compiler-warning maintenance: current
+event constants and ivar reads, removal of unused private state/helpers and
+redundant unsafe blocks, and explicit retention of validated per-window icon
+data. The obsolete fullscreen button lookup is omitted because AppKit always
+returns nil for it; the zoom button remains in the list. The legacy filename-list
+pasteboard format is retained at its three registration/read sites, with local
+deprecation annotations, so this cleanup does not change drag payload semantics.
+
 OpenBitFun keeps its original toolbar height and tab spacing. The desktop host
 derives the configured inset from the shared design height and native metrics;
 the framework owns applying that inset during its native window lifecycle.
