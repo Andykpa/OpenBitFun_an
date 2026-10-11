@@ -96,6 +96,17 @@ The `devtools` Cargo feature exists for debugging UI/UX in the desktop app. When
 
 ## Verification
 
+For application icon resources and packaging, run `pnpm run generate-brand-assets`
+and `node --test scripts/generate-brand-assets.test.mjs scripts/macos-icon-bundle.test.mjs scripts/desktop-tauri-build.test.mjs`.
+The [brand guide](../../../assets/brand/README.md#macos-icons) owns native exports.
+On a Mac with full Xcode 26+, also run
+`OPENBITFUN_TEST_MACOS_BUNDLE=1 node --test scripts/macos-icon-bundle.test.mjs`;
+CI requires this on both macOS architectures. The fixture bundles a Mach-O
+without launching UI. Resource-only edits do not require the Rust suites below;
+packaging/startup code changes still require the desktop build. These checks do
+not establish visual Dock equivalence on an older OS. Keep modern `.icon`
+resources in the macOS config overlay and preserve the dev/legacy ICNS path.
+
 For macOS microphone signing metadata, run
 `plutil -lint src/apps/desktop/Info.plist src/apps/desktop/Entitlements.plist`
 and `node --test scripts/ci/verify-macos-microphone.test.mjs` on macOS.
