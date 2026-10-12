@@ -4,7 +4,7 @@
   "title": "OpenBitFun Playbook",
   "origin": "https://playbook.openbitfun.com",
   "source": "src/shared/interactive-capabilities/catalog.json",
-  "digest": "a0070347f9527a6eddeb84b5cd0a93d345c378aa008ce857976f02a9f4bd3d2f",
+  "digest": "f614cf831e0617d059f12d9399c878268450af6052523a803e955ce18bf401b9",
   "ownerDigest": "b96bf9292a92548facbd835b8b89c4865bfdd984b356c9001995f552c6a34f51",
   "searchAcceptance": [
     {
@@ -138,11 +138,11 @@
     "features": 22,
     "settings": 21,
     "userFacing": 43,
-    "documentedItems": 324,
+    "documentedItems": 325,
     "controlCoverage": {
       "direct": 50,
       "delegated": 62,
-      "interactive": 212,
+      "interactive": 213,
       "unsupported": 0
     }
   },
@@ -7864,6 +7864,7 @@
       "itemIds": [
         "source-discovery",
         "source-policy",
+        "codex-session-import",
         "prompts-commands",
         "subagents",
         "mcp-import",
@@ -7962,6 +7963,52 @@
       "capabilityId": "feature.ecosystem-compatibility",
       "itemIds": [
         "source-policy"
+      ],
+      "kind": "open",
+      "risk": "ui",
+      "executionHost": "presentationSurface",
+      "availability": {
+        "desktop": {
+          "available": true
+        },
+        "cli": {
+          "available": false,
+          "reason": "This delivery profile has no live presentation surface"
+        },
+        "peer": {
+          "available": true,
+          "requiredCapabilities": [
+            "product_control_v1",
+            "product_control_presentation_v1"
+          ]
+        },
+        "remoteControl": {
+          "available": true
+        },
+        "detachedDispatch": {
+          "available": false,
+          "reason": "This delivery profile has no live presentation surface"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "openReason": "unstructuredInteraction",
+      "presentationTarget": {
+        "kind": "action",
+        "actionId": "surface.ecosystemCompatibility.open"
+      }
+    },
+    {
+      "id": "feature.ecosystem-compatibility:open:codex-session-import",
+      "capabilityId": "feature.ecosystem-compatibility",
+      "itemIds": [
+        "codex-session-import"
       ],
       "kind": "open",
       "risk": "ui",
@@ -23539,6 +23586,17 @@
           }
         },
         {
+          "id": "codex-session-import",
+          "titleZh": "按需导入 Codex 会话并在 OpenBitFun 中继续对话",
+          "titleEn": "Import selected Codex sessions on demand and continue them in OpenBitFun",
+          "control": {
+            "kind": "open",
+            "reasonCode": "unstructuredInteraction",
+            "reasonZh": "“按需导入 Codex 会话并在 OpenBitFun 中继续对话”需要用户选择来源会话、审阅历史范围并确认目标工作区；智能体会打开生态兼容入口，并把后续交互保留在用户可见界面。",
+            "reasonEn": "“Import selected Codex sessions on demand and continue them in OpenBitFun” requires the user to select a source session, review the history scope, and confirm the target workspace; the Agent opens the ecosystem compatibility entry and keeps the remaining interaction visible to the user."
+          }
+        },
+        {
           "id": "prompts-commands",
           "titleZh": "展开外部 Prompt/Command 内容并处理与原生命令的冲突",
           "titleEn": "Expand external prompt/command content and resolve conflicts with native commands",
@@ -23675,6 +23733,8 @@
         "Discover OpenCode, Claude Code, Codex, and other external AI sources and content",
         "按来源启用或停用集成，并选择管理、预览或只读策略",
         "Enable or disable each source and choose managed, preview, or read-only policy",
+        "按需导入 Codex 会话并在 OpenBitFun 中继续对话",
+        "Import selected Codex sessions on demand and continue them in OpenBitFun",
         "展开外部 Prompt/Command 内容并处理与原生命令的冲突",
         "Expand external prompt/command content and resolve conflicts with native commands",
         "启用外部智能体，处理同名冲突并绑定模型",

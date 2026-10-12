@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "digest": "fnv1a64:01a8acb268a90398",
+  "digest": "fnv1a64:92bbccee184ebd3a",
   "retiredCommandPrefixes": [
     {
       "prefix": "lsp_",
@@ -509,6 +509,18 @@
     },
     {
       "id": "apply_external_mcp_import_command",
+      "surface": "tauri_command",
+      "remoteWorkspace": "RemoteUnsupported",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no handler for this command"
+      }
+    },
+    {
+      "id": "apply_external_session_import",
       "surface": "tauri_command",
       "remoteWorkspace": "RemoteUnsupported",
       "peer": {
@@ -4079,6 +4091,18 @@
       }
     },
     {
+      "id": "list_external_session_import_candidates",
+      "surface": "tauri_command",
+      "remoteWorkspace": "RemoteUnsupported",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no handler for this command"
+      }
+    },
+    {
       "id": "list_files",
       "surface": "host_invoke_only",
       "remoteWorkspace": "RemoteRouted",
@@ -5261,6 +5285,18 @@
     },
     {
       "id": "plan_external_mcp_import_command",
+      "surface": "tauri_command",
+      "remoteWorkspace": "RemoteUnsupported",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no handler for this command"
+      }
+    },
+    {
+      "id": "plan_external_session_import",
       "surface": "tauri_command",
       "remoteWorkspace": "RemoteUnsupported",
       "peer": {

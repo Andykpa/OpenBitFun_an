@@ -68,6 +68,28 @@
     "pet": "Pets",
     "instruction": "Instructions"
   },
+  "sessions": {
+    "title": "Codex sessions",
+    "description": "Import a Codex rollout into the current workspace and continue it in OpenBitFun. Session discovery reads metadata first; full history is loaded only when you review one session.",
+    "unsupported": "Session import is available for local workspaces on this computer. Remote workspaces and peer devices are not supported yet.",
+    "empty": "No Codex sessions were found on this computer.",
+    "unknownWorkspace": "Workspace not recorded",
+    "turns": "turns",
+    "tools": "tools",
+    "import": "Review import",
+    "cancel": "Cancel",
+    "reviewTitle": "Review Codex session import",
+    "mode": "History to import",
+    "latestCompacted": "Latest compacted history",
+    "fullHistory": "Full history",
+    "planning": "Preparing preview…",
+    "previewSummary": "{{turns}} turns · about {{size}}",
+    "workspaceWarning": "The source working directory does not match the current workspace. The imported session will use the current workspace.",
+    "importAndContinue": "Import and continue",
+    "loadFailed": "Could not read Codex sessions.",
+    "planFailed": "Could not prepare the import preview.",
+    "importFailed": "The session could not be imported. The source may have changed; refresh and try again."
+  },
   "import": {
     "title": "Import and reuse",
     "description": "See what content from {{name}} works with OpenBitFun. Import available items directly; other items show their current support status.",

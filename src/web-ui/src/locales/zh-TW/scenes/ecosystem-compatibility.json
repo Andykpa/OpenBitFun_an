@@ -68,6 +68,28 @@
     "pet": "寵物",
     "instruction": "指令與規則"
   },
+  "sessions": {
+    "title": "Codex 工作階段",
+    "description": "將本機 Codex rollout 匯入目前工作區，並在 OpenBitFun 中繼續對話。探索階段只讀取中繼資料，審閱具體工作階段時才載入完整歷史。",
+    "unsupported": "工作階段匯入目前僅支援本機工作區；遠端工作區和對等裝置尚不支援。",
+    "empty": "本機沒有發現 Codex 工作階段。",
+    "unknownWorkspace": "來源未記錄工作區",
+    "turns": "輪",
+    "tools": "個工具呼叫",
+    "import": "審閱匯入",
+    "cancel": "取消",
+    "reviewTitle": "審閱 Codex 工作階段匯入",
+    "mode": "匯入歷史範圍",
+    "latestCompacted": "最近壓縮後的歷史",
+    "fullHistory": "完整歷史",
+    "planning": "正在準備預覽…",
+    "previewSummary": "{{turns}} 輪 · 約 {{size}}",
+    "workspaceWarning": "來源工作目錄與目前工作區不一致。匯入後的工作階段將使用目前工作區。",
+    "importAndContinue": "匯入並繼續",
+    "loadFailed": "無法讀取 Codex 工作階段。",
+    "planFailed": "無法準備匯入預覽。",
+    "importFailed": "工作階段匯入失敗，來源可能已發生變化。請重新整理後重試。"
+  },
   "import": {
     "title": "匯入與複用",
     "description": "查看 {{name}} 可與 OpenBitFun 搭配使用的內容。可匯入的內容可以直接加入，其餘內容會顯示目前支援狀態。",

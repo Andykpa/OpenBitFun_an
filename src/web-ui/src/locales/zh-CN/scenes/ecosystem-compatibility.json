@@ -68,6 +68,28 @@
     "pet": "宠物",
     "instruction": "指令与规则"
   },
+  "sessions": {
+    "title": "Codex 会话",
+    "description": "将本机 Codex rollout 导入当前工作区，并在 OpenBitFun 中继续对话。发现阶段只读取元数据，审阅具体会话时才加载完整历史。",
+    "unsupported": "会话导入目前仅支持本机工作区；远程工作区和对等设备暂不支持。",
+    "empty": "本机没有发现 Codex 会话。",
+    "unknownWorkspace": "来源未记录工作区",
+    "turns": "轮",
+    "tools": "个工具调用",
+    "import": "审阅导入",
+    "cancel": "取消",
+    "reviewTitle": "审阅 Codex 会话导入",
+    "mode": "导入历史范围",
+    "latestCompacted": "最近压缩后的历史",
+    "fullHistory": "完整历史",
+    "planning": "正在准备预览…",
+    "previewSummary": "{{turns}} 轮 · 约 {{size}}",
+    "workspaceWarning": "来源工作目录与当前工作区不一致。导入后的会话将使用当前工作区。",
+    "importAndContinue": "导入并继续",
+    "loadFailed": "无法读取 Codex 会话。",
+    "planFailed": "无法准备导入预览。",
+    "importFailed": "会话导入失败，来源可能已发生变化。请刷新后重试。"
+  },
   "import": {
     "title": "导入与复用",
     "description": "查看 {{name}} 可与 OpenBitFun 配合使用的内容。可导入的内容可以直接添加，其余内容会显示当前支持状态。",

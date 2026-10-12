@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "a0070347f9527a6eddeb84b5cd0a93d345c378aa008ce857976f02a9f4bd3d2f",
-  "count": 212,
+  "catalogDigest": "f614cf831e0617d059f12d9399c878268450af6052523a803e955ce18bf401b9",
+  "count": 213,
   "reasonCounts": {
     "externalAuth": 4,
     "secretEntry": 5,
-    "unstructuredInteraction": 180,
+    "unstructuredInteraction": 181,
     "visualSelection": 23
   },
   "entries": [
@@ -1650,6 +1650,25 @@
         "command:set_external_source_enabled_command",
         "command:update_external_integration_policy_command",
         "command:set_external_source_conflict_choice_command"
+      ]
+    },
+    {
+      "capabilityId": "feature.ecosystem-compatibility",
+      "itemId": "codex-session-import",
+      "titleZh": "按需导入 Codex 会话并在 OpenBitFun 中继续对话",
+      "titleEn": "Import selected Codex sessions on demand and continue them in OpenBitFun",
+      "reasonCode": "unstructuredInteraction",
+      "reasonZh": "“按需导入 Codex 会话并在 OpenBitFun 中继续对话”需要用户选择来源会话、审阅历史范围并确认目标工作区；智能体会打开生态兼容入口，并把后续交互保留在用户可见界面。",
+      "reasonEn": "“Import selected Codex sessions on demand and continue them in OpenBitFun” requires the user to select a source session, review the history scope, and confirm the target workspace; the Agent opens the ecosystem compatibility entry and keeps the remaining interaction visible to the user.",
+      "presentationTarget": {
+        "kind": "action",
+        "actionId": "surface.ecosystemCompatibility.open"
+      },
+      "evidence": [
+        "command:list_external_session_import_candidates",
+        "command:plan_external_session_import",
+        "command:apply_external_session_import",
+        "source:src/web-ui/src/app/scenes/ecosystem-compatibility/ExternalAgentSessions.tsx#ExternalAgentSessions"
       ]
     },
     {

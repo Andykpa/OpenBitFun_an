@@ -3,6 +3,7 @@ import { Alert, Button, Checkbox, DialogBody, DialogClose, DialogFooter, DialogH
 import { EcosystemDialog as Dialog } from './EcosystemDialog';
 import { EcosystemBatchLayout } from './EcosystemBatchLayout';
 import EcosystemPets from './EcosystemPets';
+import ExternalAgentSessions from './ExternalAgentSessions';
 import EcosystemAccounts from './EcosystemAccounts';
 import { ecosystemAccountProvider } from './ecosystemCompatibilityModel';
 import { presentEcosystemContent } from './ecosystemContentPresentation';
@@ -105,6 +106,7 @@ export default function ExternalAgentContent({ scopeKey, actionsRef, onActionSta
   const [accountExpanded, setAccountExpanded] = useState(false);
   const [petDialogOpen, setPetDialogOpen] = useState(false);
   const [petCount, setPetCount] = useState(0);
+  const [sessionCount, setSessionCount] = useState(0);
   const [loadFailures, setLoadFailures] = useState<string[]>([]);
   const [plan, setPlan] = useState<ExternalMcpImportPlanV1 | null>(null);
   const [planLoading, setPlanLoading] = useState(false);
@@ -244,10 +246,10 @@ export default function ExternalAgentContent({ scopeKey, actionsRef, onActionSta
       counts[source.ecosystemId] = (counts[source.ecosystemId] ?? 0) + 1;
     }
     if (localImportSupported && runtime.spec.id === 'codex') {
-      counts.codex = (counts.codex ?? 0) + petCount;
+      counts.codex = (counts.codex ?? 0) + petCount + sessionCount;
     }
     onSupplementalCounts?.(counts);
-  }, [hooks, loading, localImportSupported, onSupplementalCounts, petCount, runtime.spec.id, skills]);
+  }, [hooks, loading, localImportSupported, onSupplementalCounts, petCount, runtime.spec.id, sessionCount, skills]);
 
   const hasMcp = items.some((item) => item.kind === 'mcp' && item.discovered);
   const refreshMcpPlan = useCallback(async (explicit = false) => {
@@ -611,6 +613,8 @@ export default function ExternalAgentContent({ scopeKey, actionsRef, onActionSta
   }, [canImport, importDisabled, undoDisabled, refreshDisabled, onActionStateChange]);
 
   return (
+    <>
+    {runtime.spec.id === 'codex' ? <ExternalAgentSessions onCountChange={setSessionCount} refreshVersion={contentRefreshVersion} /> : null}
     <section className="ecosystem-compatibility__section" data-external-agent-content={runtime.spec.ecosystemId}>
       {notice && !kind && !review && !undo && !batch && !batchUndo ? <Alert className="ecosystem-compatibility__notice ecosystem-compatibility__feedback" role="status" showIcon={false} message={notice} /> : null}
       {loading ? <LoadingState size="sm">{t('loading')}</LoadingState> : null}
@@ -817,5 +821,6 @@ export default function ExternalAgentContent({ scopeKey, actionsRef, onActionSta
         </DialogFooter> : null}
       </Dialog>
     </section>
+    </>
   );
 }

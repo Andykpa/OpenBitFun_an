@@ -14,6 +14,7 @@ use openbitfun_core_types::validate_session_id;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+use tokio::fs;
 
 #[derive(Debug, Clone)]
 pub struct OfflineSessionBundle {
@@ -76,6 +77,87 @@ impl OfflineSessionImportStore {
                 )
                 .await?;
         }
+        Ok(())
+    }
+
+    /// Publishes a complete bundle only after every turn file has been written.
+    /// The metadata file is the visibility boundary used by session listing, so
+    /// a failed import cannot leave a half-populated session in the catalog.
+    pub async fn write_bundle_atomic(
+        &self,
+        bundle: &OfflineSessionBundle,
+    ) -> Result<(), OfflineSessionImportError> {
+        validate_bundle_shape(bundle)?;
+        fs::create_dir_all(self.sessions_root())
+            .await
+            .map_err(|error| {
+                OfflineSessionImportError::InvalidBundle(format!(
+                    "failed to create Sessions directory: {error}"
+                ))
+            })?;
+
+        let session_id = &bundle.metadata.session_id;
+        let final_dir = self.layout.session_dir(session_id);
+        if fs::try_exists(&final_dir).await.map_err(|error| {
+            OfflineSessionImportError::InvalidBundle(format!(
+                "failed to inspect existing Session directory: {error}"
+            ))
+        })? {
+            return Err(OfflineSessionImportError::InvalidBundle(format!(
+                "Session {session_id} already exists"
+            )));
+        }
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        let staging_root = self.sessions_root().join(format!(
+            ".importing-{session_id}-{nonce}-{}",
+            std::process::id()
+        ));
+        let staging_layout = SessionStorageLayout::new(&staging_root);
+        staging_layout
+            .ensure_turns_dir(session_id)
+            .await
+            .map_err(|error| {
+                OfflineSessionImportError::InvalidBundle(format!(
+                    "failed to create staging Turns directory: {error}"
+                ))
+            })?;
+
+        let write_result = async {
+            for turn in &bundle.turns {
+                self.json_store
+                    .write_atomic_strict(
+                        &staging_layout.turn_path(session_id, turn.turn_index),
+                        &StoredDialogTurnFile::new(turn.clone()),
+                    )
+                    .await?;
+            }
+
+            fs::rename(staging_layout.session_dir(session_id), &final_dir)
+                .await
+                .map_err(|error| {
+                    OfflineSessionImportError::InvalidBundle(format!(
+                        "failed to publish Session directory: {error}"
+                    ))
+                })?;
+            self.metadata_store
+                .save_metadata(&bundle.metadata)
+                .await
+                .map_err(OfflineSessionImportError::Metadata)
+        }
+        .await;
+
+        if let Err(error) = write_result {
+            let _ = fs::remove_dir_all(&staging_root).await;
+            let _ = fs::remove_dir_all(&final_dir).await;
+            let _ = self.metadata_store.rebuild_index().await;
+            return Err(error);
+        }
+
+        let _ = fs::remove_dir_all(&staging_root).await;
         Ok(())
     }
 
@@ -144,6 +226,15 @@ impl OfflineSessionImportStore {
     pub async fn rebuild_index(&self) -> Result<(), OfflineSessionImportError> {
         self.metadata_store.rebuild_index().await?;
         Ok(())
+    }
+
+    pub async fn list_metadata_including_internal(
+        &self,
+    ) -> Result<Vec<SessionMetadata>, OfflineSessionImportError> {
+        Ok(self
+            .metadata_store
+            .list_metadata_including_internal()
+            .await?)
     }
 
     pub fn sessions_root(&self) -> &Path {
@@ -216,7 +307,7 @@ mod tests {
             .unwrap();
         let store = OfflineSessionImportStore::new(temp.path());
 
-        store.write_bundle(&bundle).await.unwrap();
+        store.write_bundle_atomic(&bundle).await.unwrap();
         let reloaded = store.load_bundle("session-1").await.unwrap().unwrap();
         reloaded.validate().unwrap();
         assert_eq!(reloaded.metadata.session_id, "session-1");

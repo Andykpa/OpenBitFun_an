@@ -1,11 +1,11 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "a0070347f9527a6eddeb84b5cd0a93d345c378aa008ce857976f02a9f4bd3d2f",
-  "commandCount": 674,
+  "catalogDigest": "f614cf831e0617d059f12d9399c878268450af6052523a803e955ce18bf401b9",
+  "commandCount": 677,
   "coverage": {
-    "commandCount": 674,
-    "documentedCommandCount": 625,
+    "commandCount": 677,
+    "documentedCommandCount": 628,
     "implementationCommandCount": 49,
     "implementationDigest": "bc5063388e1b0dc13add3e967dd1b9c8638ee5e17d05ebcc680b419830c859ff"
   },
@@ -598,6 +598,22 @@
       "rustPath": "apply_external_mcp_import_command",
       "sourceFile": "src/apps/desktop/src/api/external_sources_api.rs",
       "signature": "fn apply_external_mcp_import_command( request: ApplyExternalMcpImportRequest, ) -> ExternalSourceOperationResult<ExternalMcpImportApplyResultV1>",
+      "remoteWorkspacePolicy": "RemoteUnsupported"
+    },
+    {
+      "id": "apply_external_session_import",
+      "moduleId": "external_session_import",
+      "capabilityId": "feature.ecosystem-compatibility",
+      "capabilityIds": [
+        "feature.ecosystem-compatibility"
+      ],
+      "documentedItemIds": [
+        "feature.ecosystem-compatibility:codex-session-import"
+      ],
+      "visibility": "documented",
+      "rustPath": "apply_external_session_import",
+      "sourceFile": "src/apps/desktop/src/api/external_session_import_api.rs",
+      "signature": "fn apply_external_session_import( request: ExternalSessionImportRequest, ) -> ExternalSourceOperationResult<ExternalSessionImportApplied>",
       "remoteWorkspacePolicy": "RemoteUnsupported"
     },
     {
@@ -5180,6 +5196,22 @@
       "remoteWorkspacePolicy": "RemoteRouted"
     },
     {
+      "id": "list_external_session_import_candidates",
+      "moduleId": "external_session_import",
+      "capabilityId": "feature.ecosystem-compatibility",
+      "capabilityIds": [
+        "feature.ecosystem-compatibility"
+      ],
+      "documentedItemIds": [
+        "feature.ecosystem-compatibility:codex-session-import"
+      ],
+      "visibility": "documented",
+      "rustPath": "list_external_session_import_candidates",
+      "sourceFile": "src/apps/desktop/src/api/external_session_import_api.rs",
+      "signature": "fn list_external_session_import_candidates( request: ListExternalSessionImportRequest, ) -> ExternalSourceOperationResult<ExternalSessionCatalog>",
+      "remoteWorkspacePolicy": "RemoteUnsupported"
+    },
+    {
       "id": "list_manageable_subagents",
       "moduleId": "subagent",
       "capabilityId": "feature.agents",
@@ -6752,6 +6784,22 @@
       "rustPath": "plan_external_mcp_import_command",
       "sourceFile": "src/apps/desktop/src/api/external_sources_api.rs",
       "signature": "fn plan_external_mcp_import_command( request: PlanExternalMcpImportRequest, ) -> ExternalSourceOperationResult<ExternalMcpImportPlanV1>",
+      "remoteWorkspacePolicy": "RemoteUnsupported"
+    },
+    {
+      "id": "plan_external_session_import",
+      "moduleId": "external_session_import",
+      "capabilityId": "feature.ecosystem-compatibility",
+      "capabilityIds": [
+        "feature.ecosystem-compatibility"
+      ],
+      "documentedItemIds": [
+        "feature.ecosystem-compatibility:codex-session-import"
+      ],
+      "visibility": "documented",
+      "rustPath": "plan_external_session_import",
+      "sourceFile": "src/apps/desktop/src/api/external_session_import_api.rs",
+      "signature": "fn plan_external_session_import( request: PlanExternalSessionImportRequest, ) -> ExternalSourceOperationResult<ExternalSessionImportPlan>",
       "remoteWorkspacePolicy": "RemoteUnsupported"
     },
     {
