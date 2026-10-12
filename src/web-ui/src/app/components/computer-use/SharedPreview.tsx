@@ -25,7 +25,8 @@ export function SharedPreview({ snapshot, onSnapshot }: { snapshot: ComputerUseC
   const current = useRef(snapshot); current.current = snapshot;
   const gesture = useRef<Gesture>(); const pending = useRef(false); const alive = useRef(true);
   const callback = useRef(onSnapshot); callback.current = onSnapshot;
-  const allowed = snapshot.sharing?.control_enabled === true && snapshot.state === 'active' && !!frame;
+  const hasFrame = frame !== undefined;
+  const allowed = snapshot.sharing?.control_enabled === true && snapshot.state === 'active' && hasFrame;
   useEffect(() => {
     alive.current = true; let timer: ReturnType<typeof setTimeout>;
     const observe = async () => {
@@ -59,7 +60,7 @@ export function SharedPreview({ snapshot, onSnapshot }: { snapshot: ComputerUseC
     element.addEventListener('wheel', wheel, { passive: false });
     observer.observe(element);
     return () => { observer.disconnect(); element.removeEventListener('wheel', wheel); };
-  }, [!!frame]);
+  }, [hasFrame]);
   const lastClick = snapshot.pointer?.last_click;
   useEffect(() => {
     setClick(undefined);
@@ -70,7 +71,7 @@ export function SharedPreview({ snapshot, onSnapshot }: { snapshot: ComputerUseC
     return () => clearTimeout(timer);
     // A new frame of the same click must not replay its feedback.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastClick?.sequence, !!frame]);
+  }, [lastClick?.sequence, hasFrame]);
   const send = async (input: PreviewInput) => {
     if (!allowed || pending.current || !surface.isCurrent()) return;
     pending.current = true; setBusy(true); setError(undefined);
