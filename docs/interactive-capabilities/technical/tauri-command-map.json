@@ -1,11 +1,11 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "e05dbc222e1267523832f82d6392701ab011c9d8d5ad1582dbe407904dc80d3d",
-  "commandCount": 670,
+  "catalogDigest": "09837a3f9f09ecf1d1b2e3a60059824d6e8afa979c0b022cef05daa63221c04b",
+  "commandCount": 664,
   "coverage": {
-    "commandCount": 670,
-    "documentedCommandCount": 622,
+    "commandCount": 664,
+    "documentedCommandCount": 616,
     "implementationCommandCount": 48,
     "implementationDigest": "f6d38a24a70708988cb47ada81d07eccf0668684e8734c9ee5155b9ffa7e3db8"
   },
@@ -1951,22 +1951,6 @@
       "remoteWorkspacePolicy": "LegacyUnaudited"
     },
     {
-      "id": "dismiss_announcement",
-      "moduleId": "announcement",
-      "capabilityId": "setting.application.general",
-      "capabilityIds": [
-        "setting.application.general"
-      ],
-      "documentedItemIds": [
-        "setting.application.general:announcements"
-      ],
-      "visibility": "documented",
-      "rustPath": "api::announcement_api::dismiss_announcement",
-      "sourceFile": "src/apps/desktop/src/api/announcement_api.rs",
-      "signature": "fn dismiss_announcement( state: State<'_, AppState>, request: AnnouncementIdRequest, ) -> Result<(), String>",
-      "remoteWorkspacePolicy": "WorkspaceAgnostic"
-    },
-    {
       "id": "dispatch_answer",
       "moduleId": "dispatch",
       "capabilityId": "feature.detached-dispatch",
@@ -2745,22 +2729,6 @@
       "sourceFile": "src/apps/desktop/src/api/tool_api.rs",
       "signature": "fn get_all_tools_info() -> Result<Vec<ToolInfo>, String>",
       "remoteWorkspacePolicy": "LegacyUnaudited"
-    },
-    {
-      "id": "get_announcement_tips",
-      "moduleId": "announcement",
-      "capabilityId": "setting.application.general",
-      "capabilityIds": [
-        "setting.application.general"
-      ],
-      "documentedItemIds": [
-        "setting.application.general:announcements"
-      ],
-      "visibility": "documented",
-      "rustPath": "api::announcement_api::get_announcement_tips",
-      "sourceFile": "src/apps/desktop/src/api/announcement_api.rs",
-      "signature": "fn get_announcement_tips( state: State<'_, AppState>, ) -> Result<Vec<AnnouncementCard>, String>",
-      "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
       "id": "get_app_state",
@@ -3596,22 +3564,6 @@
       "sourceFile": "src/apps/desktop/src/api/snapshot_service.rs",
       "signature": "fn get_operation_summary( runtime: State<'_, DesktopRuntimeContext>, mut request: GetOperationSummaryRequest, ) -> Result<serde_json::Value, String>",
       "remoteWorkspacePolicy": "RemoteRouted"
-    },
-    {
-      "id": "get_pending_announcements",
-      "moduleId": "announcement",
-      "capabilityId": "setting.application.general",
-      "capabilityIds": [
-        "setting.application.general"
-      ],
-      "documentedItemIds": [
-        "setting.application.general:announcements"
-      ],
-      "visibility": "documented",
-      "rustPath": "api::announcement_api::get_pending_announcements",
-      "sourceFile": "src/apps/desktop/src/api/announcement_api.rs",
-      "signature": "fn get_pending_announcements( state: State<'_, AppState>, ) -> Result<Vec<AnnouncementCard>, String>",
-      "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
       "id": "get_pending_update",
@@ -5507,22 +5459,6 @@
       "remoteWorkspacePolicy": "RemoteRouted"
     },
     {
-      "id": "mark_announcement_seen",
-      "moduleId": "announcement",
-      "capabilityId": "setting.application.general",
-      "capabilityIds": [
-        "setting.application.general"
-      ],
-      "documentedItemIds": [
-        "setting.application.general:announcements"
-      ],
-      "visibility": "documented",
-      "rustPath": "api::announcement_api::mark_announcement_seen",
-      "sourceFile": "src/apps/desktop/src/api/announcement_api.rs",
-      "signature": "fn mark_announcement_seen( state: State<'_, AppState>, request: AnnouncementIdRequest, ) -> Result<(), String>",
-      "remoteWorkspacePolicy": "WorkspaceAgnostic"
-    },
-    {
       "id": "mark_openbitfun_control_surface_ready",
       "moduleId": "openbitfun_control_host",
       "capabilityId": null,
@@ -6311,22 +6247,6 @@
       "sourceFile": "src/apps/desktop/src/api/external_hooks_api.rs",
       "signature": "fn mutate_external_hook_import_command( request: MutateExternalHookImportRequest, ) -> ExternalSourceOperationResult<ExternalHookImportSnapshotV1>",
       "remoteWorkspacePolicy": "RemoteUnsupported"
-    },
-    {
-      "id": "never_show_announcement",
-      "moduleId": "announcement",
-      "capabilityId": "setting.application.general",
-      "capabilityIds": [
-        "setting.application.general"
-      ],
-      "documentedItemIds": [
-        "setting.application.general:announcements"
-      ],
-      "visibility": "documented",
-      "rustPath": "api::announcement_api::never_show_announcement",
-      "sourceFile": "src/apps/desktop/src/api/announcement_api.rs",
-      "signature": "fn never_show_announcement( state: State<'_, AppState>, request: AnnouncementIdRequest, ) -> Result<(), String>",
-      "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
       "id": "notify_cron_host_ready",
@@ -10216,22 +10136,6 @@
       "sourceFile": "src/apps/desktop/src/api/session_api.rs",
       "signature": "fn touch_session_activity( request: TouchSessionActivityRequest, runtime: State<'_, DesktopRuntimeContext>, startup_trace: State<'_, DesktopStartupTrace>, ) -> Result<(), String>",
       "remoteWorkspacePolicy": "LegacyUnaudited"
-    },
-    {
-      "id": "trigger_announcement",
-      "moduleId": "announcement",
-      "capabilityId": "setting.application.general",
-      "capabilityIds": [
-        "setting.application.general"
-      ],
-      "documentedItemIds": [
-        "setting.application.general:announcements"
-      ],
-      "visibility": "documented",
-      "rustPath": "api::announcement_api::trigger_announcement",
-      "sourceFile": "src/apps/desktop/src/api/announcement_api.rs",
-      "signature": "fn trigger_announcement( state: State<'_, AppState>, request: AnnouncementIdRequest, ) -> Result<Option<AnnouncementCard>, String>",
-      "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
       "id": "unarchive_session",

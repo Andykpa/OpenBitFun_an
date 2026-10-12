@@ -276,10 +276,6 @@
       "label": "Permission request notification",
       "description": "Notify you when an action needs approval while the window is in the background"
     },
-    "startupTips": {
-      "label": "Show tips on startup",
-      "description": "Show a random tip at startup"
-    },
     "messages": {
       "loading": "Loading…",
       "loadFailed": "Failed to read notification settings",

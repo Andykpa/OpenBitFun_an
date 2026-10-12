@@ -262,10 +262,6 @@
       "label": "權限審批請求通知",
       "description": "視窗未處於前景時，提醒你有操作等待核准"
     },
-    "startupTips": {
-      "label": "啟動時顯示使用技巧",
-      "description": "每次啟動隨機顯示一則使用技巧"
-    },
     "messages": {
       "loading": "載入中…",
       "loadFailed": "無法讀取通知設定",

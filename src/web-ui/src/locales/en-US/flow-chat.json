@@ -572,6 +572,8 @@
     "copyFailed": "Copied!",
     "regenerate": "Regenerate",
     "edit": "Edit Message",
+    "editAndRollback": "Edit and rollback",
+    "rollbackBeforeTurn": "Rollback to before this turn",
     "delete": "Delete Message",
     "retry": "Retry",
     "sentAt": "Sent at {{time}}",
@@ -1134,7 +1136,7 @@
     "unknownTool": "Unknown tool"
   },
   "transcriptExport": {
-    "copyFull": "Copy full process",
+    "copyFull": "Copy all",
     "copyResult": "Copy result",
     "copyEmpty": "Nothing to copy in this dialog",
     "exportEmpty": "This session has nothing to export",
