@@ -72,6 +72,8 @@ const HIGH_PRIORITY_COMMANDS = new Set([
   // reaches the host. It must take the reserved high-priority slot, not queue
   // behind normal reads/mutations. See PR #2428 review #4.
   'cancel_tool',
+  'computer_use_control_stop',
+  'computer_use_share_control',
   // Question activity must reach the owner before its unattended deadline.
   'start_user_question_interaction',
   'submit_user_answers',
@@ -292,6 +294,7 @@ export interface PeerDeviceTransportHooks {
   /** Enables MiniApp Agent runs with immutable virtual context files. */
   supportsMiniAppAgentContextFilesV1?: boolean;
   supportsWslWorkspacesV1?: boolean;
+  supportsComputerUseSharingV1?: boolean;
   /** Enables the versioned typed ProductControl HostInvoke contract. */
   supportsProductControlV1?: boolean;
 }
@@ -427,6 +430,7 @@ export class PeerDeviceTransportAdapter implements ITransportAdapter {
       | 'supportsTokenUsageStatistics'
       | 'supportsMiniAppAgentContextFilesV1'
       | 'supportsWslWorkspacesV1'
+      | 'supportsComputerUseSharingV1'
       | 'supportsProductControlV1'
     >,
   ): void {
@@ -505,6 +509,13 @@ export class PeerDeviceTransportAdapter implements ITransportAdapter {
     ) {
       throw new PeerProductCommandError(
         'token_usage_statistics_unsupported: The connected Peer host does not support usage statistics',
+      );
+    }
+
+    if ((action.startsWith('computer_use_share_') || action === 'computer_use_request_permission')
+      && this.hooks.supportsComputerUseSharingV1 !== true) {
+      throw new PeerProductCommandError(
+        'computer_use_sharing_v1_unsupported: The connected Peer host does not support native App sharing; update the executing Desktop host',
       );
     }
 

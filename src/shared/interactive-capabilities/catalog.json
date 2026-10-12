@@ -2623,13 +2623,15 @@
         "启用或停用 Computer Use",
         "连接或断开受支持的浏览器",
         "检查并打开系统权限设置",
-        "查看当前控制目标与预览，并随时停止控制"
+        "查看当前控制目标与预览，并随时停止控制",
+        "先选择共享 App，再授权输入；可记住授权或随时撤销"
       ],
       "highlightsEn": [
         "Enable or disable Computer Use",
         "Connect or disconnect a supported browser",
         "Inspect and open OS permission settings",
-        "Inspect the current control target and preview, and stop control at any time"
+        "Inspect the current control target and preview, and stop control at any time",
+        "Select an App share before granting input; remember or revoke the grant"
       ],
       "items": [
         {
@@ -2657,7 +2659,8 @@
             "reasonEn": "“Request the operating-system permissions required for desktop control” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user."
           },
           "evidence": [
-            "command:computer_use_request_permissions"
+            "command:computer_use_request_permissions",
+            "command:computer_use_request_permission"
           ]
         },
         {
@@ -2778,6 +2781,53 @@
           "evidence": [
             "command:computer_use_control_stop",
             "source:src/web-ui/src/app/components/ComputerUseControlCard.tsx#ComputerUseControlCard"
+          ]
+        },
+        {
+          "id": "app-sharing",
+          "titleZh": "选择 App 窗口并单独授权或撤销控制",
+          "titleEn": "Select an App window and separately grant or revoke control",
+          "control": {
+            "kind": "open",
+            "reasonCode": "visualSelection",
+            "reasonZh": "共享窗口及控制模式由用户明确选择；智能体只能请求共享，不能代替用户授权。",
+            "reasonEn": "Window selection and input mode require an explicit user choice; agents can request sharing but cannot grant themselves control."
+          },
+          "evidence": [
+            "command:computer_use_share_request",
+            "command:computer_use_share_targets",
+            "command:computer_use_share_start",
+            "command:computer_use_share_control"
+          ]
+        },
+        {
+          "id": "preview-input",
+          "titleZh": "在共享预览中点击、拖动、滚动及输入",
+          "titleEn": "Click, drag, scroll and type through the shared preview",
+          "control": {
+            "kind": "open",
+            "reasonCode": "visualSelection",
+            "reasonZh": "预览输入需要用户授权，并绑定共享窗口、图像坐标及授权版本。",
+            "reasonEn": "Preview input requires user authorization and is bound to the shared window, image coordinates and authorization revision."
+          },
+          "evidence": [
+            "command:computer_use_share_observe",
+            "command:computer_use_share_input"
+          ]
+        },
+        {
+          "id": "remembered-control",
+          "titleZh": "按应用执行文件和控制模式记住或忘记授权",
+          "titleEn": "Remember or forget control by application executable and input mode",
+          "control": {
+            "kind": "open",
+            "reasonCode": "visualSelection",
+            "reasonZh": "记住授权只在用户选定并共享同一应用后生效，应用文件或输入模式改变时需要重新授权。",
+            "reasonEn": "Remembered control applies only after the user shares the same application; changed executable contents or input modes require a new grant."
+          },
+          "evidence": [
+            "command:computer_use_share_grants",
+            "command:computer_use_share_forget_grant"
           ]
         }
       ],
@@ -5870,7 +5920,11 @@
           "control": {
             "kind": "direct",
             "operations": [],
-            "options": [{ "id": "auto-show-selection-toolbar" }]
+            "options": [
+              {
+                "id": "auto-show-selection-toolbar"
+              }
+            ]
           },
           "evidence": [
             "source:src/web-ui/src/app/scenes/settings/pages/application/TextSelectionSettingsSection.tsx#AUTO_SHOW_SELECTION_TOOLBAR_CONFIG_PATH",

@@ -250,6 +250,26 @@ describe('peerInvokePriorityFor', () => {
 });
 
 describe('PeerDeviceTransportAdapter queue', () => {
+  it.each(['computer_use_share_targets', 'computer_use_share_input', 'computer_use_request_permission'])('rejects %s on old peers without sending an RPC or using the local host', async command => {
+    const rpc = vi.fn();
+    const local = vi.spyOn(TauriTransportAdapter.prototype, 'request');
+    const adapter = new PeerDeviceTransportAdapter('peer-1', rpc);
+    await adapter.connect();
+    await expect(adapter.request(command, {})).rejects.toThrow('computer_use_sharing_v1_unsupported');
+    expect(rpc).not.toHaveBeenCalled();
+    expect(local).not.toHaveBeenCalled();
+    local.mockRestore();
+  });
+  it('carries sharing scope unchanged to a capable executing peer', async () => {
+    const rpc = vi.fn().mockResolvedValue(JSON.stringify({ resp: 'host_invoke_result', ok: true, value: { state: 'active' } }));
+    const adapter = new PeerDeviceTransportAdapter('peer-1', rpc, { supportsComputerUseSharingV1: true });
+    await adapter.connect();
+    const request = { generation: 7, target_revision: 4, authorization_revision: 2, input: { action: 'app_type_text', text: 'hello' } };
+    await adapter.request('computer_use_share_input', { request });
+    const wire = JSON.parse(rpc.mock.calls[0][1]);
+    expect(wire.command).toBe('computer_use_share_input');
+    expect(wire.args).toEqual({ request });
+  });
   it('orders one dispatch burst with control first without capping in-flight data requests', async () => {
     const started: string[] = []; const gate = createDeferred<void>();
     const deviceRpc = vi.fn(async (_target: string, commandJson: string) => {

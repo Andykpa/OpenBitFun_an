@@ -18,7 +18,10 @@ vi.mock('@/infrastructure/config/hooks', () => ({ useAIExperienceSettings: () =>
 vi.mock('@/infrastructure/api', () => ({ globalAPI: {}, workspaceAPI: {} }));
 vi.mock('@/infrastructure/contexts/WorkspaceContext', () => ({ useCurrentWorkspace: () => ({ workspace: mocks.workspace }) }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: mocks.t }) }));
-vi.mock('@/infrastructure/i18n', () => ({ i18nService: { formatNumber: String } }));
+vi.mock('@/infrastructure/i18n', () => ({
+  i18nService: { formatNumber: String },
+  useI18n: () => ({ t: mocks.t }),
+}));
 vi.mock('@/infrastructure/api/service-api/ApiClient', () => ({ api: { invoke: mocks.invoke } }));
 vi.mock('@/infrastructure/api/service-api/SystemAPI', () => ({ systemAPI: { getSystemInfo: async () => ({ platform: 'macos' }) } }));
 vi.mock('../../../../../infrastructure/config/services/ConfigManager', () => ({ configManager: { hasCachedConfig: () => false, getCachedConfig: () => undefined,
