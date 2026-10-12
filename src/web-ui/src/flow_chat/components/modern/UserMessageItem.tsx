@@ -87,6 +87,8 @@ interface UserMessageItemProps {
   steeringStatus?: FlowUserSteeringItem['status'];
   submissionPhase?: 'forming' | 'failed';
   submissionError?: string;
+  hostQueueStatus?: 'pending' | 'failed';
+  hostQueueAttachmentCount?: number;
 }
 
 function buildPresentationRerunPayload(presentation: ComposerPresentation): {
@@ -119,7 +121,7 @@ function buildPresentationRerunPayload(presentation: ComposerPresentation): {
 }
 
 export const UserMessageItem = React.memo<UserMessageItemProps>(
-  ({ message, turnId, absoluteTurnIndex, turnStatus, steeringStatus, submissionPhase, submissionError }) => {
+  ({ message, turnId, absoluteTurnIndex, turnStatus, steeringStatus, submissionPhase, submissionError, hostQueueStatus, hostQueueAttachmentCount }) => {
     const { t, formatDate } = useI18n('flow-chat');
     const {
       sessionId,
@@ -217,7 +219,7 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
     const isFailed = resolvedTurnStatus === 'error';
     const resolvedSessionId = sessionId ?? currentSession?.sessionId;
     useSubmittedMessageMotion(shellRef, resolvedSessionId, turnId, message?.id,
-      isFailed || isEditing || submissionPhase === 'failed', submissionPhase);
+      isFailed || isEditing || submissionPhase === 'failed' || !!hostQueueStatus, submissionPhase);
     const sessionMachine = useSessionStateMachine(resolvedSessionId ?? null);
     const sessionExecutionState = sessionMachine && sessionMachine.sessionId === resolvedSessionId
       ? sessionMachine.currentState
@@ -241,6 +243,7 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
     );
     const canRollback =
       !steeringStatus &&
+      !hostQueueStatus &&
       canShowRollbackAction &&
       !!resolvedSessionId &&
       actionTurnIndex >= 0 &&
@@ -255,10 +258,10 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
       !isRemoteSession &&
       !isThreadGoalSystemMessage &&
       !isSystemTriggered &&
-      !steeringStatus;
+      !steeringStatus && !hostQueueStatus;
     const canEdit = canEditBase && isSessionIdle && !isEditSubmitting && !sessionMutation;
-    const canShowEditAction = allowUserMessageEdit && !isFailed && !isThreadGoalSystemMessage;
-    const canShowRollbackMenuItem = !isFailed && canShowRollbackAction && !steeringStatus;
+    const canShowEditAction = allowUserMessageEdit && !isFailed && !isThreadGoalSystemMessage && !hostQueueStatus;
+    const canShowRollbackMenuItem = !isFailed && canShowRollbackAction && !steeringStatus && !hostQueueStatus;
     const canShowActionMenu = canShowEditAction || canShowRollbackMenuItem;
     const rollbackPending = sessionMutation?.kind === 'rollback' && sessionMutation.targetTurnId === turnId;
     const editDisabledReason = isDispatchSession
@@ -283,7 +286,17 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
         : !isSessionIdle
           ? t('message.rollbackDisabledBusy')
         : t('message.cannotRollback');
-    const steeringTag = steeringStatus === 'pending'
+    const hostQueueLabel = hostQueueStatus
+      ? [hostQueueStatus === 'failed' ? t('steering.statusNotApplied') : '',
+          hostQueueAttachmentCount ? t('hostQueue.attachments', { count: hostQueueAttachmentCount }) : '']
+          .filter(Boolean).join(' · ')
+      : '';
+    const steeringTag = hostQueueLabel
+      ? {
+          className: 'user-message-item__steering-tag--pending',
+          label: hostQueueLabel,
+        }
+      : steeringStatus === 'pending'
       ? {
           className: 'user-message-item__steering-tag--pending',
           label: t('steering.statusPending'),
