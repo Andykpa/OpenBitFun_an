@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "digest": "fnv1a64:c48277b5f23f04e7",
+  "digest": "fnv1a64:c96edb696f388992",
   "retiredCommandPrefixes": [
     {
       "prefix": "lsp_",
@@ -1603,18 +1603,6 @@
       }
     },
     {
-      "id": "dismiss_announcement",
-      "surface": "tauri_command",
-      "remoteWorkspace": "WorkspaceAgnostic",
-      "peer": {
-        "kind": "controller_local"
-      },
-      "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
-    },
-    {
       "id": "dispatch_answer",
       "surface": "tauri_command",
       "remoteWorkspace": "WorkspaceAgnostic",
@@ -2362,18 +2350,6 @@
       }
     },
     {
-      "id": "get_announcement_tips",
-      "surface": "tauri_command",
-      "remoteWorkspace": "WorkspaceAgnostic",
-      "peer": {
-        "kind": "controller_local"
-      },
-      "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
-    },
-    {
       "id": "get_app_state",
       "surface": "tauri_command",
       "remoteWorkspace": "WorkspaceAgnostic",
@@ -2982,18 +2958,6 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
-    },
-    {
-      "id": "get_pending_announcements",
-      "surface": "tauri_command",
-      "remoteWorkspace": "WorkspaceAgnostic",
-      "peer": {
-        "kind": "controller_local"
-      },
-      "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
       }
     },
     {
@@ -4432,18 +4396,6 @@
       }
     },
     {
-      "id": "mark_announcement_seen",
-      "surface": "tauri_command",
-      "remoteWorkspace": "WorkspaceAgnostic",
-      "peer": {
-        "kind": "controller_local"
-      },
-      "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
-    },
-    {
       "id": "mark_openbitfun_control_surface_ready",
       "surface": "tauri_command",
       "remoteWorkspace": "WorkspaceAgnostic",
@@ -5041,18 +4993,6 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
-    },
-    {
-      "id": "never_show_announcement",
-      "surface": "tauri_command",
-      "remoteWorkspace": "WorkspaceAgnostic",
-      "peer": {
-        "kind": "controller_local"
-      },
-      "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
       }
     },
     {
@@ -7923,18 +7863,6 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
-    },
-    {
-      "id": "trigger_announcement",
-      "surface": "tauri_command",
-      "remoteWorkspace": "WorkspaceAgnostic",
-      "peer": {
-        "kind": "controller_local"
-      },
-      "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
       }
     },
     {

@@ -572,6 +572,8 @@
     "copyFailed": "已复制!",
     "regenerate": "重新生成",
     "edit": "编辑消息",
+    "editAndRollback": "编辑和回滚",
+    "rollbackBeforeTurn": "回滚到此轮之前",
     "delete": "删除消息",
     "retry": "重试",
     "sentAt": "发送于 {{time}}",
@@ -1134,7 +1136,7 @@
     "unknownTool": "未知工具"
   },
   "transcriptExport": {
-    "copyFull": "复制完整过程",
+    "copyFull": "复制全部",
     "copyResult": "复制结果",
     "copyEmpty": "该对话没有可复制的内容",
     "exportEmpty": "该会话没有可导出的内容",

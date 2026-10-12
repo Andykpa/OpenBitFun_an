@@ -5305,12 +5305,12 @@
       "highlightsZh": [
         "开机启动与自动更新",
         "窗口关闭和托盘行为",
-        "任务完成、权限请求与启动提示通知"
+        "任务完成与权限请求通知"
       ],
       "highlightsEn": [
         "Launch-at-login and automatic updates",
         "Window close and tray behavior",
-        "Completion, permission, and startup-tip notifications"
+        "Completion and permission notifications"
       ],
       "items": [
         {
@@ -5406,8 +5406,8 @@
         },
         {
           "id": "notifications",
-          "titleZh": "分别控制任务完成、权限请求和启动提示通知",
-          "titleEn": "Control completion, permission-request, and startup-tip notifications independently",
+          "titleZh": "分别控制任务完成和权限请求通知",
+          "titleEn": "Control completion and permission-request notifications independently",
           "control": {
             "kind": "direct",
             "operations": [],
@@ -5417,9 +5417,6 @@
               },
               {
                 "id": "permission-notification"
-              },
-              {
-                "id": "startup-tips"
               }
             ]
           },
@@ -5427,25 +5424,6 @@
             "source:src/web-ui/src/locales/zh-CN/settings/application.json#notifications.dialogCompletion.label",
             "source:src/web-ui/src/locales/zh-CN/settings/application.json#notifications.permissionRequest.label",
             "command:send_system_notification"
-          ]
-        },
-        {
-          "id": "announcements",
-          "titleZh": "查看、标记已读、忽略或永久隐藏产品公告与提示",
-          "titleEn": "Review, mark seen, dismiss, or permanently hide product announcements and tips",
-          "control": {
-            "kind": "open",
-            "reasonCode": "unstructuredInteraction",
-            "reasonZh": "“查看、标记已读、忽略或永久隐藏产品公告与提示”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-            "reasonEn": "“Review, mark seen, dismiss, or permanently hide product announcements and tips” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user."
-          },
-          "evidence": [
-            "command:get_pending_announcements",
-            "command:mark_announcement_seen",
-            "command:dismiss_announcement",
-            "command:never_show_announcement",
-            "command:get_announcement_tips",
-            "command:trigger_announcement"
           ]
         }
       ],
@@ -5516,13 +5494,6 @@
           "titleEn": "Permission request notifications",
           "descriptionZh": "智能体等待权限确认时发送系统通知。",
           "descriptionEn": "Send an OS notification when an agent waits for permission."
-        },
-        {
-          "id": "startup-tips",
-          "titleZh": "启动提示",
-          "titleEn": "Startup tips",
-          "descriptionZh": "启动后显示功能提示。",
-          "descriptionEn": "Show product tips after startup."
         }
       ]
     },
@@ -9627,9 +9598,6 @@
     },
     "html_preview": {
       "capabilityId": "feature.files-editor"
-    },
-    "announcement": {
-      "capabilityId": "setting.application.general"
     },
     "tool": {
       "capabilityId": "feature.ai-assistant"

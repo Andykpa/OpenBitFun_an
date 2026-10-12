@@ -71,15 +71,6 @@ describe('isPeerLocalOnlyCommand', () => {
     expect(isPeerLocalOnlyCommand('i18n_set_config')).toBe(true);
   });
 
-  it('keeps announcement scheduler and state on the controller device', () => {
-    expect(isPeerLocalOnlyCommand('get_pending_announcements')).toBe(true);
-    expect(isPeerLocalOnlyCommand('get_announcement_tips')).toBe(true);
-    expect(isPeerLocalOnlyCommand('mark_announcement_seen')).toBe(true);
-    expect(isPeerLocalOnlyCommand('dismiss_announcement')).toBe(true);
-    expect(isPeerLocalOnlyCommand('never_show_announcement')).toBe(true);
-    expect(isPeerLocalOnlyCommand('trigger_announcement')).toBe(true);
-  });
-
   it('keeps companion-pet import and preview on the controller device', () => {
     expect(isPeerLocalOnlyCommand('list_agent_companion_pets')).toBe(true);
     expect(isPeerLocalOnlyCommand('import_agent_companion_pet_package')).toBe(true);
@@ -216,14 +207,6 @@ describe('peerInvokePriorityFor', () => {
     expect(isPeerRetryableReadCommand('start_dialog_turn')).toBe(false);
     expect(isPeerRetryableReadCommand('delete_session')).toBe(false);
     expect(isPeerRetryableReadCommand('respond_permission')).toBe(false);
-  });
-
-  it('does not retry side-effecting announcement get_* commands', () => {
-    // These run the scheduler (mutate app_open_count + persist) and must never
-    // be auto-retried by the peer read path, where retries would multiply the
-    // side effect.
-    expect(isPeerRetryableReadCommand('get_pending_announcements')).toBe(false);
-    expect(isPeerRetryableReadCommand('get_announcement_tips')).toBe(false);
   });
 
   it('retries Browser Control / Computer Use status reads but not their mutations', () => {

@@ -215,6 +215,16 @@ describe('UserMessageItem steering tag', () => {
   let container: HTMLDivElement;
   let root: Root;
 
+  function openMessageActionMenu() {
+    const trigger = container.querySelector<HTMLButtonElement>('.user-message-item__edit-rollback-btn');
+    act(() => { trigger?.click(); });
+    return trigger;
+  }
+
+  function getMessageAction(action: 'edit' | 'rollback') {
+    return document.querySelector<HTMLButtonElement>(`[role="menu"]:not([aria-hidden="true"]) [data-menu-id="${action}"]`);
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     flowChatStoreMock.getState.mockReturnValue({
@@ -239,6 +249,8 @@ describe('UserMessageItem steering tag', () => {
     vi.stubGlobal('window', dom.window);
     vi.stubGlobal('document', dom.window.document);
     vi.stubGlobal('HTMLElement', dom.window.HTMLElement);
+    vi.stubGlobal('Element', dom.window.Element);
+    vi.stubGlobal('Node', dom.window.Node);
     vi.stubGlobal('CustomEvent', dom.window.CustomEvent);
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       callback(0);
@@ -322,8 +334,9 @@ describe('UserMessageItem steering tag', () => {
       </FlowChatContext.Provider>,
     ));
 
+    openMessageActionMenu();
     await act(async () => {
-      container.querySelector<HTMLButtonElement>('.user-message-item__edit-btn')?.click();
+      getMessageAction('edit')?.click();
     });
 
     const shell = container.querySelector('.user-message-item-shell');
@@ -448,8 +461,7 @@ describe('UserMessageItem steering tag', () => {
     if (status === 'failed') expect(container.querySelector('.user-message-item__steering-tag')?.textContent)
       .toContain('steering.statusNotApplied');
     expect(container.querySelector('.user-message-item__steering-tag')?.textContent).toContain('hostQueue.attachments');
-    expect(container.querySelector('.user-message-item__edit-btn')).toBeNull();
-    expect(container.querySelector('.user-message-item__rollback-btn')).toBeNull();
+    expect(container.querySelector('.user-message-item__edit-rollback-btn')).toBeNull();
     expect(container.querySelector('.user-message-item__copy-btn')).not.toBeNull();
   });
 
@@ -462,8 +474,7 @@ describe('UserMessageItem steering tag', () => {
     ));
     expect(container.querySelector('.user-message-item__steering-tag')).toBeNull();
     expect(container.textContent).toContain('Accepted instruction');
-    expect(container.querySelector('.user-message-item__edit-btn')).toBeNull();
-    expect(container.querySelector('.user-message-item__rollback-btn')).toBeNull();
+    expect(container.querySelector('.user-message-item__edit-rollback-btn')).toBeNull();
   });
 
   it('does not render a steering tag after steering is triggered', () => {
@@ -746,13 +757,15 @@ describe('UserMessageItem steering tag', () => {
       );
     });
 
-    expect(container.querySelector('.user-message-item__rollback-btn')).toBeNull();
+    openMessageActionMenu();
+    expect(getMessageAction('rollback')).toBeNull();
   });
 
-  it('renders the rollback button for normal sessions when rollback is allowed', () => {
+  it('combines edit and rollback behind the edit icon for normal sessions', () => {
     activeSessionRef.current = {
       sessionId: 'main-session',
       sessionKind: 'normal',
+      workspaceId: workspaceRecords.local.id,
       dialogTurns: [
         {
           id: 'turn-1',
@@ -776,7 +789,23 @@ describe('UserMessageItem steering tag', () => {
       );
     });
 
-    expect(container.querySelector('.user-message-item__rollback-btn')).not.toBeNull();
+    expect(container.querySelectorAll('.user-message-item__actions button')).toHaveLength(2);
+    const trigger = openMessageActionMenu();
+    expect(trigger?.getAttribute('aria-label')).toBe('message.editAndRollback');
+    expect(trigger?.getAttribute('aria-haspopup')).toBe('menu');
+    expect(trigger?.getAttribute('aria-expanded')).toBe('true');
+    expect(trigger?.querySelector('[data-openbitfun-component="icon"][data-openbitfun-name="edit"]')).not.toBeNull();
+    expect(getMessageAction('edit')).not.toBeNull();
+    expect(getMessageAction('rollback')).not.toBeNull();
+    expect(rollbackServiceMock.rollbackSessionToTurn).not.toHaveBeenCalled();
+    expect(useMessageEditStore.getState().editingTurnId).toBeNull();
+
+    act(() => {
+      document.activeElement?.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(trigger?.getAttribute('aria-expanded')).toBe('false');
+    expect(getMessageAction('edit')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 
   it('restores image attachments to the composer after rollback', async () => {
@@ -808,8 +837,9 @@ describe('UserMessageItem steering tag', () => {
       );
     });
 
+    openMessageActionMenu();
     await act(async () => {
-      container.querySelector<HTMLButtonElement>('.user-message-item__rollback-btn')?.click();
+      getMessageAction('rollback')?.click();
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -865,10 +895,9 @@ describe('UserMessageItem steering tag', () => {
       );
     });
 
-    const rollbackButton = container.querySelector<HTMLButtonElement>(
-      '.user-message-item__rollback-btn',
-    );
-    const editButton = container.querySelector<HTMLButtonElement>('.user-message-item__edit-btn');
+    openMessageActionMenu();
+    const rollbackButton = getMessageAction('rollback');
+    const editButton = getMessageAction('edit');
 
     expect(rollbackButton?.disabled).toBe(true);
     expect(rollbackButton?.getAttribute('aria-label')).toContain(`message.rollbackDisabled${reason}`);
@@ -911,7 +940,9 @@ describe('UserMessageItem steering tag', () => {
       );
     });
 
-    expect(container.querySelector('.user-message-item__edit-btn')).toBeNull();
+    openMessageActionMenu();
+    expect(getMessageAction('edit')).toBeNull();
+    expect(getMessageAction('rollback')).not.toBeNull();
   });
 
   it('keeps edit and rollback available for on-demand hydration in a partial history tail', () => {
@@ -952,8 +983,9 @@ describe('UserMessageItem steering tag', () => {
       );
     });
 
-    expect(container.querySelector<HTMLButtonElement>('.user-message-item__edit-btn')?.disabled).toBe(false);
-    expect(container.querySelector<HTMLButtonElement>('.user-message-item__rollback-btn')?.disabled).toBe(false);
+    openMessageActionMenu();
+    expect(getMessageAction('edit')?.disabled).toBe(false);
+    expect(getMessageAction('rollback')?.disabled).toBe(false);
   });
 
   it('rolls back partial history by stable Turn identity without full hydration', async () => {
@@ -1009,8 +1041,9 @@ describe('UserMessageItem steering tag', () => {
       );
     });
 
+    openMessageActionMenu();
     await act(async () => {
-      container.querySelector<HTMLButtonElement>('.user-message-item__rollback-btn')?.click();
+      getMessageAction('rollback')?.click();
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -1044,8 +1077,9 @@ describe('UserMessageItem steering tag', () => {
       );
     });
 
-    expect(container.querySelector<HTMLButtonElement>('.user-message-item__edit-btn')?.disabled).toBe(false);
-    expect(container.querySelector<HTMLButtonElement>('.user-message-item__rollback-btn')?.disabled).toBe(false);
+    openMessageActionMenu();
+    expect(getMessageAction('edit')?.disabled).toBe(false);
+    expect(getMessageAction('rollback')?.disabled).toBe(false);
   });
 
   it('disables edit and rollback while the Session is not idle', async () => {
@@ -1070,8 +1104,9 @@ describe('UserMessageItem steering tag', () => {
       );
     });
 
-    expect(container.querySelector<HTMLButtonElement>('.user-message-item__edit-btn')?.disabled).toBe(true);
-    expect(container.querySelector<HTMLButtonElement>('.user-message-item__rollback-btn')?.disabled).toBe(true);
+    openMessageActionMenu();
+    expect(getMessageAction('edit')?.disabled).toBe(true);
+    expect(getMessageAction('rollback')?.disabled).toBe(true);
   });
 
   it('rolls back a cataloged history-window Turn by stable identity', async () => {
@@ -1097,8 +1132,9 @@ describe('UserMessageItem steering tag', () => {
       );
     });
 
+    openMessageActionMenu();
     await act(async () => {
-      container.querySelector<HTMLButtonElement>('.user-message-item__rollback-btn')?.click();
+      getMessageAction('rollback')?.click();
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -1129,8 +1165,9 @@ describe('UserMessageItem steering tag', () => {
       );
     });
 
+    openMessageActionMenu();
     await act(async () => {
-      container.querySelector<HTMLButtonElement>('.user-message-item__edit-btn')?.click();
+      getMessageAction('edit')?.click();
     });
     await act(async () => {
       useMessageEditStore.getState().setDraft('edited older window prompt');
@@ -1195,8 +1232,9 @@ describe('UserMessageItem steering tag', () => {
       );
     });
 
+    openMessageActionMenu();
     await act(async () => {
-      container.querySelector<HTMLButtonElement>('.user-message-item__edit-btn')?.click();
+      getMessageAction('edit')?.click();
     });
     await act(async () => {
       useMessageEditStore.getState().setDraft('Describe this image in detail');
@@ -1262,8 +1300,9 @@ describe('UserMessageItem steering tag', () => {
       );
     });
 
+    openMessageActionMenu();
     await act(async () => {
-      container.querySelector<HTMLButtonElement>('.user-message-item__edit-btn')?.click();
+      getMessageAction('edit')?.click();
     });
     await act(async () => {
       useMessageEditStore.getState().setDraft('Describe this more precisely');

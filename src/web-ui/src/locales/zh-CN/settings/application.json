@@ -275,10 +275,6 @@
       "label": "权限审批请求通知",
       "description": "窗口未处于前台时，提醒你有操作等待审批"
     },
-    "startupTips": {
-      "label": "启动时显示使用技巧",
-      "description": "每次启动随机显示一条使用技巧"
-    },
     "messages": {
       "loading": "加载中…",
       "loadFailed": "无法读取通知设置",

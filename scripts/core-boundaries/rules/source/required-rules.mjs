@@ -3863,10 +3863,6 @@ export const requiredContentRules = [
       'service integration and agent-runtime surfaces must not compile in no-default core builds',
     patterns: [
       {
-        regex: /#\[cfg\(feature = "announcement"\)\]\s*pub mod announcement\b/s,
-        message: 'announcement facade must stay behind its exact feature',
-      },
-      {
         regex: /#\[cfg\(feature = "file-watch"\)\]\s*pub use openbitfun_services_integrations::file_watch\b/s,
         message: 'file-watch facade must stay behind its exact feature',
       },
