@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "e05dbc222e1267523832f82d6392701ab011c9d8d5ad1582dbe407904dc80d3d",
-  "count": 214,
+  "catalogDigest": "09837a3f9f09ecf1d1b2e3a60059824d6e8afa979c0b022cef05daa63221c04b",
+  "count": 213,
   "reasonCounts": {
     "externalAuth": 4,
     "secretEntry": 5,
-    "unstructuredInteraction": 185,
+    "unstructuredInteraction": 184,
     "visualSelection": 20
   },
   "entries": [
@@ -2516,27 +2516,6 @@
         "command:get_pending_update",
         "command:install_pending_update",
         "command:get_app_version"
-      ]
-    },
-    {
-      "capabilityId": "setting.application.general",
-      "itemId": "announcements",
-      "titleZh": "查看、标记已读、忽略或永久隐藏产品公告与提示",
-      "titleEn": "Review, mark seen, dismiss, or permanently hide product announcements and tips",
-      "reasonCode": "unstructuredInteraction",
-      "reasonZh": "“查看、标记已读、忽略或永久隐藏产品公告与提示”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-      "reasonEn": "“Review, mark seen, dismiss, or permanently hide product announcements and tips” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
-      "presentationTarget": {
-        "kind": "settings",
-        "pageId": "application.general"
-      },
-      "evidence": [
-        "command:get_pending_announcements",
-        "command:mark_announcement_seen",
-        "command:dismiss_announcement",
-        "command:never_show_announcement",
-        "command:get_announcement_tips",
-        "command:trigger_announcement"
       ]
     },
     {

@@ -132,7 +132,7 @@ SessionManager -> Session -> DialogTurn -> ModelRound
   profiles are `dispatch-store`, `terminal`, `workspace-runtime`, and
   `workspace-watch`; `remote-workspace` adds only the remote workspace facade,
   while `ssh-remote` adds concrete SSH transport. Integration facades
-  `announcement`, `file-watch`, `git`, and `review-platform` remain independent,
+  `file-watch`, `git`, and `review-platform` remain independent,
   with `service-integrations` only their compatibility aggregate. None of these
   narrow features may enable `product-full` directly or transitively.
 - `product-full` must explicitly compose every capability it consumes, including

@@ -113,8 +113,6 @@ slices that are outside pure product logic but still platform-neutral.
   sandbox or a CPU/memory/filesystem/network resource limit; surfaces must keep
   those residual risks explicit. Unix descendants that deliberately create a
   new session/process group are outside the managed boundary.
-- Announcement remote fetch/cache lives here; product assembly supplies config
-  values such as endpoint, locale, version, platform, and cache path.
 - DeepResearch report IO here owns report/citation sidecar filesystem work;
   provider-neutral citation numbering stays in `openbitfun-agent-runtime`. The IO
   path must use the injected `WorkspaceFileSystem` for both local and remote

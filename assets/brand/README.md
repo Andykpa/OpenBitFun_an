@@ -108,12 +108,6 @@ platform selection, and icon containers with
 `node --test scripts/generate-brand-assets.test.mjs`. macOS export and native
 bundling checks also run `scripts/macos-icon-bundle.test.mjs`.
 
-`source/release-letter-mascot.svg` preserves the authored character from
-`openbitfun-letter.html`. Its named body, rigid head/rod, and eye parts are used
-by the release letter's connected animation rig. The gradients belong to this
-illustration, not to the application theme. Vite bundles this source directly;
-it is independent of the application icon generator and needs no PNG export.
-
 Verification emails use the silver application mark on its black rounded-square
 background, generated at
 `src/miniapp-market-web/public/assets/openbitfun-email-app-icon.png`. The market build

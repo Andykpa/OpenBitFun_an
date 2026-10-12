@@ -4,7 +4,7 @@ import type { SettingsPageId } from './settingsTypes';
 // Read-only configuration owned by these destinations. Runtime probes and secrets
 // remain with their page owners; hovering must never start a service or a scan.
 const CONFIG_PATHS: Partial<Record<SettingsPageId, readonly string[]>> = {
-  'application.general': ['app.close_button_behavior', 'app.notifications.dialog_completion_notify', 'app.notifications.permission_request_notify', 'app.notifications.enable_startup_tips'],
+  'application.general': ['app.close_button_behavior', 'app.notifications.dialog_completion_notify', 'app.notifications.permission_request_notify'],
   'application.pet': ['app.ai_experience'],
   'application.input': ['app.ai_experience', 'app.flow_chat.auto_show_selection_toolbar'],
   'ai.session-memory': ['app.flow_chat', 'app.ai_experience', 'ai.models', 'ai.task_models', 'memories'],

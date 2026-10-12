@@ -357,7 +357,14 @@ routing, and device or session operations stay in the consuming application.
 
 `Checkbox appearance="native"` uses the visible browser checkbox, retaining its
 native focus, disabled, checked, indeterminate, and form semantics. The default
-`custom` presentation remains unchanged. Both presentations share sm/md/lg
+`custom` presentation uses `color.control.highlight.background` for checked and
+indeterminate boxes and reuses `color.control.switch.thumb` for their marks.
+This matches the Switch's filled highlight and indicator pairing: white marks
+in ordinary light/dark themes, with a dark mark on the high-contrast dark theme's
+light highlight. `color.control.highlight.content` belongs to content on a
+highlighted surface and has a dark value in ordinary themes. Select and Combobox
+instead use the highlight color for a standalone check on a neutral surface.
+Forced colors use the system Highlight/HighlightText pair. Both presentations share sm/md/lg
 sizing and the same label and description slots; native colors belong to the
 browser, with optional consumer `accent-color` styling.
 

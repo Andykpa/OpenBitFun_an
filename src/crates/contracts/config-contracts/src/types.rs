@@ -708,7 +708,8 @@ pub struct NotificationConfig {
     /// Whether to show a toast notification when an approval request arrives while the window is not focused.
     #[serde(default = "default_true")]
     pub permission_request_notify: bool,
-    /// Whether to show built-in tip cards on startup (can be disabled by the user).
+    /// Retired startup-tip preference, retained only for configuration round-trip compatibility.
+    /// This field has no runtime effect.
     #[serde(default = "default_true")]
     pub enable_startup_tips: bool,
 }
@@ -2519,6 +2520,25 @@ mod tests {
         let config: NotificationConfig = serde_json::from_value(serde_json::json!({}))
             .expect("empty notification config should default");
         assert!(config.permission_request_notify);
+    }
+
+    #[test]
+    fn retired_startup_tip_preference_round_trips_legacy_notification_config() {
+        let legacy = serde_json::json!({
+            "enabled": true,
+            "position": "bottom-left",
+            "duration": 4000,
+            "dialog_completion_notify": false,
+            "permission_request_notify": true,
+            "enable_startup_tips": false
+        });
+        let config: NotificationConfig = serde_json::from_value(legacy.clone())
+            .expect("legacy notification preferences should remain readable");
+
+        assert!(!config.enable_startup_tips);
+        assert!(!config.dialog_completion_notify);
+        assert!(config.permission_request_notify);
+        assert_eq!(serde_json::to_value(config).unwrap(), legacy);
     }
 
     #[test]

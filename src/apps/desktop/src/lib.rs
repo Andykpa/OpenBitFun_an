@@ -1934,13 +1934,6 @@ pub async fn run() {
             api::dispatch_api::dispatch_load_transcript,
             api::dispatch_api::dispatch_save_transcript,
             // Relay self-deploy API
-            // Announcement / feature-demo / tips API
-            api::announcement_api::get_pending_announcements,
-            api::announcement_api::mark_announcement_seen,
-            api::announcement_api::dismiss_announcement,
-            api::announcement_api::never_show_announcement,
-            api::announcement_api::trigger_announcement,
-            api::announcement_api::get_announcement_tips,
             // Debug API (no-op stubs in release builds)
             api::debug_api::debug_devtools_available,
             api::debug_api::debug_element_picked,

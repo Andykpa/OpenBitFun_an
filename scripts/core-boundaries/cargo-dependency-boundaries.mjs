@@ -144,7 +144,6 @@ function isProcMacroPackage(pkg) {
 
 const SERVICES_INTEGRATIONS_TOKIO_FEATURES = new Map([
   ['account-identity', ['rt', 'sync']],
-  ['announcement', ['fs', 'sync']],
   // Large catalog validation/hash work uses spawn_blocking, outside async IO workers.
   ['models-dev', ['fs', 'rt', 'sync', 'time']],
   ['browser-control', ['time']],
@@ -1064,7 +1063,6 @@ export function findServicesIntegrationsReqwestFeatureViolations(pkg) {
   const ownerFeatures = new Set(servicesReqwestOwnerFeatures);
   const ownerFeatureReferences = new Map([
     ['account-identity', ['reqwest/json']],
-    ['announcement', ['reqwest/json']],
     ['browser-control', ['reqwest/json']],
     ['mcp', ['reqwest/json', 'reqwest/stream']],
     ['miniapp-market', ['reqwest/json', 'reqwest/query', 'reqwest/stream']],
@@ -1560,7 +1558,6 @@ export function findProductEntrypointCoreFeatureViolations(
   const reviewedForbiddenDependencyOwnerFeatures = new Map([
     ['openbitfun-sdk-host-app', new Map([
       ['openbitfun-services-integrations', [
-        'announcement',
         'function-agents',
         'product-full',
         'remote-connect',
@@ -1779,7 +1776,6 @@ export function findProductEntrypointCoreFeatureViolations(
   if (corePackage) {
     const forbiddenCoreFeatures = [
       'product-full',
-      'announcement',
       'dispatch-store',
     ];
     const reportedUnexpectedFeatures = new Set();

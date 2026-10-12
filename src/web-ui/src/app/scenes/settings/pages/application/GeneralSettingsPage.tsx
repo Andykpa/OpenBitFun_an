@@ -405,10 +405,9 @@ function WindowBehaviorSetting() {
 
 function NotificationSettings() {
   const { t } = useTranslation('settings/application');
-  const seed = useConfigSeed(['app.notifications.dialog_completion_notify', 'app.notifications.permission_request_notify', 'app.notifications.enable_startup_tips']);
+  const seed = useConfigSeed(['app.notifications.dialog_completion_notify', 'app.notifications.permission_request_notify']);
   const [dialogNotify, setDialogNotify] = useState(seed.get<boolean | null>('app.notifications.dialog_completion_notify', true) !== false);
   const [permissionRequestNotify, setPermissionRequestNotify] = useState(seed.get<boolean | null>('app.notifications.permission_request_notify', true) !== false);
-  const [startupTips, setStartupTips] = useState(seed.get<boolean | null>('app.notifications.enable_startup_tips', true) !== false);
   const [loading, setLoading] = useState(!seed.loaded);
   const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -418,14 +417,12 @@ function NotificationSettings() {
     setLoading(!seed.loaded);
     setLoadFailed(false);
     try {
-      const [notify, permissionNotify, tips] = await Promise.all([
+      const [notify, permissionNotify] = await Promise.all([
         configManager.getOptionalConfig<boolean>('app.notifications.dialog_completion_notify'),
         configManager.getOptionalConfig<boolean>('app.notifications.permission_request_notify'),
-        configManager.getOptionalConfig<boolean>('app.notifications.enable_startup_tips'),
       ]);
       setDialogNotify(notify !== false);
       setPermissionRequestNotify(permissionNotify !== false);
-      setStartupTips(tips !== false);
     } catch (error) {
       log.error('Failed to load notification preferences', error);
       setLoadFailed(true);
@@ -456,19 +453,6 @@ function NotificationSettings() {
     try {
       await configManager.setConfig('app.notifications.permission_request_notify', checked);
       setPermissionRequestNotify(checked);
-      setMessage({ type: 'success', text: t('notifications.messages.saveSuccess') });
-    } catch {
-      setMessage({ type: 'error', text: t('notifications.messages.saveFailed') });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleStartupTipsToggle = async (checked: boolean) => {
-    setSaving(true);
-    try {
-      await configManager.setConfig('app.notifications.enable_startup_tips', checked);
-      setStartupTips(checked);
       setMessage({ type: 'success', text: t('notifications.messages.saveSuccess') });
     } catch {
       setMessage({ type: 'error', text: t('notifications.messages.saveFailed') });
@@ -515,17 +499,6 @@ function NotificationSettings() {
         <Switch
           checked={permissionRequestNotify}
           onChange={(e) => { void handlePermissionRequestNotifyToggle(e.target.checked); }}
-          disabled={saving}
-        />
-      </ConfigPageRow>
-      <ConfigPageRow
-        label={t('notifications.startupTips.label')}
-        description={t('notifications.startupTips.description')}
-        align="center"
-      >
-        <Switch
-          checked={startupTips}
-          onChange={(e) => { void handleStartupTipsToggle(e.target.checked); }}
           disabled={saving}
         />
       </ConfigPageRow>

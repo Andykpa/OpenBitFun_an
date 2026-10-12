@@ -148,22 +148,7 @@ export function isPeerLocalOnlyCommand(command: string): boolean {
   return LOCAL_ONLY_COMMANDS.has(command);
 }
 
-/**
- * `get_*` commands that run the announcement scheduler (mutate app_open_count +
- * persist state). They are NOT side-effect-free reads and must never be
- * auto-retried by the peer read path, where a retry would multiply the side
- * effect. They are also LOCAL_ONLY, but this guard keeps the contract explicit
- * if ownership ever moves back to the peer. See scheduler.rs run().
- */
-const SIDE_EFFECTING_GET_COMMANDS = new Set([
-  'get_pending_announcements',
-  'get_announcement_tips',
-]);
-
 export function isPeerRetryableReadCommand(command: string): boolean {
-  if (SIDE_EFFECTING_GET_COMMANDS.has(command)) {
-    return false;
-  }
   return RETRYABLE_READ_COMMANDS.has(command) ||
     command.startsWith('read_') ||
     command.startsWith('list_') ||
