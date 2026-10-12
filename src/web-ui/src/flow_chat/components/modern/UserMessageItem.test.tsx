@@ -461,8 +461,7 @@ describe('UserMessageItem steering tag', () => {
     if (status === 'failed') expect(container.querySelector('.user-message-item__steering-tag')?.textContent)
       .toContain('steering.statusNotApplied');
     expect(container.querySelector('.user-message-item__steering-tag')?.textContent).toContain('hostQueue.attachments');
-    expect(container.querySelector('.user-message-item__edit-btn')).toBeNull();
-    expect(container.querySelector('.user-message-item__rollback-btn')).toBeNull();
+    expect(container.querySelector('.user-message-item__edit-rollback-btn')).toBeNull();
     expect(container.querySelector('.user-message-item__copy-btn')).not.toBeNull();
   });
 
@@ -475,8 +474,7 @@ describe('UserMessageItem steering tag', () => {
     ));
     expect(container.querySelector('.user-message-item__steering-tag')).toBeNull();
     expect(container.textContent).toContain('Accepted instruction');
-    expect(container.querySelector('.user-message-item__edit-btn')).toBeNull();
-    expect(container.querySelector('.user-message-item__rollback-btn')).toBeNull();
+    expect(container.querySelector('.user-message-item__edit-rollback-btn')).toBeNull();
   });
 
   it('does not render a steering tag after steering is triggered', () => {
