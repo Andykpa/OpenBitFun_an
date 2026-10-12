@@ -1,11 +1,11 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "e05dbc222e1267523832f82d6392701ab011c9d8d5ad1582dbe407904dc80d3d",
-  "commandCount": 670,
+  "catalogDigest": "156caca2db3ed5820e9bf6683d4df89db5bbbfac8c6c8910d31262c05450ec6e",
+  "commandCount": 679,
   "coverage": {
-    "commandCount": 670,
-    "documentedCommandCount": 622,
+    "commandCount": 679,
+    "documentedCommandCount": 631,
     "implementationCommandCount": 48,
     "implementationDigest": "f6d38a24a70708988cb47ada81d07eccf0668684e8734c9ee5155b9ffa7e3db8"
   },
@@ -1433,6 +1433,22 @@
       "remoteWorkspacePolicy": "LocalOnly"
     },
     {
+      "id": "computer_use_request_permission",
+      "moduleId": "computer_use",
+      "capabilityId": "feature.computer-use",
+      "capabilityIds": [
+        "feature.computer-use"
+      ],
+      "documentedItemIds": [
+        "feature.computer-use:request-permissions"
+      ],
+      "visibility": "documented",
+      "rustPath": "computer_use_request_permission",
+      "sourceFile": "src/apps/desktop/src/api/computer_use_api.rs",
+      "signature": "fn computer_use_request_permission( request: ComputerPermissionRequest, ) -> Result<ComputerPermissionReceipt, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
       "id": "computer_use_request_permissions",
       "moduleId": "computer_use",
       "capabilityId": null,
@@ -1450,6 +1466,134 @@
       "rustPath": "computer_use_request_permissions",
       "sourceFile": "src/apps/desktop/src/api/computer_use_api.rs",
       "signature": "fn computer_use_request_permissions() -> Result<(), String>",
+      "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "computer_use_share_control",
+      "moduleId": "computer_use",
+      "capabilityId": "feature.computer-use",
+      "capabilityIds": [
+        "feature.computer-use"
+      ],
+      "documentedItemIds": [
+        "feature.computer-use:app-sharing"
+      ],
+      "visibility": "documented",
+      "rustPath": "computer_use_share_control",
+      "sourceFile": "src/apps/desktop/src/api/computer_use_api.rs",
+      "signature": "fn computer_use_share_control( state: State<'_, AppState>, request: ComputerUseShareControlRequest, ) -> Result<openbitfun_agent_tools::computer_use_control::ControlSnapshot, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "computer_use_share_forget_grant",
+      "moduleId": "computer_use",
+      "capabilityId": "feature.computer-use",
+      "capabilityIds": [
+        "feature.computer-use"
+      ],
+      "documentedItemIds": [
+        "feature.computer-use:remembered-control"
+      ],
+      "visibility": "documented",
+      "rustPath": "computer_use_share_forget_grant",
+      "sourceFile": "src/apps/desktop/src/api/computer_use_api.rs",
+      "signature": "fn computer_use_share_forget_grant( state: State<'_, AppState>, request: ComputerUseForgetGrantRequest, ) -> Result<Option<String>, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "computer_use_share_grants",
+      "moduleId": "computer_use",
+      "capabilityId": "feature.computer-use",
+      "capabilityIds": [
+        "feature.computer-use"
+      ],
+      "documentedItemIds": [
+        "feature.computer-use:remembered-control"
+      ],
+      "visibility": "documented",
+      "rustPath": "computer_use_share_grants",
+      "sourceFile": "src/apps/desktop/src/api/computer_use_api.rs",
+      "signature": "fn computer_use_share_grants( state: State<'_, AppState>, ) -> Result<Vec<crate::computer_use::grants::GrantRecord>, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "computer_use_share_input",
+      "moduleId": "computer_use",
+      "capabilityId": "feature.computer-use",
+      "capabilityIds": [
+        "feature.computer-use"
+      ],
+      "documentedItemIds": [
+        "feature.computer-use:preview-input"
+      ],
+      "visibility": "documented",
+      "rustPath": "computer_use_share_input",
+      "sourceFile": "src/apps/desktop/src/api/computer_use_api.rs",
+      "signature": "fn computer_use_share_input( request: crate::computer_use::shared_preview::SharedInputRequest, ) -> Result<openbitfun_agent_tools::computer_use_control::ControlSnapshot, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "computer_use_share_observe",
+      "moduleId": "computer_use",
+      "capabilityId": "feature.computer-use",
+      "capabilityIds": [
+        "feature.computer-use"
+      ],
+      "documentedItemIds": [
+        "feature.computer-use:preview-input"
+      ],
+      "visibility": "documented",
+      "rustPath": "computer_use_share_observe",
+      "sourceFile": "src/apps/desktop/src/api/computer_use_api.rs",
+      "signature": "fn computer_use_share_observe( request: crate::computer_use::shared_preview::SharedPreviewRequest, ) -> Result<crate::computer_use::shared_preview::SharedObservation, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "computer_use_share_request",
+      "moduleId": "computer_use",
+      "capabilityId": "feature.computer-use",
+      "capabilityIds": [
+        "feature.computer-use"
+      ],
+      "documentedItemIds": [
+        "feature.computer-use:app-sharing"
+      ],
+      "visibility": "documented",
+      "rustPath": "computer_use_share_request",
+      "sourceFile": "src/apps/desktop/src/api/computer_use_api.rs",
+      "signature": "fn computer_use_share_request( request: ComputerUseShareRequest, ) -> Result<openbitfun_agent_tools::computer_use_control::ControlSnapshot, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "computer_use_share_start",
+      "moduleId": "computer_use",
+      "capabilityId": "feature.computer-use",
+      "capabilityIds": [
+        "feature.computer-use"
+      ],
+      "documentedItemIds": [
+        "feature.computer-use:app-sharing"
+      ],
+      "visibility": "documented",
+      "rustPath": "computer_use_share_start",
+      "sourceFile": "src/apps/desktop/src/api/computer_use_api.rs",
+      "signature": "fn computer_use_share_start( state: State<'_, AppState>, request: ComputerUseShareStartRequest, ) -> Result<openbitfun_agent_tools::computer_use_control::ControlSnapshot, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "computer_use_share_targets",
+      "moduleId": "computer_use",
+      "capabilityId": "feature.computer-use",
+      "capabilityIds": [
+        "feature.computer-use"
+      ],
+      "documentedItemIds": [
+        "feature.computer-use:app-sharing"
+      ],
+      "visibility": "documented",
+      "rustPath": "computer_use_share_targets",
+      "sourceFile": "src/apps/desktop/src/api/computer_use_api.rs",
+      "signature": "fn computer_use_share_targets( ) -> Result<Vec<openbitfun_agent_tools::computer_use_control::ShareTarget>, String>",
       "remoteWorkspacePolicy": "LocalOnly"
     },
     {

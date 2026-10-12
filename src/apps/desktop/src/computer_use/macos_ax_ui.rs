@@ -554,8 +554,8 @@ pub(super) fn locate_ui_element_center_for_pid(
                 )));
             }
         };
-        let nt = unsafe { read_node_text(ax.0) };
-        let frame = unsafe { element_frame_global(ax.0) }.ok_or_else(|| {
+        let nt = unsafe { read_node_text(ax.reference().0) };
+        let frame = unsafe { element_frame_global(ax.reference().0) }.ok_or_else(|| {
             OpenBitFunError::tool(format!(
                 "[AX_IDX_STALE] node_idx={} resolved but has no AXFrame (off-screen / minimised). \
                  Re-call `desktop.get_app_state`.",

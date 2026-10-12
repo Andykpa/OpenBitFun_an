@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "e05dbc222e1267523832f82d6392701ab011c9d8d5ad1582dbe407904dc80d3d",
-  "count": 214,
+  "catalogDigest": "156caca2db3ed5820e9bf6683d4df89db5bbbfac8c6c8910d31262c05450ec6e",
+  "count": 217,
   "reasonCounts": {
     "externalAuth": 4,
     "secretEntry": 5,
     "unstructuredInteraction": 185,
-    "visualSelection": 20
+    "visualSelection": 23
   },
   "entries": [
     {
@@ -957,7 +957,8 @@
         "pageId": "tools.execution"
       },
       "evidence": [
-        "command:computer_use_request_permissions"
+        "command:computer_use_request_permissions",
+        "command:computer_use_request_permission"
       ]
     },
     {
@@ -1043,6 +1044,59 @@
         "command:computer_use_control_status",
         "command:computer_use_control_preview",
         "source:src/web-ui/src/app/components/ComputerUseControlCard.tsx#ComputerUseControlCard"
+      ]
+    },
+    {
+      "capabilityId": "feature.computer-use",
+      "itemId": "app-sharing",
+      "titleZh": "选择 App 窗口并单独授权或撤销控制",
+      "titleEn": "Select an App window and separately grant or revoke control",
+      "reasonCode": "visualSelection",
+      "reasonZh": "共享窗口及控制模式由用户明确选择；智能体只能请求共享，不能代替用户授权。",
+      "reasonEn": "Window selection and input mode require an explicit user choice; agents can request sharing but cannot grant themselves control.",
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "tools.execution"
+      },
+      "evidence": [
+        "command:computer_use_share_request",
+        "command:computer_use_share_targets",
+        "command:computer_use_share_start",
+        "command:computer_use_share_control"
+      ]
+    },
+    {
+      "capabilityId": "feature.computer-use",
+      "itemId": "preview-input",
+      "titleZh": "在共享预览中点击、拖动、滚动及输入",
+      "titleEn": "Click, drag, scroll and type through the shared preview",
+      "reasonCode": "visualSelection",
+      "reasonZh": "预览输入需要用户授权，并绑定共享窗口、图像坐标及授权版本。",
+      "reasonEn": "Preview input requires user authorization and is bound to the shared window, image coordinates and authorization revision.",
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "tools.execution"
+      },
+      "evidence": [
+        "command:computer_use_share_observe",
+        "command:computer_use_share_input"
+      ]
+    },
+    {
+      "capabilityId": "feature.computer-use",
+      "itemId": "remembered-control",
+      "titleZh": "按应用执行文件和控制模式记住或忘记授权",
+      "titleEn": "Remember or forget control by application executable and input mode",
+      "reasonCode": "visualSelection",
+      "reasonZh": "记住授权只在用户选定并共享同一应用后生效，应用文件或输入模式改变时需要重新授权。",
+      "reasonEn": "Remembered control applies only after the user shares the same application; changed executable contents or input modes require a new grant.",
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "tools.execution"
+      },
+      "evidence": [
+        "command:computer_use_share_grants",
+        "command:computer_use_share_forget_grant"
       ]
     },
     {

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "digest": "fnv1a64:7a6e4c114b970186",
+  "digest": "fnv1a64:c48277b5f23f04e7",
   "retiredCommandPrefixes": [
     {
       "prefix": "lsp_",
@@ -19,6 +19,7 @@
       "token_usage_statistics",
       "miniapp_agent_context_files_v1",
       "wsl_workspaces_v1",
+      "computer_use_sharing_v1",
       "product_control_v1",
       "product_control_native_v1",
       "product_control_presentation_v1",
@@ -40,6 +41,7 @@
       "token_usage_statistics",
       "miniapp_agent_context_files_v1",
       "wsl_workspaces_v1",
+      "computer_use_sharing_v1",
       "product_control_v1",
       "product_control_native_v1",
       "product_control_presentation_v1",
@@ -1115,7 +1117,115 @@
       }
     },
     {
+      "id": "computer_use_request_permission",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no browser or OS automation runtime"
+      }
+    },
+    {
       "id": "computer_use_request_permissions",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no browser or OS automation runtime"
+      }
+    },
+    {
+      "id": "computer_use_share_control",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no browser or OS automation runtime"
+      }
+    },
+    {
+      "id": "computer_use_share_forget_grant",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no browser or OS automation runtime"
+      }
+    },
+    {
+      "id": "computer_use_share_grants",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no browser or OS automation runtime"
+      }
+    },
+    {
+      "id": "computer_use_share_input",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no browser or OS automation runtime"
+      }
+    },
+    {
+      "id": "computer_use_share_observe",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no browser or OS automation runtime"
+      }
+    },
+    {
+      "id": "computer_use_share_request",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no browser or OS automation runtime"
+      }
+    },
+    {
+      "id": "computer_use_share_start",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no browser or OS automation runtime"
+      }
+    },
+    {
+      "id": "computer_use_share_targets",
       "surface": "tauri_command",
       "remoteWorkspace": "LocalOnly",
       "peer": {

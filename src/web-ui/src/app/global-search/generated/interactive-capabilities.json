@@ -4,7 +4,7 @@
   "title": "OpenBitFun Playbook",
   "origin": "https://playbook.openbitfun.com",
   "source": "src/shared/interactive-capabilities/catalog.json",
-  "digest": "e05dbc222e1267523832f82d6392701ab011c9d8d5ad1582dbe407904dc80d3d",
+  "digest": "156caca2db3ed5820e9bf6683d4df89db5bbbfac8c6c8910d31262c05450ec6e",
   "ownerDigest": "2269c2432e5db44706b2bce44df3c60672141a47c36141aeb1257ea7fd2507f8",
   "searchAcceptance": [
     {
@@ -138,11 +138,11 @@
     "features": 22,
     "settings": 21,
     "userFacing": 43,
-    "documentedItems": 325,
+    "documentedItems": 328,
     "controlCoverage": {
       "direct": 49,
       "delegated": 62,
-      "interactive": 214,
+      "interactive": 217,
       "unsupported": 0
     }
   },
@@ -4869,7 +4869,10 @@
         "default-cdp",
         "agent-actions",
         "control-session-preview",
-        "stop-control-session"
+        "stop-control-session",
+        "app-sharing",
+        "preview-input",
+        "remembered-control"
       ],
       "kind": "query",
       "risk": "read",
@@ -5317,6 +5320,144 @@
       "delegateTools": [
         "ComputerUse"
       ],
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "tools.execution"
+      }
+    },
+    {
+      "id": "feature.computer-use:open:app-sharing",
+      "capabilityId": "feature.computer-use",
+      "itemIds": [
+        "app-sharing"
+      ],
+      "kind": "open",
+      "risk": "ui",
+      "executionHost": "presentationSurface",
+      "availability": {
+        "desktop": {
+          "available": true
+        },
+        "cli": {
+          "available": false,
+          "reason": "This delivery profile has no live presentation surface"
+        },
+        "peer": {
+          "available": true,
+          "requiredCapabilities": [
+            "product_control_v1",
+            "product_control_presentation_v1"
+          ]
+        },
+        "remoteControl": {
+          "available": true
+        },
+        "detachedDispatch": {
+          "available": false,
+          "reason": "This delivery profile has no live presentation surface"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "openReason": "visualSelection",
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "tools.execution"
+      }
+    },
+    {
+      "id": "feature.computer-use:open:preview-input",
+      "capabilityId": "feature.computer-use",
+      "itemIds": [
+        "preview-input"
+      ],
+      "kind": "open",
+      "risk": "ui",
+      "executionHost": "presentationSurface",
+      "availability": {
+        "desktop": {
+          "available": true
+        },
+        "cli": {
+          "available": false,
+          "reason": "This delivery profile has no live presentation surface"
+        },
+        "peer": {
+          "available": true,
+          "requiredCapabilities": [
+            "product_control_v1",
+            "product_control_presentation_v1"
+          ]
+        },
+        "remoteControl": {
+          "available": true
+        },
+        "detachedDispatch": {
+          "available": false,
+          "reason": "This delivery profile has no live presentation surface"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "openReason": "visualSelection",
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "tools.execution"
+      }
+    },
+    {
+      "id": "feature.computer-use:open:remembered-control",
+      "capabilityId": "feature.computer-use",
+      "itemIds": [
+        "remembered-control"
+      ],
+      "kind": "open",
+      "risk": "ui",
+      "executionHost": "presentationSurface",
+      "availability": {
+        "desktop": {
+          "available": true
+        },
+        "cli": {
+          "available": false,
+          "reason": "This delivery profile has no live presentation surface"
+        },
+        "peer": {
+          "available": true,
+          "requiredCapabilities": [
+            "product_control_v1",
+            "product_control_presentation_v1"
+          ]
+        },
+        "remoteControl": {
+          "available": true
+        },
+        "detachedDispatch": {
+          "available": false,
+          "reason": "This delivery profile has no live presentation surface"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "openReason": "visualSelection",
       "presentationTarget": {
         "kind": "settings",
         "pageId": "tools.execution"
@@ -21970,13 +22111,15 @@
         "启用或停用 Computer Use",
         "连接或断开受支持的浏览器",
         "检查并打开系统权限设置",
-        "查看当前控制目标与预览，并随时停止控制"
+        "查看当前控制目标与预览，并随时停止控制",
+        "先选择共享 App，再授权输入；可记住授权或随时撤销"
       ],
       "highlightsEn": [
         "Enable or disable Computer Use",
         "Connect or disconnect a supported browser",
         "Inspect and open OS permission settings",
-        "Inspect the current control target and preview, and stop control at any time"
+        "Inspect the current control target and preview, and stop control at any time",
+        "Select an App share before granting input; remember or revoke the grant"
       ],
       "items": [
         {
@@ -22093,6 +22236,39 @@
               "Use ComputerUse stop_control to release the tool-owned session. Users can also stop from the executing Desktop control card; its button addresses the displayed generation rather than a subsequently created session."
             ]
           }
+        },
+        {
+          "id": "app-sharing",
+          "titleZh": "选择 App 窗口并单独授权或撤销控制",
+          "titleEn": "Select an App window and separately grant or revoke control",
+          "control": {
+            "kind": "open",
+            "reasonCode": "visualSelection",
+            "reasonZh": "共享窗口及控制模式由用户明确选择；智能体只能请求共享，不能代替用户授权。",
+            "reasonEn": "Window selection and input mode require an explicit user choice; agents can request sharing but cannot grant themselves control."
+          }
+        },
+        {
+          "id": "preview-input",
+          "titleZh": "在共享预览中点击、拖动、滚动及输入",
+          "titleEn": "Click, drag, scroll and type through the shared preview",
+          "control": {
+            "kind": "open",
+            "reasonCode": "visualSelection",
+            "reasonZh": "预览输入需要用户授权，并绑定共享窗口、图像坐标及授权版本。",
+            "reasonEn": "Preview input requires user authorization and is bound to the shared window, image coordinates and authorization revision."
+          }
+        },
+        {
+          "id": "remembered-control",
+          "titleZh": "按应用执行文件和控制模式记住或忘记授权",
+          "titleEn": "Remember or forget control by application executable and input mode",
+          "control": {
+            "kind": "open",
+            "reasonCode": "visualSelection",
+            "reasonZh": "记住授权只在用户选定并共享同一应用后生效，应用文件或输入模式改变时需要重新授权。",
+            "reasonEn": "Remembered control applies only after the user shares the same application; changed executable contents or input modes require a new grant."
+          }
         }
       ],
       "stepsZh": [
@@ -22140,10 +22316,12 @@
         "连接或断开受支持的浏览器",
         "检查并打开系统权限设置",
         "查看当前控制目标与预览，并随时停止控制",
+        "先选择共享 App，再授权输入；可记住授权或随时撤销",
         "Enable or disable Computer Use",
         "Connect or disconnect a supported browser",
         "Inspect and open OS permission settings",
         "Inspect the current control target and preview, and stop control at any time",
+        "Select an App share before granting input; remember or revoke the grant",
         "检查 Computer Use 可用性、辅助功能和屏幕录制授权状态",
         "Check Computer Use availability plus accessibility and screen-recording permission status",
         "请求桌面控制所需的系统权限",
@@ -22162,6 +22340,12 @@
         "Inspect the current target, mode, and authorized capture preview in the control card",
         "停止当前桌面控制会话并释放捕获与输入资源",
         "Stop the current desktop-control session and release capture and input resources",
+        "选择 App 窗口并单独授权或撤销控制",
+        "Select an App window and separately grant or revoke control",
+        "在共享预览中点击、拖动、滚动及输入",
+        "Click, drag, scroll and type through the shared preview",
+        "按应用执行文件和控制模式记住或忘记授权",
+        "Remember or forget control by application executable and input mode",
         "打开桌面控制设置",
         "带我配置浏览器控制",
         "Open desktop-control settings",
