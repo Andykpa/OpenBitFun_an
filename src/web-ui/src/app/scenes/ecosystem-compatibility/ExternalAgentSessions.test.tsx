@@ -100,15 +100,40 @@ describe('Codex direct session import', () => {
     return result!;
   }
   const groupTrigger = () => container.querySelector<HTMLButtonElement>('.ecosystem-compatibility__session-group > [data-openbitfun-part="header"] > button')!;
-  async function renderAndExpand() {
-    await act(async () => root.render(<ExternalAgentSessions />));
-    expect(container.querySelector('h2')?.textContent).toBe('sessions.title');
-    await act(async () => button('sessions.title').click());
+  async function renderAndExpand(ecosystemId: 'codex' | 'zcode' = 'codex') {
+    await act(async () => root.render(<ExternalAgentSessions ecosystemId={ecosystemId} />));
+    const title = 'sessions.title:' + JSON.stringify({ name: ecosystemId === 'zcode' ? 'Zcode' : 'Codex' });
+    expect(container.querySelector('h2')?.textContent).toBe(title);
+    await act(async () => button(title).click());
   }
   async function expandFirstGroup() {
     expect(groupTrigger()).not.toBeNull();
     if (groupTrigger().getAttribute('aria-expanded') !== 'true') await act(async () => groupTrigger().click());
   }
+
+  it('routes Zcode browsing, workspace loading, and direct import to the selected source', async () => {
+    const first = { ...candidate('zcode:one'), ecosystemId: 'zcode' };
+    const second = { ...candidate('zcode:two'), ecosystemId: 'zcode' };
+    mocks.listWorkspaces.mockResolvedValue({ workspaces: [workspace([first], 2, 1)] });
+    mocks.listWorkspaceSessions.mockResolvedValue(workspace([second], 2));
+    mocks.plan.mockImplementation(async (id) => ({ ...plan(id), candidate: { ...candidate(id), ecosystemId: 'zcode' } }));
+    await renderAndExpand('zcode');
+    expect(container.querySelector('[data-external-session-import="zcode"]')).not.toBeNull();
+    expect(mocks.listWorkspaces).toHaveBeenCalledWith(0, 'zcode');
+    await expandFirstGroup();
+    await act(async () => button('sessions.loadAll').click());
+    expect(mocks.listWorkspaceSessions).toHaveBeenCalledWith('source-key', 1, 'zcode');
+    await act(async () => button('sessions.importAll').click());
+    expect(mocks.apply.mock.calls.map(([request]) => request.candidateId)).toEqual(['zcode:one', 'zcode:two']);
+    expect(container.textContent).toContain('sessions.allImported');
+  });
+
+  it('keeps Zcode discovery gated on peer devices without a local fallback', async () => {
+    mocks.peer = true;
+    await renderAndExpand('zcode');
+    expect(mocks.listWorkspaces).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('sessions.unsupported');
+  });
 
   it('imports directly, preserves the expanded group, and opens the source session', async () => {
     await renderAndExpand();
@@ -152,7 +177,7 @@ describe('Codex direct session import', () => {
     await expandFirstGroup();
     await act(async () => button('sessions.importAll').click());
     expect(mocks.apply).toHaveBeenCalledTimes(1);
-    expect(mocks.listWorkspaceSessions).toHaveBeenCalledWith('source-key', 1);
+    expect(mocks.listWorkspaceSessions).toHaveBeenCalledWith('source-key', 1, 'codex');
     expect(mocks.apply.mock.invocationCallOrder[0]).toBeLessThan(mocks.listWorkspaceSessions.mock.invocationCallOrder[0]);
     await act(async () => nextPage.resolve(workspace([candidate('two')], 2)));
     expect(mocks.plan.mock.calls.map(([id]) => id)).toEqual(['one', 'two']);
@@ -271,7 +296,7 @@ describe('Codex direct session import', () => {
     await expandFirstGroup();
     const expandedGroup = container.querySelector('.ecosystem-compatibility__session-group');
     await act(async () => button('sessions.loadMore').click());
-    expect(mocks.listWorkspaces).toHaveBeenLastCalledWith(1);
+    expect(mocks.listWorkspaces).toHaveBeenLastCalledWith(1, 'codex');
     expect(container.querySelectorAll('.ecosystem-compatibility__session-group')).toHaveLength(2);
     expect(container.querySelector('.ecosystem-compatibility__session-group')).toBe(expandedGroup);
     expect(expandedGroup?.querySelectorAll('.ecosystem-compatibility__session-row')).toHaveLength(1);
@@ -292,7 +317,7 @@ describe('Codex direct session import', () => {
     await act(async () => firstPage.resolve(workspace([candidate('two')], 3, 2)));
     expect(container.querySelectorAll('.ecosystem-compatibility__session-row')).toHaveLength(2);
     expect(container.textContent).toContain('sessions.loadProgress:{"loaded":"2","total":"3"}');
-    expect(mocks.listWorkspaceSessions.mock.calls).toEqual([['source-key', 1], ['source-key', 2]]);
+    expect(mocks.listWorkspaceSessions.mock.calls).toEqual([['source-key', 1, 'codex'], ['source-key', 2, 'codex']]);
     await act(async () => lastPage.resolve(workspace([candidate('three')], 3)));
     expect(container.querySelectorAll('.ecosystem-compatibility__session-row')).toHaveLength(3);
     expect(container.querySelector('.ecosystem-compatibility__session-load-actions')).toBeNull();
@@ -315,7 +340,7 @@ describe('Codex direct session import', () => {
     expect(button('sessions.loadAll').disabled).toBe(false);
     expect(container.textContent).toContain('sessions.cancelled');
     await act(async () => button('sessions.loadAll').click());
-    expect(mocks.listWorkspaceSessions.mock.calls).toEqual([['source-key', 1], ['source-key', 2], ['source-key', 2]]);
+    expect(mocks.listWorkspaceSessions.mock.calls).toEqual([['source-key', 1, 'codex'], ['source-key', 2, 'codex'], ['source-key', 2, 'codex']]);
     await act(async () => cancelledPage.resolve(workspace([candidate('stale')], 3)));
     expect(container.textContent).not.toContain('stale');
     expect(container.textContent).toContain('sessions.loadProgress');
@@ -335,7 +360,7 @@ describe('Codex direct session import', () => {
     expect(container.querySelectorAll('.ecosystem-compatibility__session-row')).toHaveLength(2);
     expect(container.textContent).toContain('sessions.loadWorkspaceFailed');
     await act(async () => button('sessions.loadAll').click());
-    expect(mocks.listWorkspaceSessions).toHaveBeenLastCalledWith('source-key', 2);
+    expect(mocks.listWorkspaceSessions).toHaveBeenLastCalledWith('source-key', 2, 'codex');
     expect(container.querySelectorAll('.ecosystem-compatibility__session-row')).toHaveLength(3);
     expect(container.textContent).not.toContain('sessions.loadWorkspaceFailed');
   });

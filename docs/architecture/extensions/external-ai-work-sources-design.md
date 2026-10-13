@@ -44,6 +44,7 @@ Codex 与 DeepSeek Harness 中受支持的安全声明，并在用户显式确�
 
 | 内容与生态 | 此页发现范围 | 原生副本导入 | 使用与限制 |
 |---|---|---|---|
+| Session：Codex、Zcode | 本地 Desktop 按来源工作区分页发现已保存会话 | 单个或工作区批量导入，显示进度并可取消；原生副本可继续对话 | Zcode 读取本地 SQLite 主任务历史；Remote workspace、Peer、IM 和 Detached Dispatch 导入入口未提供 |
 | Skill：Claude Code、Codex、OpenCode、Pi、DSH | 已接入各自受支持目录/文件子集；不代表完整包或动态配置解析 | 本地 Desktop 可复制受支持格式；按主机导入版本保留旧格式路径 | 未导入外部 Skill 不进入原生运行目录；导入后由 Skill owner 选择 |
 | MCP：Claude Code、Codex、OpenCode、DSH | 已接入安全声明子集；Pi 没有 provider | 本地 Desktop、根 CLI 可规划并复制；副本默认禁用 | 原生连接状态由 MCP owner 确认；前三类另有持续兼容路径，DSH 发现不意味着 DSH 持续运行兼容 |
 | Hook：五种生态 | 静态来源和事件声明 | 仅 Claude Code/Codex 的受支持同步 command，经审阅导入 | 目录本身不执行；原生 Hook 仍受开关控制；Pi/DSH/OpenCode 目录只读 |
@@ -69,6 +70,25 @@ MCP 副本的连接状态不借用外部来源 activation，页面明确“尚�
 状态投影与交互回归见 Web UI 的 `ecosystemContentPresentation.test.ts`、`ExternalAgentContent.test.tsx`。
 其中远程工作区和 Peer 为前端能力门禁模拟，不是 SSH、IM、Peer 或 Detached Dispatch 端到端证据；手工步骤见
 [Web UI 使用说明](../../../src/web-ui/README.zh-CN.md#外部导入状态检查)。
+
+### Zcode 会话来源与原生副本
+
+`adapters/zcode-adapter` 独立读取 `~/.zcode/cli/db/db.sqlite` 的 `session`、`message`、`part`。
+格式基线是 Zcode 3.15.1 所附 CLI 0.16.9 的本地记录。SQLite 只读事务包含已提交的 WAL 数据，
+不复制正在写入的数据库主文件，不读取凭据，也不从 `model-io-*.jsonl` 请求日志重建历史。
+不存在的数据库返回空目录；权限、损坏或缺少必要列返回明确错误，不修改或重建来源。
+旧记录缺少 `sequence` 时按时间和 ID 排序，未知可选列保留兼容。
+
+仅列出 `parent_id IS NULL` 的主任务。隐藏的继承上下文、系统和 Todo 提醒不生成用户轮次；
+可见消息按 `parentID` 归入原始用户输入，工具参数、结果和失败状态作为非执行历史保留。
+进行中的工具保留中断状态。附件仅保留名称引用，并返回和持久化导入提示；不复制来源附件文件。
+不支持的消息角色、工具状态、损坏记录和超出读取预算的历史明确失败，不以空历史伪装成功。
+
+产品装配通过已有外部会话导入入口选择 Codex 或 Zcode reader，复用来源工作区映射、取消、
+原子写入及 Session owner；导入副本使用宿主当前配置的主模型继续对话。来源生态与 Session ID
+共同参与副本匹配，避免跨生态混认。旧的列表请求省略 `ecosystemId` 时仍表示 Codex，原有 Rust
+facade 名称保留；客户端拒绝把旧主机返回的 Codex 目录显示为 Zcode。Zcode Session 导入不意味着
+Zcode ACP 运行时、设置、Skill、MCP 或 Hook 已接入，其余类别仍显示各自真实支持状态。
 
 ## 0. 当前 MCP 快照导入契约（C0a）
 

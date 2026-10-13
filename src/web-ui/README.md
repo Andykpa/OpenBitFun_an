@@ -291,8 +291,19 @@ preserve omitted source fields and existing app storage when updating.
 Open a disposable local workspace in Desktop and select an app under External Import.
 Use test content or reversible imported copies. Category discovery coverage is independent of copy import and execution support.
 
+For Codex and Zcode, expand **Session import** to browse the five most recent source
+workspaces, with up to five sessions in each preview. **Load more workspaces** adds
+workspace groups; **Load all sessions** loads only its own group and supports progress,
+cancellation and resuming. Import one session or the whole source workspace, then
+choose **Open session** to continue in OpenBitFun with the host's configured model.
+Zcode reads saved top-level tasks from `~/.zcode/cli/db/db.sqlite`, including committed
+WAL data. Hidden inherited context and nested side/subagent tasks are excluded.
+Source data stays intact; attachment names are retained but attachment files are not copied.
+This local Desktop import does not enable Zcode runtime, configuration, or plugin compatibility.
+
 | Check | Action | Expected result |
 |---|---|---|
+| Zcode session import | Select Zcode, expand Session import, import a saved task, then open it | The task is stored under its source workspace with readable messages and tool history; it can continue using OpenBitFun. Load and import progress are cancellable, and completed groups show All imported |
 | Command discovery | Put `Reply with STATUS_OK.` in `.claude/commands/status-check.md`, then refresh the catalog | The category shows the discovered count and the category dialog lists the discovered commands. Viewing it neither enables execution nor offers unsupported copy import; runtime activation stays with its existing owner |
 | MCP copy versus connection | Review and import an existing supported MCP declaration, leaving the native copy disabled | The row says Imported and connection not confirmed. Check and enable the copy in MCP settings, which owns the actual connection result |
 | Read-only hooks | Select Pi or DSH with a configured extension and open the Hook category dialog | Static declarations are viewable without execution. Single and category import actions are absent |

@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   workspacePath: '/workspace',
   peerDeviceId: '',
   sessionMounts: 0,
+  sessionCounts: {} as Record<string, number>,
   skills: [] as Array<Record<string, unknown>>,
   t: (key: string, values?: Record<string, unknown>) => key === 'productSummary.assets' ? `assets:${values?.count}` : key,
 }));
@@ -62,10 +63,11 @@ vi.mock('@/infrastructure/config/services/AIExperienceConfigService', () => ({ a
 } }));
 vi.mock('@/infrastructure/runtime', () => ({ isTauriRuntime: () => true }));
 vi.mock('./ExternalAgentSessions', async () => {
-  const { useState } = await import('react');
-  return { default: function SessionImport() {
+  const { useEffect, useState } = await import('react');
+  return { default: function SessionImport({ ecosystemId, onCountChange }: { ecosystemId: string; onCountChange: (count: number) => void }) {
     const [mount] = useState(() => ++mocks.sessionMounts);
-    return <section data-session-mount={mount} />;
+    useEffect(() => { onCountChange(mocks.sessionCounts[ecosystemId] ?? 0); }, [ecosystemId, onCountChange]);
+    return <section data-session-mount={mount} data-session-source={ecosystemId} />;
   } };
 });
 vi.mock('@/infrastructure/api/service-api/ConfigAPI', () => ({ configAPI: { getGlobalSkillSettings: async () => ({ directSkillManagementVersion: 1, globallyDisabledUserSkillKeys: [], globallyDisabledProjectSkillKeys: [] }), getConfig: async () => ({ enable_agent_companion: false }), getSkillScanReport: async () => ({ skills: mocks.skills, diagnostics: [] }) } }));
@@ -114,6 +116,7 @@ describe('compatibility discovery lifecycle', () => {
     mocks.workspacePath = '/workspace';
     mocks.peerDeviceId = '';
     mocks.sessionMounts = 0;
+    mocks.sessionCounts = {};
     mocks.skills = [];
     container = document.createElement('div');
     document.body.append(container);
@@ -145,6 +148,26 @@ describe('compatibility discovery lifecycle', () => {
     expect(container.querySelector('[data-session-mount]')).toBe(sessions);
     expect(mocks.sessionMounts).toBe(1);
     expect(container.querySelector('[data-external-agent-content]')).not.toBe(content);
+  });
+
+  it('switches between Codex and Zcode with isolated session views and counts', async () => {
+    mocks.sessionCounts = { codex: 3, zcode: 7 };
+    mocks.getDiscoverySnapshot.mockResolvedValue(snapshot(true));
+    await act(async () => root.render(<EcosystemCompatibilityScene />));
+    const codexView = container.querySelector('[data-session-source="codex"]');
+    expect(container.querySelector('[data-product-id="codex"]')?.getAttribute('title')).toContain('assets:3');
+    mocks.selectedProductId = 'zcode';
+    await act(async () => root.render(<EcosystemCompatibilityScene />));
+    expect(container.querySelector('[data-session-source="zcode"]')).not.toBeNull();
+    expect(container.querySelector('[data-session-source="codex"]')).toBeNull();
+    expect(container.querySelector('[data-session-mount]')).not.toBe(codexView);
+    expect(container.querySelector('[data-product-id="codex"]')?.getAttribute('title')).toContain('assets:3');
+    expect(container.querySelector('[data-product-id="zcode"]')?.getAttribute('title')).toContain('assets:7');
+    expect(container.querySelector('[data-external-agent-content="zcode"]')).not.toBeNull();
+    mocks.peerDeviceId = 'peer-other';
+    mocks.sessionCounts = {};
+    await act(async () => root.render(<EcosystemCompatibilityScene />));
+    expect(container.querySelector('[data-product-id="zcode"]')?.getAttribute('title')).not.toContain('assets:7');
   });
 
   it('uses the Cursor brand mark and does not present shared directories as agents', async () => {

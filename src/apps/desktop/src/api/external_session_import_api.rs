@@ -1,6 +1,6 @@
 use openbitfun_core::external_session_import::{
-    apply_codex_session_import, cancel_codex_session_import, list_codex_sessions,
-    plan_codex_session_import,
+    apply_external_session_import as apply_import, cancel_external_session_import as cancel_import,
+    list_external_sessions, plan_external_session_import as plan_import,
 };
 use openbitfun_product_domains::external_sources::ExternalSourceOperationResult;
 use openbitfun_product_domains::session_import::{
@@ -12,6 +12,8 @@ use serde::Deserialize;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ListExternalSessionImportRequest {
+    #[serde(default)]
+    pub ecosystem_id: Option<String>,
     #[serde(default)]
     pub scope: Option<ExternalSessionCatalogScope>,
     #[serde(default)]
@@ -46,14 +48,21 @@ fn default_full_mode() -> ExternalSessionImportMode {
 pub async fn list_external_session_import_candidates(
     request: ListExternalSessionImportRequest,
 ) -> ExternalSourceOperationResult<ExternalSessionCatalog> {
-    list_codex_sessions(request.cursor, request.limit, &request.query, request.scope).await
+    list_external_sessions(
+        request.ecosystem_id.as_deref().unwrap_or("codex"),
+        request.cursor,
+        request.limit,
+        &request.query,
+        request.scope,
+    )
+    .await
 }
 
 #[tauri::command]
 pub async fn plan_external_session_import(
     request: PlanExternalSessionImportRequest,
 ) -> ExternalSourceOperationResult<ExternalSessionImportPlan> {
-    plan_codex_session_import(
+    plan_import(
         request.workspace_id.as_deref(),
         &request.candidate_id,
         request.mode,
@@ -66,7 +75,7 @@ pub async fn plan_external_session_import(
 pub async fn apply_external_session_import(
     request: ExternalSessionImportRequest,
 ) -> ExternalSourceOperationResult<ExternalSessionImportApplied> {
-    apply_codex_session_import(request).await
+    apply_import(request).await
 }
 
 #[derive(Debug, Deserialize)]
@@ -77,7 +86,7 @@ pub struct CancelExternalSessionImportRequest {
 
 #[tauri::command]
 pub fn cancel_external_session_import(request: CancelExternalSessionImportRequest) -> bool {
-    cancel_codex_session_import(&request.operation_id)
+    cancel_import(&request.operation_id)
 }
 
 #[cfg(test)]
@@ -89,6 +98,7 @@ mod tests {
         let request: ListExternalSessionImportRequest =
             serde_json::from_value(serde_json::json!({})).unwrap();
         assert!(request.scope.is_none());
+        assert!(request.ecosystem_id.is_none());
         assert_eq!(request.cursor, 0);
         assert_eq!(request.limit, 50);
         assert!(request.query.is_empty());
@@ -113,5 +123,15 @@ mod tests {
         assert!(
             matches!(request.scope, Some(ExternalSessionCatalogScope::Workspace { workspace_key }) if workspace_key == "source")
         );
+    }
+
+    #[test]
+    fn zcode_discovery_keeps_an_explicit_ecosystem_separate_from_legacy_codex_requests() {
+        let request: ListExternalSessionImportRequest = serde_json::from_value(serde_json::json!({
+            "ecosystemId": "zcode", "scope": { "kind": "workspaces", "previewLimit": 5 }
+        }))
+        .unwrap();
+        assert_eq!(request.ecosystem_id.as_deref(), Some("zcode"));
+        assert_eq!(request.cursor, 0);
     }
 }

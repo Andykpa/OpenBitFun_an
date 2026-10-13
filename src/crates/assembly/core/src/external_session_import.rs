@@ -1,11 +1,11 @@
 //! Import and local continuation of external Agent sessions.
 
-use openbitfun_codex_adapter::session::{CodexSessionReader, SOURCE_REVISION};
+use openbitfun_codex_adapter::session::CodexSessionReader;
 use openbitfun_product_domains::external_sources::{
     ExternalSourceOperationError, ExternalSourceOperationErrorCode, ExternalSourceOperationResult,
 };
 use openbitfun_product_domains::session_import::{
-    CodexSessionDocument, ExternalSessionCandidate, ExternalSessionCatalogScope,
+    ExternalSessionCandidate, ExternalSessionCatalogScope, ExternalSessionDocument,
     ExternalSessionImportApplied, ExternalSessionImportMode, ExternalSessionImportPlan,
     ExternalSessionImportRequest, ExternalSessionWorkspaceMapping,
     EXTERNAL_SESSION_IMPORT_SCHEMA_V1,
@@ -16,6 +16,7 @@ use openbitfun_services_core::session::{
     SessionMemoryMode, SessionMetadata, SessionStatus, TextItemData, ThinkingItemData,
     ToolCallData, ToolItemData, ToolResultData, TurnStatus, UserMessageData,
 };
+use openbitfun_zcode_adapter::session::ZcodeSessionReader;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{
@@ -30,6 +31,64 @@ use std::{
 use uuid::Uuid;
 
 const MAX_LIST_LIMIT: usize = 50;
+
+#[derive(Clone, Copy)]
+enum ImportSource {
+    Codex,
+    Zcode,
+}
+
+impl ImportSource {
+    fn from_ecosystem(id: &str) -> ExternalSourceOperationResult<Self> {
+        match id {
+            "codex" => Ok(Self::Codex),
+            "zcode" => Ok(Self::Zcode),
+            _ => Err(operation(
+                ExternalSourceOperationErrorCode::Unsupported,
+                "This external agent does not support session import",
+                false,
+            )),
+        }
+    }
+
+    fn from_candidate(id: &str) -> ExternalSourceOperationResult<Self> {
+        Self::from_ecosystem(
+            id.split_once(':')
+                .map(|(ecosystem, _)| ecosystem)
+                .unwrap_or(""),
+        )
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Codex => "Codex",
+            Self::Zcode => "Zcode",
+        }
+    }
+
+    fn format(self) -> &'static str {
+        match self {
+            Self::Codex => "codex-rollout-jsonl",
+            Self::Zcode => "zcode-session-sqlite",
+        }
+    }
+
+    fn revision(self) -> &'static str {
+        match self {
+            Self::Codex => openbitfun_codex_adapter::session::SOURCE_REVISION,
+            Self::Zcode => openbitfun_zcode_adapter::session::SOURCE_REVISION,
+        }
+    }
+
+    fn read(self, candidate: &str) -> Result<ExternalSessionDocument, String> {
+        match self {
+            Self::Codex => CodexSessionReader::default()
+                .read_candidate(candidate, ExternalSessionImportMode::Full),
+            Self::Zcode => ZcodeSessionReader::default()
+                .read_candidate(candidate, ExternalSessionImportMode::Full),
+        }
+    }
+}
 
 type ImportOperations = HashMap<String, (Arc<AtomicBool>, Instant)>;
 static IMPORT_OPERATIONS: LazyLock<Mutex<ImportOperations>> =
@@ -128,7 +187,7 @@ fn cancelled_import() -> ExternalSourceOperationError {
     )
 }
 
-pub fn cancel_codex_session_import(operation_id: &str) -> bool {
+pub fn cancel_external_session_import(operation_id: &str) -> bool {
     let entry = IMPORT_OPERATIONS
         .lock()
         .unwrap_or_else(|error| error.into_inner())
@@ -148,11 +207,32 @@ pub async fn list_codex_sessions(
     scope: Option<ExternalSessionCatalogScope>,
 ) -> ExternalSourceOperationResult<openbitfun_product_domains::session_import::ExternalSessionCatalog>
 {
-    let reader = CodexSessionReader::default();
+    list_external_sessions("codex", cursor, limit, query, scope).await
+}
+
+pub async fn list_external_sessions(
+    ecosystem_id: &str,
+    cursor: usize,
+    limit: usize,
+    query: &str,
+    scope: Option<ExternalSessionCatalogScope>,
+) -> ExternalSourceOperationResult<openbitfun_product_domains::session_import::ExternalSessionCatalog>
+{
+    let source = ImportSource::from_ecosystem(ecosystem_id)?;
     let query = query.to_owned();
-    let mut catalog = tokio::task::spawn_blocking(move || match scope {
-        Some(scope) => reader.discover_workspaces(cursor, limit.min(MAX_LIST_LIMIT), &query, scope),
-        None => reader.discover(cursor, limit.min(MAX_LIST_LIMIT), &query),
+    let mut catalog = tokio::task::spawn_blocking(move || match source {
+        ImportSource::Codex => {
+            let reader = CodexSessionReader::default();
+            match scope {
+                Some(scope) => {
+                    reader.discover_workspaces(cursor, limit.min(MAX_LIST_LIMIT), &query, scope)
+                }
+                None => reader.discover(cursor, limit.min(MAX_LIST_LIMIT), &query),
+            }
+        }
+        ImportSource::Zcode => {
+            ZcodeSessionReader::default().discover(cursor, limit.min(MAX_LIST_LIMIT), &query, scope)
+        }
     })
     .await
     .map_err(|error| {
@@ -167,27 +247,25 @@ pub async fn list_codex_sessions(
     Ok(catalog)
 }
 
-pub async fn plan_codex_session_import(
+pub async fn plan_external_session_import(
     _workspace_id: Option<&str>,
     candidate_id: &str,
     _mode: ExternalSessionImportMode,
     operation_id: Option<&str>,
 ) -> ExternalSourceOperationResult<ExternalSessionImportPlan> {
     let mut import_operation = operation_id.map(ImportOperation::start).transpose()?;
-    let reader = CodexSessionReader::default();
+    let source = ImportSource::from_candidate(candidate_id)?;
     let candidate_id = candidate_id.to_owned();
-    let document = tokio::task::spawn_blocking(move || {
-        reader.read_candidate(&candidate_id, ExternalSessionImportMode::Full)
-    })
-    .await
-    .map_err(|error| {
-        operation(
-            ExternalSourceOperationErrorCode::Internal,
-            error.to_string(),
-            true,
-        )
-    })?
-    .map_err(|error| operation(ExternalSourceOperationErrorCode::NotFound, error, false))?;
+    let document = tokio::task::spawn_blocking(move || source.read(&candidate_id))
+        .await
+        .map_err(|error| {
+            operation(
+                ExternalSourceOperationErrorCode::Internal,
+                error.to_string(),
+                true,
+            )
+        })?
+        .map_err(|error| operation(ExternalSourceOperationErrorCode::NotFound, error, false))?;
     if let Some(operation) = &import_operation {
         operation.check()?;
     }
@@ -206,7 +284,7 @@ pub async fn plan_codex_session_import(
     Ok(plan)
 }
 
-pub async fn apply_codex_session_import(
+pub async fn apply_external_session_import(
     request: ExternalSessionImportRequest,
 ) -> ExternalSourceOperationResult<ExternalSessionImportApplied> {
     let import_operation = request
@@ -224,20 +302,18 @@ pub async fn apply_codex_session_import(
             false,
         ));
     }
-    let reader = CodexSessionReader::default();
+    let source = ImportSource::from_candidate(&request.candidate_id)?;
     let candidate_id = request.candidate_id.clone();
-    let document = tokio::task::spawn_blocking(move || {
-        reader.read_candidate(&candidate_id, ExternalSessionImportMode::Full)
-    })
-    .await
-    .map_err(|error| {
-        operation(
-            ExternalSourceOperationErrorCode::Internal,
-            error.to_string(),
-            true,
-        )
-    })?
-    .map_err(|error| operation(ExternalSourceOperationErrorCode::NotFound, error, false))?;
+    let document = tokio::task::spawn_blocking(move || source.read(&candidate_id))
+        .await
+        .map_err(|error| {
+            operation(
+                ExternalSourceOperationErrorCode::Internal,
+                error.to_string(),
+                true,
+            )
+        })?
+        .map_err(|error| operation(ExternalSourceOperationErrorCode::NotFound, error, false))?;
     if let Some(operation) = &import_operation {
         operation.check()?;
     }
@@ -245,7 +321,7 @@ pub async fn apply_codex_session_import(
     if workspace.id != request.target_workspace_id {
         return Err(operation(
             ExternalSourceOperationErrorCode::InvalidRequest,
-            "The selected workspace does not match the Codex session workspace",
+            "The selected workspace does not match the source session workspace",
             false,
         ));
     }
@@ -259,7 +335,7 @@ pub async fn apply_codex_session_import(
     if plan.plan_fingerprint != request.plan_fingerprint {
         return Err(operation(
             ExternalSourceOperationErrorCode::StaleRevision,
-            "Codex Session changed; refresh the import preview",
+            "Source session changed; refresh the session list",
             true,
         ));
     }
@@ -271,7 +347,7 @@ pub async fn apply_codex_session_import(
         .map_err(|error| {
             operation(
                 ExternalSourceOperationErrorCode::Internal,
-                format!("Failed to inspect imported Codex Sessions: {error}"),
+                format!("Failed to inspect imported external sessions: {error}"),
                 true,
             )
         })?
@@ -283,7 +359,7 @@ pub async fn apply_codex_session_import(
                     .as_ref()
                     .and_then(|value| value.get("importedFrom"))
                     .and_then(serde_json::Value::as_str)
-                    == Some("codex")
+                    == Some(document.candidate.ecosystem_id.as_str())
                 && metadata
                     .custom_metadata
                     .as_ref()
@@ -311,12 +387,16 @@ pub async fn apply_codex_session_import(
         });
     }
 
-    let session_id = format!("codex-import-{}", Uuid::new_v4());
+    let session_id = format!(
+        "{}-import-{}",
+        document.candidate.ecosystem_id,
+        Uuid::new_v4()
+    );
     let session_name = request
         .session_title
         .filter(|value| !value.trim().is_empty())
         .or(document.candidate.title.clone())
-        .unwrap_or_else(|| "Imported Codex Session".to_string());
+        .unwrap_or_else(|| format!("Imported {} Session", source.name()));
     let bundle = convert_document(
         &session_id,
         &workspace,
@@ -344,7 +424,7 @@ pub async fn apply_codex_session_import(
             }
             operation(
                 ExternalSourceOperationErrorCode::Internal,
-                format!("Failed to persist imported Codex Session: {error}"),
+                format!("Failed to persist imported external session: {error}"),
                 true,
             )
         })?;
@@ -362,6 +442,11 @@ pub async fn apply_codex_session_import(
     })
 }
 
+// Preserve Rust facade names used by existing Codex import consumers.
+pub use apply_external_session_import as apply_codex_session_import;
+pub use cancel_external_session_import as cancel_codex_session_import;
+pub use plan_external_session_import as plan_codex_session_import;
+
 async fn resolve_import_workspace(
     candidate: &ExternalSessionCandidate,
 ) -> ExternalSourceOperationResult<crate::service::workspace::WorkspaceInfo> {
@@ -372,7 +457,7 @@ async fn resolve_import_workspace(
         .ok_or_else(|| {
             operation(
                 ExternalSourceOperationErrorCode::InvalidRequest,
-                "Codex session does not identify a workspace directory",
+                "Source session does not identify a workspace directory",
                 false,
             )
         })?;
@@ -387,7 +472,7 @@ async fn resolve_import_workspace(
     if !source.is_absolute() || !source.is_dir() {
         return Err(operation(
             ExternalSourceOperationErrorCode::InvalidRequest,
-            "The Codex workspace directory is unavailable on this host",
+            "The source workspace directory is unavailable on this host",
             false,
         ));
     }
@@ -401,7 +486,7 @@ async fn resolve_import_workspace(
         .map_err(|error| {
             operation(
                 ExternalSourceOperationErrorCode::InvalidRequest,
-                format!("The Codex workspace is unavailable: {error}"),
+                format!("The source workspace is unavailable: {error}"),
                 false,
             )
         })
@@ -452,7 +537,7 @@ async fn annotate_catalog(
             .map_err(|error| {
                 operation(
                     ExternalSourceOperationErrorCode::Internal,
-                    format!("Failed to inspect imported Codex Sessions: {error}"),
+                    format!("Failed to inspect imported external sessions: {error}"),
                     true,
                 )
             })?;
@@ -466,7 +551,7 @@ async fn annotate_catalog(
                 if custom
                     .get("importedFrom")
                     .and_then(serde_json::Value::as_str)
-                    != Some("codex")
+                    != Some(catalog.ecosystem_id.as_str())
                 {
                     return None;
                 }
@@ -578,7 +663,7 @@ fn build_plan(
     workspace_id: &str,
     workspace_name: &str,
     workspace_root: &Path,
-    mut document: CodexSessionDocument,
+    mut document: ExternalSessionDocument,
     mode: ExternalSessionImportMode,
 ) -> ExternalSessionImportPlan {
     let mapping = document
@@ -649,7 +734,7 @@ fn convert_document(
     project: &crate::service::workspace::WorkspaceInfo,
     agent_id: &str,
     session_name: &str,
-    document: &CodexSessionDocument,
+    document: &ExternalSessionDocument,
     include_tool_history: bool,
     include_thinking: bool,
 ) -> ExternalSourceOperationResult<OfflineSessionBundle> {
@@ -669,12 +754,14 @@ fn convert_document(
     metadata.project_workspace_path = Some(project.root_path.to_string_lossy().to_string());
     metadata.memory_mode = SessionMemoryMode::Disabled;
     metadata.status = SessionStatus::Completed;
+    let source = ImportSource::from_ecosystem(&document.candidate.ecosystem_id)?;
     metadata.custom_metadata = Some(json!({
-        "importedFrom": "codex",
+        "importedFrom": document.candidate.ecosystem_id,
         "sourceSessionId": document.candidate.source_session_id,
         "sourceFingerprint": document.candidate.fingerprint,
-        "sourceFormat": "codex-rollout-jsonl",
-        "sourceRevision": SOURCE_REVISION,
+        "sourceFormat": source.format(),
+        "sourceRevision": source.revision(),
+        "importWarningCodes": document.warnings.iter().map(|warning| &warning.code).collect::<Vec<_>>(),
         "sourceCwd": document.candidate.cwd,
         "sourceModelProvider": document.candidate.model_provider,
         "sourceModel": document.candidate.model_name,
@@ -700,7 +787,7 @@ fn convert_document(
                 content: source.user_text.clone(),
                 timestamp,
                 metadata: Some(
-                    json!({"importedFrom":"codex","sourceTurnId":source.source_turn_id}),
+                    json!({"importedFrom":document.candidate.ecosystem_id,"sourceTurnId":source.source_turn_id}),
                 ),
             },
         );
@@ -811,10 +898,10 @@ fn convert_document(
                         subagent_model_id: None,
                         subagent_model_display_name: None,
                         status: Some(
-                            if success.unwrap_or(true) {
-                                "completed"
-                            } else {
-                                "error"
+                            match success {
+                                Some(true) => "completed",
+                                Some(false) => "error",
+                                None => "cancelled",
                             }
                             .to_string(),
                         ),
@@ -890,6 +977,162 @@ fn operation(
 mod tests {
     use super::*;
     use crate::service::workspace::{WorkspaceInfo, WorkspaceKind};
+
+    #[test]
+    fn source_selection_never_falls_back_to_codex_for_an_unknown_ecosystem() {
+        assert!(matches!(
+            ImportSource::from_candidate("codex:source").unwrap(),
+            ImportSource::Codex
+        ));
+        assert!(matches!(
+            ImportSource::from_candidate("zcode:source").unwrap(),
+            ImportSource::Zcode
+        ));
+        assert!(ImportSource::from_candidate("unregistered:source").is_err());
+        assert!(ImportSource::from_candidate("source").is_err());
+    }
+
+    #[tokio::test]
+    async fn zcode_history_round_trips_through_native_storage_with_its_own_provenance() {
+        use openbitfun_product_domains::session_import::{
+            ExternalSessionItem, ExternalSessionStatus, ExternalSessionTurn,
+        };
+        let root = tempfile::tempdir().unwrap();
+        let workspace = workspace("source", root.path(), WorkspaceKind::Normal);
+        let document = ExternalSessionDocument {
+            candidate: serde_json::from_value(json!({
+                "candidateId":"zcode:source", "ecosystemId":"zcode", "sourceSessionId":"source",
+                "fileSizeBytes":42, "status":"interrupted", "fingerprint":"sha256:fixture",
+                "modelName":"glm-source", "modelProvider":"zcode-source"
+            }))
+            .unwrap(),
+            turns: vec![ExternalSessionTurn {
+                source_turn_id: "source-user".into(),
+                timestamp: 1000,
+                user_text: "Continue this task".into(),
+                items: vec![
+                    ExternalSessionItem::Text {
+                        text: "A saved answer".into(),
+                    },
+                    ExternalSessionItem::Tool {
+                        id: "failed".into(),
+                        name: "Read".into(),
+                        input: json!({"path":"missing"}),
+                        result: Some(json!("Not found")),
+                        success: Some(false),
+                    },
+                    ExternalSessionItem::Tool {
+                        id: "pending".into(),
+                        name: "Bash".into(),
+                        input: json!({"command":"pending"}),
+                        result: None,
+                        success: None,
+                    },
+                ],
+                source_event_count: 4,
+                status: ExternalSessionStatus::Interrupted,
+            }],
+            warnings: Vec::new(),
+        };
+        let bundle = convert_document(
+            "zcode-import-fixture",
+            &workspace,
+            &workspace,
+            "primary",
+            "Imported task",
+            &document,
+            true,
+            false,
+        )
+        .unwrap();
+        let store = OfflineSessionImportStore::new(root.path().join("native-sessions"));
+        store.write_bundle_atomic(&bundle).await.unwrap();
+        let saved = store
+            .load_bundle("zcode-import-fixture")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            saved.metadata.custom_metadata.as_ref().unwrap()["importedFrom"],
+            "zcode"
+        );
+        assert_eq!(
+            saved.metadata.custom_metadata.as_ref().unwrap()["sourceFormat"],
+            "zcode-session-sqlite"
+        );
+        assert_eq!(
+            saved.turns[0].user_message.metadata.as_ref().unwrap()["importedFrom"],
+            "zcode"
+        );
+        assert_eq!(saved.turns[0].user_message.content, "Continue this task");
+        assert_eq!(
+            saved.turns[0].model_rounds[0]
+                .effective_model_name
+                .as_deref(),
+            Some("glm-source")
+        );
+        assert_eq!(
+            saved.turns[0].model_rounds[0].tool_items[0]
+                .tool_result
+                .as_ref()
+                .unwrap()
+                .success,
+            false
+        );
+        assert_eq!(
+            saved.turns[0].model_rounds[0].tool_items[1]
+                .status
+                .as_deref(),
+            Some("cancelled")
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "Reads installed Zcode history and writes only to a temporary native store"]
+    async fn inspect_installed_zcode_native_import() {
+        let reader = ZcodeSessionReader::default();
+        let catalog = reader.discover(0, 5, "", None).unwrap();
+        assert!(
+            !catalog.candidates.is_empty(),
+            "No installed Zcode sessions found"
+        );
+        let root = tempfile::tempdir().unwrap();
+        let store = OfflineSessionImportStore::new(root.path().join("sessions"));
+        for candidate in catalog.candidates {
+            let document = reader
+                .read_candidate(&candidate.candidate_id, ExternalSessionImportMode::Full)
+                .unwrap();
+            let workspace = workspace("fixture-workspace", root.path(), WorkspaceKind::Normal);
+            let id = format!("zcode-import-{}", Uuid::new_v4());
+            let bundle = convert_document(
+                &id,
+                &workspace,
+                &workspace,
+                "primary",
+                "Zcode verification",
+                &document,
+                true,
+                false,
+            )
+            .unwrap();
+            store.write_bundle_atomic(&bundle).await.unwrap();
+            let saved = store.load_bundle(&id).await.unwrap().unwrap();
+            assert_eq!(
+                serde_json::to_value(&saved.turns).unwrap(),
+                serde_json::to_value(&bundle.turns).unwrap()
+            );
+            assert_eq!(saved.metadata.turn_count, document.turns.len());
+            assert_eq!(
+                saved.metadata.custom_metadata.as_ref().unwrap()["importedFrom"],
+                "zcode"
+            );
+            println!(
+                "Zcode native storage round trip: {} turns, {} tools",
+                saved.turns.len(),
+                saved.metadata.tool_call_count
+            );
+        }
+    }
 
     #[test]
     fn cancelled_plan_cannot_be_applied() {
@@ -996,7 +1239,7 @@ mod tests {
             &root.path().join("worktree"),
             WorkspaceKind::Normal,
         );
-        let document = CodexSessionDocument {
+        let document = ExternalSessionDocument {
             candidate: serde_json::from_value(json!({
                 "candidateId": "source", "ecosystemId": "codex", "sourceSessionId": "source",
                 "fileSizeBytes": 1, "status": "complete", "fingerprint": "test"

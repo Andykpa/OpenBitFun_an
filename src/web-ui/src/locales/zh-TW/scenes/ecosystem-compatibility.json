@@ -69,9 +69,9 @@
     "instruction": "指令與規則"
   },
   "sessions": {
-    "title": "Codex 工作階段匯入",
+    "title": "{{name}} 工作階段匯入",
     "unsupported": "工作階段匯入目前僅支援本機工作區；遠端工作區和對等裝置尚不支援。",
-    "empty": "本機沒有發現 Codex 工作階段。",
+    "empty": "這台電腦上沒有找到 {{name}} 工作階段。",
     "unknownWorkspace": "來源未記錄工作區",
     "import": "匯入",
     "importAll": "匯入全部",
@@ -87,15 +87,16 @@
     "loadWorkspaceFailed": "載入工作階段失敗，可繼續載入。",
     "workspacePaginationUnsupported": "目前的主機不支援依工作區載入工作階段，請更新 OpenBitFun 後再試。",
     "errors": {
-      "noHistory": "此 Codex rollout 中找不到可讀的對話輪次。",
-      "corrupt": "Codex rollout 在結束前包含損壞記錄，因此未匯入。",
-      "tooLarge": "此 Codex rollout 超過安全匯入大小限制。",
-      "sourceMissing": "Codex rollout 已移動或刪除，請重新整理工作階段清單。",
-      "workspaceUnavailable": "對應的來源工作區在本機不可用。"
+      "noHistory": "來源工作階段中沒有可讀取的對話輪次。",
+      "corrupt": "來源工作階段包含損壞的記錄，未執行匯入。",
+      "tooLarge": "來源工作階段超過了安全匯入的大小限制。",
+      "sourceMissing": "來源工作階段已移動或被刪除，請重新整理工作階段清單。",
+      "workspaceUnavailable": "對應的來源工作區在本機不可用。",
+      "unsupportedFormat": "目前版本尚不支援此工作階段格式，請更新 OpenBitFun 後重試。"
     },
     "batchPartial": "{{failed}} 個工作階段未匯入，可重試。",
     "batchFailed": "此工作區的工作階段無法匯入。",
-    "loadFailed": "無法讀取 Codex 工作階段。",
+    "loadFailed": "無法讀取來源工作階段。",
     "importFailed": "工作階段匯入失敗，來源可能已發生變化。請重新整理後重試。",
     "openFailed": "無法開啟已匯入的工作階段，請確認對應工作區和工作階段仍可用後重試。",
     "allImported": "已全部匯入",
@@ -104,7 +105,8 @@
     "importProgress": "匯入中 · {{count}} 個已完成",
     "cancelling": "正在取消…",
     "cancelled": "$t(shared:statuses.cancelled)",
-    "cancelFailed": "取消要求失敗，可重試；目前的工作階段可能仍會完成。"
+    "cancelFailed": "取消要求失敗，可重試；目前的工作階段可能仍會完成。",
+    "ecosystemUnsupported": "目前主機尚不支援匯入這個 Agent 的工作階段，請更新 OpenBitFun 後重試。"
   },
   "import": {
     "title": "匯入與複用",

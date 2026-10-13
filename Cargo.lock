@@ -6266,6 +6266,7 @@ dependencies = [
  "openbitfun-services-core",
  "openbitfun-services-integrations",
  "openbitfun-tool-packs",
+ "openbitfun-zcode-adapter",
  "regex",
  "reqwest",
  "rusqlite",
@@ -7014,6 +7015,19 @@ dependencies = [
  "webview2-com",
  "windows 0.61.3",
  "windows-core 0.61.2",
+]
+
+[[package]]
+name = "openbitfun-zcode-adapter"
+version = "1.0.6"
+dependencies = [
+ "dirs 6.0.0",
+ "hex",
+ "openbitfun-product-domains",
+ "rusqlite",
+ "serde_json",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]

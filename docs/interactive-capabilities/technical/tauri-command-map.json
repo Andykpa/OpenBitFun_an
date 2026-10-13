@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "30ba314ca2dc4304bbea05f49966ac1a9815f0a3d6d7c345a09e6f9be482546b",
+  "catalogDigest": "44d644e295de73631b174368fd2675b8041ba4e915c8fcf50df1deb269f2ecec",
   "commandCount": 678,
   "coverage": {
     "commandCount": 678,
@@ -608,7 +608,8 @@
         "feature.ecosystem-compatibility"
       ],
       "documentedItemIds": [
-        "feature.ecosystem-compatibility:codex-session-import"
+        "feature.ecosystem-compatibility:codex-session-import",
+        "feature.ecosystem-compatibility:zcode-session-import"
       ],
       "visibility": "documented",
       "rustPath": "apply_external_session_import",
@@ -986,7 +987,8 @@
         "feature.ecosystem-compatibility"
       ],
       "documentedItemIds": [
-        "feature.ecosystem-compatibility:codex-session-import"
+        "feature.ecosystem-compatibility:codex-session-import",
+        "feature.ecosystem-compatibility:zcode-session-import"
       ],
       "visibility": "documented",
       "rustPath": "cancel_external_session_import",
@@ -5219,7 +5221,8 @@
         "feature.ecosystem-compatibility"
       ],
       "documentedItemIds": [
-        "feature.ecosystem-compatibility:codex-session-import"
+        "feature.ecosystem-compatibility:codex-session-import",
+        "feature.ecosystem-compatibility:zcode-session-import"
       ],
       "visibility": "documented",
       "rustPath": "list_external_session_import_candidates",
@@ -6810,7 +6813,8 @@
         "feature.ecosystem-compatibility"
       ],
       "documentedItemIds": [
-        "feature.ecosystem-compatibility:codex-session-import"
+        "feature.ecosystem-compatibility:codex-session-import",
+        "feature.ecosystem-compatibility:zcode-session-import"
       ],
       "visibility": "documented",
       "rustPath": "plan_external_session_import",

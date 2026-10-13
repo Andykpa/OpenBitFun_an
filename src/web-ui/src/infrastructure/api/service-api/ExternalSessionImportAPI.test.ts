@@ -44,4 +44,28 @@ describe('external session workspace pagination', () => {
     await expect(externalSessionImportAPI.listWorkspaceSessions('source', 5)).rejects.toThrow('does not match');
     await expect(externalSessionImportAPI.listWorkspaceSessions('source', 5)).rejects.toThrow('did not advance');
   });
+
+  it('passes the Zcode source on both pagination levels without changing legacy Codex requests', async () => {
+    mocks.invoke.mockResolvedValue({ ...catalog([group()]), ecosystemId: 'zcode' });
+    await externalSessionImportAPI.listWorkspaces(0, 'zcode');
+    expect(mocks.invoke).toHaveBeenLastCalledWith('list_external_session_import_candidates', {
+      request: { ecosystemId: 'zcode', cursor: 0, limit: 5, scope: { kind: 'workspaces', previewLimit: 5 } },
+    });
+    await externalSessionImportAPI.listWorkspaceSessions('source', 5, 'zcode');
+    expect(mocks.invoke).toHaveBeenLastCalledWith('list_external_session_import_candidates', {
+      request: { ecosystemId: 'zcode', cursor: 5, limit: 25, scope: { kind: 'workspace', workspaceKey: 'source' } },
+    });
+  });
+
+  it('rejects an older host that returns Codex data for a Zcode request', async () => {
+    mocks.invoke.mockResolvedValue(catalog([group()]));
+    await expect(externalSessionImportAPI.listWorkspaces(0, 'zcode')).rejects.toMatchObject({ code: 'ecosystem_import_unsupported' });
+  });
+
+  it('rejects candidates from another ecosystem inside an otherwise valid catalog', async () => {
+    mocks.invoke.mockResolvedValue({ ...catalog([{ ...group(), candidates: [{
+      candidateId: 'codex:one', ecosystemId: 'codex', sourceSessionId: 'one', fileSizeBytes: 1, status: 'complete', fingerprint: 'test',
+    }] }]), ecosystemId: 'zcode' });
+    await expect(externalSessionImportAPI.listWorkspaces(0, 'zcode')).rejects.toThrow('Invalid external session candidate');
+  });
 });

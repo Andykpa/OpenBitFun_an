@@ -375,11 +375,15 @@ local versus remote instruction composition:
 cargo test --locked -p openbitfun-core --no-default-features --features external-sources,git --lib instruction_
 ```
 
-For Codex session import assembly, workspace ownership and cancellation:
+For external session import assembly, workspace ownership and cancellation:
 
 ```bash
 cargo test -p openbitfun-core --no-default-features --features external-sources,git --lib external_session_import::tests
 ```
+
+Optional read-only Zcode-to-temporary-native-store verification uses the same
+target with `inspect_installed_zcode_native_import -- --ignored --nocapture`.
+It reads the installed source and writes only inside a temporary test directory.
 
 Detached Dispatch controller, target query compatibility, and managed-baseline checks:
 

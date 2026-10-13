@@ -207,11 +207,14 @@ pub enum ExternalSessionItem {
 }
 
 #[derive(Clone)]
-pub struct CodexSessionDocument {
+pub struct ExternalSessionDocument {
     pub candidate: ExternalSessionCandidate,
     pub turns: Vec<ExternalSessionTurn>,
     pub warnings: Vec<ExternalSessionImportWarning>,
 }
+
+/// Compatibility name for the original Codex-only reader boundary.
+pub type CodexSessionDocument = ExternalSessionDocument;
 
 #[cfg(test)]
 mod tests {

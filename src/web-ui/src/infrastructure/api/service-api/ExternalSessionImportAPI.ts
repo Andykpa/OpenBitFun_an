@@ -2,6 +2,7 @@ import { invokePrepared } from './invokePrepared';
 import { invokeExternalSourceCommand } from './ExternalSourcesAPI';
 
 export type ExternalSessionStatus = 'complete' | 'interrupted' | 'unsupported' | 'corrupt';
+export type ExternalSessionEcosystem = 'codex' | 'zcode';
 export type ExternalSessionWorkspaceMapping = 'exact' | 'user_selected' | 'missing_source_path' | 'unsupported';
 export interface ExternalSessionCandidate {
   candidateId: string;
@@ -85,17 +86,17 @@ function boundedString(value: unknown, max = 4096): string | undefined {
   return typeof value === 'string' && value.length <= max ? value : undefined;
 }
 
-function normalizeCandidate(value: unknown): ExternalSessionCandidate {
+function normalizeCandidate(value: unknown, ecosystemId: ExternalSessionEcosystem): ExternalSessionCandidate {
   const item = value as Record<string, unknown>;
   if (!item || typeof item !== 'object' || typeof item.candidateId !== 'string'
-    || typeof item.ecosystemId !== 'string' || typeof item.sourceSessionId !== 'string'
+    || item.ecosystemId !== ecosystemId || typeof item.sourceSessionId !== 'string'
     || typeof item.fileSizeBytes !== 'number' || typeof item.status !== 'string'
     || typeof item.fingerprint !== 'string') {
     throw new Error('Invalid external session candidate response');
   }
   return {
     candidateId: item.candidateId,
-    ecosystemId: item.ecosystemId,
+    ecosystemId,
     sourceSessionId: item.sourceSessionId,
     title: boundedString(item.title), cwd: boundedString(item.cwd),
     createdAt: typeof item.createdAt === 'number' ? item.createdAt : undefined,
@@ -111,22 +112,25 @@ function normalizeCandidate(value: unknown): ExternalSessionCandidate {
   };
 }
 
-function normalizeCatalog(value: unknown): ExternalSessionCatalog {
+function normalizeCatalog(value: unknown, ecosystemId: ExternalSessionEcosystem): ExternalSessionCatalog {
   const item = value as Record<string, unknown>;
-  if (!item || typeof item !== 'object' || item.schemaVersion !== 1 || item.ecosystemId !== 'codex'
+  if (item && typeof item === 'object' && item.ecosystemId !== ecosystemId) {
+    throw Object.assign(new Error('The host does not support session discovery for this ecosystem'), { code: 'ecosystem_import_unsupported' });
+  }
+  if (!item || typeof item !== 'object' || item.schemaVersion !== 1
     || !Array.isArray(item.candidates)) throw new Error('Invalid external session catalog response');
   return {
     schemaVersion: 1,
-    ecosystemId: 'codex',
+    ecosystemId,
     sourceRevision: typeof item.sourceRevision === 'string' ? item.sourceRevision : '',
-    candidates: item.candidates.map(normalizeCandidate),
+    candidates: item.candidates.map((candidate) => normalizeCandidate(candidate, ecosystemId)),
     diagnostics: Array.isArray(item.diagnostics) ? item.diagnostics as ExternalSessionImportWarning[] : [],
     nextCursor: typeof item.nextCursor === 'number' ? item.nextCursor : undefined,
-    workspaces: Array.isArray(item.workspaces) ? item.workspaces.map(normalizeWorkspace) : undefined,
+    workspaces: Array.isArray(item.workspaces) ? item.workspaces.map((group) => normalizeWorkspace(group, ecosystemId)) : undefined,
   };
 }
 
-function normalizeWorkspace(value: unknown): ExternalSessionWorkspaceGroup {
+function normalizeWorkspace(value: unknown, ecosystemId: ExternalSessionEcosystem): ExternalSessionWorkspaceGroup {
   const item = value as Record<string, unknown>;
   if (!item || typeof item !== 'object' || !boundedString(item.workspaceKey, 256)
     || !Number.isSafeInteger(item.totalCount) || (item.totalCount as number) < 0
@@ -138,13 +142,13 @@ function normalizeWorkspace(value: unknown): ExternalSessionWorkspaceGroup {
     workspaceKey: item.workspaceKey as string,
     cwd: boundedString(item.cwd),
     totalCount: item.totalCount as number,
-    candidates: item.candidates.map(normalizeCandidate),
+    candidates: item.candidates.map((candidate) => normalizeCandidate(candidate, ecosystemId)),
     nextCursor: typeof item.nextCursor === 'number' ? item.nextCursor : undefined,
   };
 }
 
-function normalizeWorkspaceCatalog(value: unknown): ExternalSessionWorkspaceCatalog {
-  const catalog = normalizeCatalog(value);
+function normalizeWorkspaceCatalog(value: unknown, ecosystemId: ExternalSessionEcosystem): ExternalSessionWorkspaceCatalog {
+  const catalog = normalizeCatalog(value, ecosystemId);
   if (!catalog.workspaces) {
     throw Object.assign(new Error('The host does not support workspace-scoped session discovery'), {
       code: 'workspace_pagination_unsupported',
@@ -153,23 +157,28 @@ function normalizeWorkspaceCatalog(value: unknown): ExternalSessionWorkspaceCata
   return { ...catalog, workspaces: catalog.workspaces };
 }
 
+// Keep the original Codex payload readable by hosts predating multi-source import.
+function ecosystemRequest(ecosystemId: ExternalSessionEcosystem) {
+  return ecosystemId === 'codex' ? {} : { ecosystemId };
+}
+
 export const externalSessionImportAPI = {
-  listCandidates(cursor = 0, limit = 50, query?: string): Promise<ExternalSessionCatalog> {
+  listCandidates(cursor = 0, limit = 50, query?: string, ecosystemId: ExternalSessionEcosystem = 'codex'): Promise<ExternalSessionCatalog> {
     return invokePrepared('list_external_session_import_candidates', async () => ({
-      request: { cursor, limit, query: query?.trim() || undefined },
-    })).then(normalizeCatalog);
+      request: { cursor, limit, query: query?.trim() || undefined, ...ecosystemRequest(ecosystemId) },
+    })).then((value) => normalizeCatalog(value, ecosystemId));
   },
 
-  listWorkspaces(cursor = 0): Promise<ExternalSessionWorkspaceCatalog> {
+  listWorkspaces(cursor = 0, ecosystemId: ExternalSessionEcosystem = 'codex'): Promise<ExternalSessionWorkspaceCatalog> {
     return invokeExternalSourceCommand('list_external_session_import_candidates', {
-      request: { cursor, limit: 5, scope: { kind: 'workspaces', previewLimit: 5 } },
-    }).then(normalizeWorkspaceCatalog);
+      request: { cursor, limit: 5, scope: { kind: 'workspaces', previewLimit: 5 }, ...ecosystemRequest(ecosystemId) },
+    }).then((value) => normalizeWorkspaceCatalog(value, ecosystemId));
   },
 
-  async listWorkspaceSessions(workspaceKey: string, cursor: number): Promise<ExternalSessionWorkspaceGroup> {
+  async listWorkspaceSessions(workspaceKey: string, cursor: number, ecosystemId: ExternalSessionEcosystem = 'codex'): Promise<ExternalSessionWorkspaceGroup> {
     const catalog = normalizeWorkspaceCatalog(await invokeExternalSourceCommand('list_external_session_import_candidates', {
-      request: { cursor, limit: 25, scope: { kind: 'workspace', workspaceKey } },
-    }));
+      request: { cursor, limit: 25, scope: { kind: 'workspace', workspaceKey }, ...ecosystemRequest(ecosystemId) },
+    }), ecosystemId);
     if (catalog.workspaces.length !== 1 || catalog.workspaces[0].workspaceKey !== workspaceKey) {
       throw new Error('External session workspace response does not match the requested workspace');
     }

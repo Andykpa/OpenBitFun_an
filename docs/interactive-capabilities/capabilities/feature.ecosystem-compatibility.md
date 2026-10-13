@@ -11,9 +11,9 @@ title_en: "External Import"
 
 > 功能 / Feature
 
-查看五类外部 AI 生态的内容与状态，导入受支持的 Skill、MCP 和 Hook 副本，并查看 Command、Tool、子智能体的兼容使用状态。
+查看外部 AI 生态的内容与状态，导入受支持的 Skill、MCP、Hook，以及 Codex、Zcode 会话，并在 OpenBitFun 中继续对话。
 
-Inspect content and status from five external AI ecosystems, import supported Skill, MCP and Hook copies, and review compatibility usage for commands, tools and subagents.
+Inspect external AI content and status, import supported Skills, MCP, Hooks, and Codex or Zcode sessions, and continue conversations in OpenBitFun.
 
 ## 完整功能清单 / Everything included
 
@@ -23,6 +23,8 @@ Inspect content and status from five external AI ecosystems, import supported Sk
   - Enable or disable each source and choose managed, preview, or read-only policy
 - **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按需导入 Codex 会话并在 OpenBitFun 中继续对话
   - Import selected Codex sessions on demand and continue them in OpenBitFun
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按需导入 Zcode 会话并在 OpenBitFun 中继续对话
+  - Import selected Zcode sessions on demand and continue them in OpenBitFun
 - **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 展开外部 Prompt/Command 内容并处理与原生命令的冲突
   - Expand external prompt/command content and resolve conflicts with native commands
 - **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 启用外部智能体，处理同名冲突并绑定模型

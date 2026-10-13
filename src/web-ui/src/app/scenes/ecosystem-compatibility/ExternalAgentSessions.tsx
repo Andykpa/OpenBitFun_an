@@ -12,10 +12,12 @@ import { workspaceManager } from '@/infrastructure/services/business/workspaceMa
 import {
   externalSessionImportAPI,
   type ExternalSessionCandidate,
+  type ExternalSessionEcosystem,
   type ExternalSessionWorkspaceGroup,
 } from '@/infrastructure/api/service-api/ExternalSessionImportAPI';
 
 interface Props {
+  ecosystemId?: ExternalSessionEcosystem;
   onCountChange?: (count: number) => void;
   onBusyChange?: (busy: boolean) => void;
   refreshVersion?: number;
@@ -38,7 +40,8 @@ interface ImportRun {
 function importErrorKey(error: unknown): string {
   const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
   if (/no readable replacement|no usable human conversation/i.test(message)) return 'sessions.errors.noHistory';
-  if (/malformed jsonl/i.test(message)) return 'sessions.errors.corrupt';
+  if (/malformed (jsonl|zcode session|zcode tool)/i.test(message)) return 'sessions.errors.corrupt';
+  if (/unsupported .*?(schema|format|role|state)/i.test(message)) return 'sessions.errors.unsupportedFormat';
   if (/limit|budget/i.test(message)) return 'sessions.errors.tooLarge';
   if (/removed or moved/i.test(message)) return 'sessions.errors.sourceMissing';
   if (/workspace/i.test(message)) return 'sessions.errors.workspaceUnavailable';
@@ -46,6 +49,10 @@ function importErrorKey(error: unknown): string {
 }
 
 function catalogErrorKey(error: unknown): string {
+  if (error && typeof error === 'object' && 'code' in error && error.code === 'ecosystem_import_unsupported') {
+    return 'sessions.ecosystemUnsupported';
+  }
+  if (error instanceof Error && /unsupported .*?schema/i.test(error.message)) return 'sessions.errors.unsupportedFormat';
   return error && typeof error === 'object' && 'code' in error && error.code === 'workspace_pagination_unsupported'
     ? 'sessions.workspacePaginationUnsupported' : 'sessions.loadFailed';
 }
@@ -74,8 +81,9 @@ async function enterImportedSession(candidate: ExternalSessionCandidate, isCurre
   await openMainSession(sessionId, { workspaceId, isCurrent });
 }
 
-export default function ExternalAgentSessions({ onCountChange, onBusyChange, refreshVersion = 0 }: Props) {
+export default function ExternalAgentSessions({ ecosystemId = 'codex', onCountChange, onBusyChange, refreshVersion = 0 }: Props) {
   const { t, formatDate, formatNumber } = useI18n('scenes/ecosystem-compatibility');
+  const sourceName = ecosystemId === 'zcode' ? 'Zcode' : 'Codex';
   const peer = usePeerDeviceModeOptional();
   const supported = isTauriRuntime() && !peer?.peerMode.active;
   const [groups, setGroups] = useState<ExternalSessionWorkspaceGroup[]>([]);
@@ -116,7 +124,7 @@ export default function ExternalAgentSessions({ onCountChange, onBusyChange, ref
       setNextCursor(undefined);
       return;
     }
-    void externalSessionImportAPI.listWorkspaces().then((catalog) => {
+    void externalSessionImportAPI.listWorkspaces(0, ecosystemId).then((catalog) => {
       if (request !== listRequest.current) return;
       imported.current.clear();
       setCompletedGroups(new Set());
@@ -130,7 +138,7 @@ export default function ExternalAgentSessions({ onCountChange, onBusyChange, ref
       if (request === listRequest.current) setLoading(false);
     });
     return () => { listRequest.current += 1; };
-  }, [revision, refreshVersion, supported]);
+  }, [revision, refreshVersion, supported, ecosystemId]);
 
   const sessionCount = groups.reduce((count, group) => count + group.totalCount, 0);
   useEffect(() => { onCountChange?.(sessionCount); }, [sessionCount, onCountChange]);
@@ -144,7 +152,7 @@ export default function ExternalAgentSessions({ onCountChange, onBusyChange, ref
     setLoading(true);
     setListError(null);
     try {
-      const catalog = await externalSessionImportAPI.listWorkspaces(nextCursor);
+      const catalog = await externalSessionImportAPI.listWorkspaces(nextCursor, ecosystemId);
       if (request !== listRequest.current) return;
       setGroups((previous) => {
         const displayed = new Set(previous.map((group) => group.workspaceKey));
@@ -172,7 +180,7 @@ export default function ExternalAgentSessions({ onCountChange, onBusyChange, ref
     try {
       let cursor: number | undefined = group.nextCursor;
       while (cursor !== undefined && isCurrent()) {
-        const page = await externalSessionImportAPI.listWorkspaceSessions(group.workspaceKey, cursor);
+        const page = await externalSessionImportAPI.listWorkspaceSessions(group.workspaceKey, cursor, ecosystemId);
         if (!isCurrent()) return;
         setGroups((previous) => previous.map((current) => {
           if (current.workspaceKey !== group.workspaceKey) return current;
@@ -275,7 +283,7 @@ export default function ExternalAgentSessions({ onCountChange, onBusyChange, ref
       let cursor = single ? undefined : group?.nextCursor;
       while (cursor !== undefined && !run.cancelled && run.isCurrent()) {
         setProgress((current) => current && { ...current, phase: 'scanning' });
-        const page = await externalSessionImportAPI.listWorkspaceSessions(groupKey, cursor);
+        const page = await externalSessionImportAPI.listWorkspaceSessions(groupKey, cursor, ecosystemId);
         if (run.cancelled || !run.isCurrent()) break;
         await processPage(page.candidates);
         cursor = page.nextCursor;
@@ -343,11 +351,11 @@ export default function ExternalAgentSessions({ onCountChange, onBusyChange, ref
     <Button size="sm" variant="text" disabled={progress?.cancelling} onClick={cancelImport}>{t('sessions.cancel')}</Button>
   </>;
 
-  return <section className="ecosystem-compatibility__section" data-external-session-import="codex">
-    <Disclosure summary={t('sessions.title')} unmountOnClose contentInnerClassName="ecosystem-compatibility__session-groups"
+  return <section className="ecosystem-compatibility__section" data-external-session-import={ecosystemId}>
+    <Disclosure summary={t('sessions.title', { name: sourceName })} unmountOnClose contentInnerClassName="ecosystem-compatibility__session-groups"
       renderHeader={(trigger) => <div className="ecosystem-compatibility__section-heading ecosystem-compatibility__session-heading">
         <h2><button {...trigger} className="ecosystem-compatibility__session-heading-trigger">
-          <Icon name="chevron-right" size="sm" /><span>{t('sessions.title')}</span>
+          <Icon name="chevron-right" size="sm" /><span>{t('sessions.title', { name: sourceName })}</span>
         </button></h2>
         <StatusPill tone="neutral">{t('sessions.workspaceCount', { count: formatNumber(groups.length) })}</StatusPill>
       </div>}>
@@ -356,7 +364,7 @@ export default function ExternalAgentSessions({ onCountChange, onBusyChange, ref
           <span>{t(listError)}</span>
           <Button size="sm" variant="outline" disabled={busy} onClick={() => nextCursor === undefined ? setRevision((value) => value + 1) : void loadMore()}>{t('retry')}</Button>
         </div> : null}
-        {!loading && groups.length === 0 && !listError ? <p>{t('sessions.empty')}</p> : null}
+        {!loading && groups.length === 0 && !listError ? <p>{t('sessions.empty', { name: sourceName })}</p> : null}
         {groups.map((group) => {
           const key = group.workspaceKey;
           const name = group.candidates.find((candidate) => candidate.targetWorkspaceName)?.targetWorkspaceName;

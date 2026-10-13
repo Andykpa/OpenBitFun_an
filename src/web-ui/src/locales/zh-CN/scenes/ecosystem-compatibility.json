@@ -69,9 +69,9 @@
     "instruction": "指令与规则"
   },
   "sessions": {
-    "title": "Codex 会话导入",
+    "title": "{{name}} 会话导入",
     "unsupported": "会话导入目前仅支持本机工作区；远程工作区和对等设备暂不支持。",
-    "empty": "本机没有发现 Codex 会话。",
+    "empty": "这台电脑上没有找到 {{name}} 会话。",
     "unknownWorkspace": "来源未记录工作区",
     "import": "导入",
     "importAll": "导入全部",
@@ -87,15 +87,16 @@
     "loadWorkspaceFailed": "加载会话失败，可继续加载。",
     "workspacePaginationUnsupported": "当前主机不支持按工作区加载会话，请更新 OpenBitFun 后重试。",
     "errors": {
-      "noHistory": "该 Codex rollout 中没有找到可读的对话轮次。",
-      "corrupt": "Codex rollout 在结束前包含损坏记录，因此未导入。",
-      "tooLarge": "该 Codex rollout 超过安全导入大小限制。",
-      "sourceMissing": "Codex rollout 已移动或删除，请刷新会话列表。",
-      "workspaceUnavailable": "对应的来源工作区在本机不可用。"
+      "noHistory": "来源会话中没有可读取的对话轮次。",
+      "corrupt": "来源会话包含损坏的记录，未执行导入。",
+      "tooLarge": "来源会话超过了安全导入的大小限制。",
+      "sourceMissing": "来源会话已移动或被删除，请刷新会话列表。",
+      "workspaceUnavailable": "对应的来源工作区在本机不可用。",
+      "unsupportedFormat": "当前版本尚不支持此会话格式，请更新 OpenBitFun 后重试。"
     },
     "batchPartial": "{{failed}} 个会话未导入，可重试。",
     "batchFailed": "该工作区的会话无法导入。",
-    "loadFailed": "无法读取 Codex 会话。",
+    "loadFailed": "无法读取来源会话。",
     "importFailed": "会话导入失败，来源可能已发生变化。请刷新后重试。",
     "openFailed": "无法打开已导入的会话，请确认对应工作区和会话仍然可用后重试。",
     "allImported": "已全部导入",
@@ -104,7 +105,8 @@
     "importProgress": "导入中 · {{count}} 个已完成",
     "cancelling": "正在取消…",
     "cancelled": "$t(shared:statuses.cancelled)",
-    "cancelFailed": "取消请求失败，可重试；当前会话可能仍会完成。"
+    "cancelFailed": "取消请求失败，可重试；当前会话可能仍会完成。",
+    "ecosystemUnsupported": "当前主机尚不支持导入这个 Agent 的会话，请更新 OpenBitFun 后重试。"
   },
   "import": {
     "title": "导入与复用",
