@@ -119,107 +119,105 @@ export function OverviewPage({ onNavigate, colorScheme, contrast, density, token
         </header>
       </section>
 
-      <div className="design-home-showcase">
-        <ThemeRoot className="design-home-preview" aria-hidden="true" {...{ inert: "" }} {...theme}>
-          <MultiSurfaceMorph>
-            <div className="design-home-preview-shell">
-              {/* Sidebar: the design system's own NavigationPanel, so the picture is assembled from the
-                  same parts the product assembles it from. The panel keeps its block-fill selection and
-                  drops its footer rule — this frame separates regions with fills and space, not lines. */}
-              <NavigationPanel className="design-home-preview-sidebar">
-                <NavigationPanelHeader className="design-home-preview-search">
-                  <SearchField aria-label={t("design.homePreview.search")} leadingIcon={<Icon name="search" />}
-                    placeholder={t("design.homePreview.search")} readOnly size="sm" tabIndex={-1}
-                    shortcut={<KeyHint icon={<Icon name="command-mac" />}>K</KeyHint>} />
-                  <IconButton aria-label={t("design.homePreview.newSession")} icon={<Icon name="plus" />}
-                    size="sm" tabIndex={-1} variant="fill" />
-                </NavigationPanelHeader>
-                <NavigationPanelBody scrollbarVisibility="hidden">
-                  <NavigationPanelContent>
-                    <div className="design-home-preview-navigation">
-                      {previewNavigation.map(item => (
-                        <NavigationPanelItem key={item.id} className="design-home-preview-session"
-                          leading={<Icon name={item.icon} />} tabIndex={-1}>{t(item.label)}</NavigationPanelItem>
-                      ))}
-                    </div>
-                    <NavigationPanelSection title={t("design.homePreview.sessions")}>
-                      {previewSessions.map(row => (
-                        <NavigationPanelItem key={row.id} className={row.indent ? "design-home-preview-session design-home-preview-session--child" : "design-home-preview-session"}
-                          leading={row.icon ? <Icon name={row.icon} /> : undefined} metadata={row.metadata} selected={row.selected} tabIndex={-1}>
-                          {row.name}
-                        </NavigationPanelItem>
-                      ))}
-                    </NavigationPanelSection>
-                  </NavigationPanelContent>
-                </NavigationPanelBody>
-                <NavigationPanelFooter className="design-home-preview-device">
-                  <span><Icon name="device-mac" />MacBook-Air</span>
-                  <IconButton aria-label={t("design.homePreview.settings")} icon={<Icon name="gear" />} size="sm" tabIndex={-1} variant="quiet" />
-                </NavigationPanelFooter>
-              </NavigationPanel>
-
-              {/* Pane: the window the product opens on — its session tabs, then the welcome screen. */}
-              <div className="design-home-preview-pane">
-                <div className="design-home-preview-pane-head">
-                  <SegmentedControl aria-label={t("design.homePreview.sessions")} size="sm" tone="neutral" variant="pills"
-                    value="welcome" options={[
-                      { value: "welcome", label: t("design.homePreview.welcome") },
-                      { value: "settings", label: t("design.homePreview.settings") },
-                    ]} />
-                </div>
-                <div className="design-home-preview-stage">
-                  <div className="design-home-preview-welcome">
-                    <OpenBitFunSolidMark className="design-app-mark design-home-preview-welcome-mark" size={48} />
-                    {/* The product's welcome screen is a display PageHeader; the picture uses the same
-                        part, so the greeting and its line keep the roles the product publishes. */}
-                    <PageHeader align="center" className="design-home-preview-welcome-header" level={2} size="display"
-                      title={t("design.homePreview.greeting")} description={t("design.homePreview.support")} />
+      <ThemeRoot className="design-home-preview" aria-hidden="true" {...{ inert: "" }} {...theme}>
+        <MultiSurfaceMorph>
+          <div className="design-home-preview-shell">
+            {/* Sidebar: the design system's own NavigationPanel, so the picture is assembled from the
+                same parts the product assembles it from. The panel keeps its block-fill selection and
+                drops its footer rule — this frame separates regions with fills and space, not lines. */}
+            <NavigationPanel className="design-home-preview-sidebar">
+              <NavigationPanelHeader className="design-home-preview-search">
+                <SearchField aria-label={t("design.homePreview.search")} leadingIcon={<Icon name="search" />}
+                  placeholder={t("design.homePreview.search")} readOnly size="sm" tabIndex={-1}
+                  shortcut={<KeyHint icon={<Icon name="command-mac" />}>K</KeyHint>} />
+                <IconButton aria-label={t("design.homePreview.newSession")} icon={<Icon name="plus" />}
+                  size="sm" tabIndex={-1} variant="fill" />
+              </NavigationPanelHeader>
+              <NavigationPanelBody scrollbarVisibility="hidden">
+                <NavigationPanelContent>
+                  <div className="design-home-preview-navigation">
+                    {previewNavigation.map(item => (
+                      <NavigationPanelItem key={item.id} className="design-home-preview-session"
+                        leading={<Icon name={item.icon} />} tabIndex={-1}>{t(item.label)}</NavigationPanelItem>
+                    ))}
                   </div>
-                  <ChatComposer aria-label={t("components.preview.composerLabel")} className="design-home-preview-composer"
-                    layout="expanded"
-                    contextBar={(
-                      <ComposerContextBar
-                        leading={(
-                          <>
-                            <Button size="xs" tabIndex={-1} trailingIcon={<Icon name="chevron-down" />} variant="text">
-                              {t("design.homePreview.contextMachine")}
-                            </Button>
-                            <ComposerDivider />
-                            <Button size="xs" tabIndex={-1} trailingIcon={<Icon name="chevron-down" />} variant="text">BitFun</Button>
-                            <ComposerDivider />
-                            <span className="design-home-preview-context">1.0.0-explore</span>
-                            <ComposerDivider />
-                            <span className="design-home-preview-context">
-                              <Icon name="unselected" size="2xs" />
-                              {t("design.homePreview.contextWorkspace")}
-                            </span>
-                          </>
-                        )}
-                        trailing={<StatusPill emphasis tone="success">{t("design.homePreview.contextAsk")}</StatusPill>}
-                      />
-                    )}
-                    startActions={(
-                      <Button size="sm" leadingIcon={<Icon name="plus" />} tabIndex={-1} variant="text">
-                        {t("design.homePreview.mode")}
-                      </Button>
-                    )}
-                    endActions={(
-                      <>
-                        <Button size="sm" tabIndex={-1} trailingIcon={<Icon name="chevron-down" />} variant="text">deepseek-v4-pro high</Button>
-                        <ChatComposerActionButton aria-label={t("design.homePreview.composerVoice")} icon={<Icon name="mic" />}
-                          tabIndex={-1} variant="fill" />
-                        <ChatComposerActionButton aria-label={t("components.preview.composerSend")} icon={<Icon name="arrow-up" />}
-                          tabIndex={-1} variant="primary" />
-                      </>
-                    )}>
-                    <span className="design-home-preview-placeholder">{t("design.homePreview.composerPlaceholder")}</span>
-                  </ChatComposer>
+                  <NavigationPanelSection title={t("design.homePreview.sessions")}>
+                    {previewSessions.map(row => (
+                      <NavigationPanelItem key={row.id} className={row.indent ? "design-home-preview-session design-home-preview-session--child" : "design-home-preview-session"}
+                        leading={row.icon ? <Icon name={row.icon} /> : undefined} metadata={row.metadata} selected={row.selected} tabIndex={-1}>
+                        {row.name}
+                      </NavigationPanelItem>
+                    ))}
+                  </NavigationPanelSection>
+                </NavigationPanelContent>
+              </NavigationPanelBody>
+              <NavigationPanelFooter className="design-home-preview-device">
+                <span><Icon name="device-mac" />MacBook-Air</span>
+                <IconButton aria-label={t("design.homePreview.settings")} icon={<Icon name="gear" />} size="sm" tabIndex={-1} variant="quiet" />
+              </NavigationPanelFooter>
+            </NavigationPanel>
+
+            {/* Pane: the window the product opens on — its session tabs, then the welcome screen. */}
+            <div className="design-home-preview-pane">
+              <div className="design-home-preview-pane-head">
+                <SegmentedControl aria-label={t("design.homePreview.sessions")} size="sm" tone="neutral" variant="pills"
+                  value="welcome" options={[
+                    { value: "welcome", label: t("design.homePreview.welcome") },
+                    { value: "settings", label: t("design.homePreview.settings") },
+                  ]} />
+              </div>
+              <div className="design-home-preview-stage">
+                <div className="design-home-preview-welcome">
+                  <OpenBitFunSolidMark className="design-app-mark design-home-preview-welcome-mark" size={48} />
+                  {/* The product's welcome screen is a display PageHeader; the picture uses the same
+                      part, so the greeting and its line keep the roles the product publishes. */}
+                  <PageHeader align="center" className="design-home-preview-welcome-header" level={2} size="display"
+                    title={t("design.homePreview.greeting")} description={t("design.homePreview.support")} />
                 </div>
+                <ChatComposer aria-label={t("components.preview.composerLabel")} className="design-home-preview-composer"
+                  layout="expanded"
+                  contextBar={(
+                    <ComposerContextBar
+                      leading={(
+                        <>
+                          <Button size="xs" tabIndex={-1} trailingIcon={<Icon name="chevron-down" />} variant="text">
+                            {t("design.homePreview.contextMachine")}
+                          </Button>
+                          <ComposerDivider />
+                          <Button size="xs" tabIndex={-1} trailingIcon={<Icon name="chevron-down" />} variant="text">BitFun</Button>
+                          <ComposerDivider />
+                          <span className="design-home-preview-context">1.0.0-explore</span>
+                          <ComposerDivider />
+                          <span className="design-home-preview-context">
+                            <Icon name="unselected" size="2xs" />
+                            {t("design.homePreview.contextWorkspace")}
+                          </span>
+                        </>
+                      )}
+                      trailing={<StatusPill emphasis tone="success">{t("design.homePreview.contextAsk")}</StatusPill>}
+                    />
+                  )}
+                  startActions={(
+                    <Button size="sm" leadingIcon={<Icon name="plus" />} tabIndex={-1} variant="text">
+                      {t("design.homePreview.mode")}
+                    </Button>
+                  )}
+                  endActions={(
+                    <>
+                      <Button size="sm" tabIndex={-1} trailingIcon={<Icon name="chevron-down" />} variant="text">deepseek-v4-pro high</Button>
+                      <ChatComposerActionButton aria-label={t("design.homePreview.composerVoice")} icon={<Icon name="mic" />}
+                        tabIndex={-1} variant="fill" />
+                      <ChatComposerActionButton aria-label={t("components.preview.composerSend")} icon={<Icon name="arrow-up" />}
+                        tabIndex={-1} variant="primary" />
+                    </>
+                  )}>
+                  <span className="design-home-preview-placeholder">{t("design.homePreview.composerPlaceholder")}</span>
+                </ChatComposer>
               </div>
             </div>
-          </MultiSurfaceMorph>
-        </ThemeRoot>
-      </div>
+          </div>
+        </MultiSurfaceMorph>
+      </ThemeRoot>
 
       {/* Usage: the guide's contract block, moved into the page's closing stretch so a reader who
           has seen the picture is told how the blocks are actually consumed before the footer sends

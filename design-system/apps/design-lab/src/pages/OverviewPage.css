@@ -1,6 +1,5 @@
-/* Editorial homepage: the hero, the showcase picture on its own band, the guide's contract block,
-   then the closing band. Space separates the blocks that share the page's canvas; the two bands that
-   leave the column — the showcase and the footer — separate themselves with a fill.
+/* Editorial homepage: hero, an empty showcase stage, a component sample, then
+   the three destinations. Sections are separated by hairlines, never fills.
 
    Vertical rhythm: every block padding, section gap and stack gap on this page runs through
    --_lab-home-air, so the whole page loosens or tightens from one number instead of from a dozen
@@ -10,10 +9,6 @@
    composition, not the breathing room. Air is inherited, so the footer reads the same variable. */
 .lab-page.design-home {
   --_lab-home-air: 2;
-  /* One gutter expression for both bands that leave the centred column (the showcase and the closing
-     band): the shell's auto margin plus the page's own inner padding. Below the shell's width cap
-     that expression goes negative, which is what the max() floors. */
-  --_lab-column-gutter: max(var(--openbitfun-space-6), calc((100vw - var(--_lab-content-width)) / 2 + var(--openbitfun-space-6)));
 
   display: flex;
   flex-direction: column;
@@ -136,24 +131,6 @@
   align-items: center;
   gap: var(--openbitfun-space-3);
   margin-top: calc(var(--openbitfun-space-8) * var(--_lab-home-air));
-}
-
-/* The picture sits on a band of its own: a full-bleed wash that runs past the page's column, so the
-   frame reads as a picture placed on a surface rather than a window floating on the page. It is the
-   same band device as the closing band — same gutter expression, no radius, no hairline — but it
-   takes a step of the ink scale instead of a fill of its own colour. A mix toward the page's own
-   content primary is the one wash that stays a band in both schemes: the surface tokens that read as
-   a grey in light mode (tertiary, workbench) collapse onto the canvas in dark, which would erase the
-   band exactly for the readers who keep dark on. Padding runs through the page's air, so the plate
-   around the picture breathes with everything else. */
-.design-home-showcase {
-  --_lab-band-pad-block: calc(var(--openbitfun-space-6) * var(--_lab-home-air));
-
-  inline-size: 100vw;
-  margin-inline: calc(50% - 50vw);
-  padding-block: var(--_lab-band-pad-block);
-  padding-inline: var(--_lab-column-gutter);
-  background: color-mix(in srgb, var(--openbitfun-color-content-primary) 8%, var(--openbitfun-color-surface-canvas));
 }
 
 /* The showcase is a picture of the product rather than a screenshot: one frame holding the app's
@@ -343,6 +320,10 @@
    tile; if a surface-inverse token is ever added, this is the line that should switch to it. */
 .design-home-footer {
   --_lab-band-pad-block: calc(var(--openbitfun-space-12) * var(--_lab-home-air));
+  /* The band is the viewport, not the page's column, so it reproduces the column gutter in its own
+     padding: the shell's auto margin plus the page's 36px inner padding. Below the shell's width cap
+     that expression goes negative, which is what the max() floors. */
+  --_lab-column-gutter: max(var(--openbitfun-space-6), calc((100vw - var(--_lab-content-width)) / 2 + var(--openbitfun-space-6)));
   --_lab-on-dark: var(--openbitfun-color-content-on-dark);
   --_lab-on-dark-secondary: color-mix(in srgb, var(--openbitfun-color-content-on-dark) 72%, transparent);
   --_lab-on-dark-muted: color-mix(in srgb, var(--openbitfun-color-content-on-dark) 50%, transparent);
