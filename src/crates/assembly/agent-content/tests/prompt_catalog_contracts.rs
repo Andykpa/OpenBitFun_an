@@ -261,6 +261,11 @@ fn computer_use_prompt_preserves_background_observation_and_input_contract() {
         "does not require a user-selected share",
         "do not add a second confirmation solely because you wrote the wording",
         "continue through `ComputerUse` application observations and input",
+        "Use `app_batch` by default when several inputs are already decided",
+        "first app observation can start background control automatically",
+        "`include_image: false`",
+        "never replay completed steps or the whole batch",
+        "Do not insert routine settle delays",
     ] {
         assert!(
             prompt.contains(required),
