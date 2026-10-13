@@ -188,6 +188,30 @@ input returns its delivery result so partial delivery is not hidden by dropping
 a future. Remaining steps are not run after failure or cancellation. Native macOS gestures also release any presses left unfinished by a failed or cancelled action, so a partial chord or drag cannot leave modifiers or mouse buttons held for the next action. An
 observation completing after stop, rebinding or generation change is discarded.
 
+For latency, the model starts with a known application's observation instead of
+unconditionally listing applications, starting control and checking status. The
+first app observation can enter background control; stopped sessions still require
+an explicitly permitted restart. Prompt guidance groups already-decided inputs
+until the next information boundary and reuses the returned observation. It does
+not reduce the user's selected reasoning effort or impose step/retry-count caps.
+
+`get_app_state`, `app_batch` and single app-input aliases accept optional
+`include_image` (default `true`). With `false`, Desktop reads AX and refreshes
+observation/node identities without retrieving or encoding a model screenshot.
+This is suitable for sufficient semantic state or known keyboard flows. Canvas,
+visual verification and selecting image coordinates still need an image-bearing
+observation. Target preparation, control leases, cancellation and native consent
+remain unchanged; AX-only is not a different input route. Legacy port providers
+can retain their old capture path and omit the image from its result. Existing
+callers/persisted tool calls omit the field and retain their previous behavior.
+The option is local tool presentation, not a new remote GUI capability.
+
+Program receipts include `observation_elapsed_ms` alongside per-step and total
+elapsed time. These measure host execution, not model reasoning or end-to-end
+latency. macOS focus-and-type/key operations take one desktop witness pair around
+the complete operation, including an internal native focus click; nested witness
+pairs are unnecessary. No native validation or post-input frame barrier is removed.
+
 Receipts distinguish attempted steps, submitted steps, the failing step and
 observation failure. A native error may follow partial submission. Neither that
 error, a missing screenshot nor an unchanged AX digest authorizes replay.
@@ -497,6 +521,79 @@ port cleanup does not authorize changing persisted or cross-version wire shapes.
 Local fixtures and unsupported-host unit tests are not remote end-to-end evidence.
 
 ## Verification and acceptance
+
+### Latency design evidence, 2026-10-13
+
+The installed `openai-codex-electron` 26.1007.30912 artifact (`@oai/cua` 0.2.6,
+`@oai/sky` 0.7.6) informed the interaction policy. Focused REA static analysis
+covered the shipped CUA JavaScript API and macOS Sky client, plus their packaged
+tool documentation. It established these distinctions:
+
+- Persistent JavaScript can await several input operations and return one final
+  observation in one model-facing call. Native input and state reads still use
+  separate IPC requests. This is grouping at the model boundary, not evidence of
+  one native batch RPC.
+- App selection already emits initial state. Native input wrappers do not
+  implicitly emit another tree/image after each input.
+- AX text, image and combined observations have separate public methods.
+  `getAXState` only emits text to the model, but calls the same underlying state
+  RPC; these wrappers do not prove that the native service avoids capture.
+- The macOS client caches its transport, correlates responses by request ID and
+  serializes writes. The exposed AX diff option is visible; the native diff and
+  settling algorithms are outside the inspected JavaScript boundary.
+
+The corresponding REA parent Evidence IDs are
+`ev_2f831c53ee4f06ac0236cdbc8eb701cbd5e584c2e33fa12029006b3fc80512e0`
+and `ev_49bc75d47413c72fd45730106ded6c3377f0651baa70105ec8494e64f7898056`.
+The inventories completed, while dynamic/external semantic relationships remain
+unknown. This is shipped-code evidence, not observed Codex execution or a recovered
+server-side system prompt. No comparative model latency or hidden reasoning
+configuration was established. Third-party code is not a product dependency.
+
+The [public computer-use API guide](https://developers.openai.com/api/docs/guides/tools-computer-use)
+also describes executing ordered actions before returning an observation; this
+is a public integration pattern, not proof of the desktop application's API wire.
+The [programmatic-tool guide](https://developers.openai.com/api/docs/guides/tools-programmatic-tool-calling)
+calls for measuring correctness, evidence, model turns and latency together.
+OpenBitFun applies the interaction policy through its existing typed program and
+host port, retaining its authorization, partial receipts and cancellation rules.
+
+Local macOS acceptance used the production Tool → host → native input/observation
+path, with independent target and foreground-observer applications. The strict
+fixture passed AX-only node input, fresh/stale observation checks, default-image
+recovery, semantic and image targets, Unicode entry, scroll, five-step canvas
+input, manual preview/revocation and Stop. Foreground identity/key state, window
+order, physical cursor and exact native delivery assertions remained enabled.
+
+The latency fixture executed the same five inputs (four Unicode text insertions
+and one known shortcut) in fresh processes for each case. Three repetitions per
+case, using a development build and a 12-node AX tree, produced:
+
+| Observation policy | Input tool calls | Returned observations / images | Median host time | Range |
+|---|---:|---:|---:|---:|
+| Single inputs, default images | 5 | 5 / 5 | 1,749 ms | 1,661–1,755 ms |
+| One batch, default image | 1 | 1 / 1 | 464 ms | 462–464 ms |
+| Single inputs, AX only | 5 | 5 / 0 | 176 ms | 164–181 ms |
+| One batch, AX only | 1 | 1 / 0 | 149 ms | 137–150 ms |
+
+Each timed result had to contain the exact final text in its returned AX state;
+an immediate fixture read confirmed shortcut delivery before recovery reads or
+waits. That read adds 0.073–0.130 ms, reported separately. Setup, the initial
+observation, later screenshot recovery and cleanup are outside the measurement.
+These are strategy comparisons in the same updated build, not a before/after
+model benchmark: batching already existed. No model inference, complex-app tree,
+Codex runtime, Windows/Linux native execution or remote end-to-end latency is
+included. Three samples establish a range/median, not a meaningful p95.
+The measured executable SHA-256 is
+`e1c2e5b3beb4eb608b94d3520905d53f16575aa85c009fe0de8475ad6cdb7d16`.
+
+The 78 focused tool/prompt contracts passed, including legacy provider/image
+defaults, malformed option rejection before input, cancellation/scope changes,
+partial receipts, and SSH-workspace/headless refusal of controller-local GUI.
+Remote workspace, remote control, Peer Device Mode and Detached Dispatch were
+not exercised end to end. Locked or concurrently active test desktops are
+inconclusive; clean runs retain all isolation assertions rather than accepting
+those samples as performance evidence.
 
 ### Autonomous-control correction, 2026-10-13
 

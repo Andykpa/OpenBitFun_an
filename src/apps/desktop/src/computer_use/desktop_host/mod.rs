@@ -1692,11 +1692,19 @@ impl ComputerUseHost for DesktopComputerUseHost {
         max_depth: u32,
         focus_window_only: bool,
     ) -> OpenBitFunResult<AppStateSnapshot> {
-        // Public path: always auto-attach a focused-window screenshot so the
-        // model is never blind on Canvas / WebView / WebGL surfaces that the
-        // AX tree can't describe (Codex parity — its `get_app_state` is the
-        // single "eyes" of the desktop loop).
+        // Preserve image-bearing observations for existing callers.
         self.get_app_state_inner(app, max_depth, focus_window_only, true)
+            .await
+    }
+
+    async fn get_app_state_with_options(
+        &self,
+        app: AppSelector,
+        max_depth: u32,
+        focus_window_only: bool,
+        include_image: bool,
+    ) -> OpenBitFunResult<AppStateSnapshot> {
+        self.get_app_state_inner(app, max_depth, focus_window_only, include_image)
             .await
     }
 

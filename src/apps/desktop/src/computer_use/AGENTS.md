@@ -130,6 +130,9 @@ node scripts/test-macos-input-controls.mjs --semantic
 # Target/observer have distinct app bundles; AppKit initializes before the
 # foreground baseline. Activation history catches transient focus changes.
 node scripts/test-macos-input-controls.mjs --orchestration
+# Identical five-input sequence: five tool calls vs one batch, with default
+# images and AX-only observations. Fresh isolated app/host per case.
+node scripts/test-macos-input-controls.mjs --latency
 # Diagnostic raw-pointer contract, including ordinary non-AX first click and
 # unchanged modifiers/z-order. Both this raw runner and the full Tool five-action
 # fixture passed; do not substitute a permissive first-click implementation.
@@ -144,6 +147,16 @@ optional OCR step compiles the Desktop test target and invokes macOS Vision on
 the rendered JPEG. The AX fixture compiles the Desktop test target and checks
 native AX nodes, text, states, parent indices, cache entries, filtering, and DTO
 round trips. These are local macOS checks, not Windows/Linux or remote evidence.
+
+The latency fixture reports actual returned observations/images, AX node counts
+and native tool wall time including one separately timed fixture JSON check.
+It checks exact Unicode text, immediate shortcut delivery,
+fresh AX-only node identities, recovery of default screenshot observations,
+and the same foreground/cursor invariants as the orchestration fixture. It does
+not invoke a model. Startup and cleanup are outside the reported measurement;
+timings are diagnostic evidence, not machine-dependent pass/fail thresholds.
+The native fixture requires an unlocked desktop; its read-only startup gate
+reports a locked screen as inconclusive without waking or unlocking it.
 
 Observation invariants:
 
