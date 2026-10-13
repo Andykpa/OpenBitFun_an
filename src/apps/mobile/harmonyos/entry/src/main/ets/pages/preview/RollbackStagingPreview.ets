@@ -23,6 +23,7 @@ import {
 import { ChatSurface } from '../state/ChatSurface';
 import { REMOTE_CHAT_COMPOSER_CAPABILITIES } from '../state/ChatComposerCapabilities';
 import { ConversationViewState } from '../state/ConversationViewState';
+import { RemotePageState } from '../state/RemotePageState';
 import {
   RollbackPreviewScenario,
   RollbackPreviewTranscript,
@@ -67,6 +68,10 @@ export struct RollbackStagingPreview {
   @Local toastLog: string = '(none)';
   @Local statusLog: string = '(none)';
   @Local viewportWidth: number = 0;
+  @Local compactPane: boolean = false;
+  private sessionId: string = RollbackPreviewTranscript.SESSION_ID;
+  private sessionContextRevision: number = 0;
+  private sessionState: RemotePageState = new RemotePageState();
 
   private variant: RollbackPreviewVariant = RollbackPreviewVariant.Success;
   private transport: RollbackPreviewTransport =
@@ -88,6 +93,7 @@ export struct RollbackStagingPreview {
   private sentRowCount: number = 0;
 
   aboutToAppear(): void {
+    this.sessionState.setActiveSession({ sessionId: this.sessionId, title: 'Rollback staging', workspacePath: '/workspace', agentType: 'code' });
     const scenarioId = this.scenarioId();
     this.variant = RollbackPreviewScenario.variant(scenarioId);
     this.variantLabel = `${RollbackPreviewScenario.baseId(scenarioId)} · ${this.variant}`;
@@ -179,8 +185,8 @@ export struct RollbackStagingPreview {
     next.surface = ChatSurface.Remote;
     next.connectionState = 'connected';
     next.activeSession = {
-      sessionId: RollbackPreviewTranscript.SESSION_ID,
-      title: 'Rollback staging',
+      sessionId: this.sessionId,
+      title: this.sessionId === RollbackPreviewTranscript.SESSION_ID ? 'Rollback staging' : 'Session B',
       workspacePath: '/workspace',
       agentType: 'code'
     };
@@ -196,6 +202,7 @@ export struct RollbackStagingPreview {
     next.rollbackNotice = this.notice;
     next.rollbackOutcome = this.outcome;
     next.rollbackOutcomeSeq = this.outcomeSeq;
+    next.sessionContextRevision = this.sessionContextRevision;
     this.state = next;
     this.draftLog = this.draft.length > 0 ?
       `"${RollbackStagingPreview.head(this.draft)}" len=${this.draft.length}` : '(empty)';
@@ -289,6 +296,7 @@ export struct RollbackStagingPreview {
       // Set after the send, the same way the production path does: a rollback that
       // succeeded still reports what it withdrew when the send fails.
       this.notice = notice;
+      this.sessionState.setRollbackNotice(notice);
       this.recoveryLog = RollbackStagingPreview.appendLog(
         this.recoveryLog, result.changed ? 'history rewritten' : 'history unchanged');
       this.project();
@@ -311,6 +319,8 @@ export struct RollbackStagingPreview {
       return;
     }
     this.intentLog = `send (${text.length} chars)`;
+    this.sessionState.clearRollbackNotice();
+    this.notice = this.sessionState.rollbackNotice;
     const localMessageId = this.appendSentRow(text);
     await this.command.sendPreparedMessage(
       RollbackPreviewTranscript.SESSION_ID, text, 'code', text, [], [], localMessageId, '', false, true);
@@ -319,6 +329,21 @@ export struct RollbackStagingPreview {
 
   private setDraft(value: string): void {
     this.draft = value;
+  }
+
+  /** Replace the projected session while retaining the same ConversationView. */
+  private switchSession(): void {
+    const returning = this.sessionId !== RollbackPreviewTranscript.SESSION_ID;
+    this.sessionId = returning ? RollbackPreviewTranscript.SESSION_ID : 'rollback-preview-session-b';
+    this.sessionContextRevision += 1;
+    this.sessionState.setActiveSession({ sessionId: this.sessionId, title: this.sessionId, workspacePath: '/workspace', agentType: 'code' });
+    this.rows = returning ? RollbackPreviewTranscript.messages() : [];
+    this.draft = returning ? RollbackPreviewScenario.INITIAL_DRAFT : 'SESSION-B-DRAFT';
+    this.notice = this.sessionState.rollbackNotice;
+    this.outcome = '';
+    this.outcomeSeq = 0;
+    this.revision += 1;
+    this.project();
   }
 
   private appendSentRow(text: string): string {
@@ -379,18 +404,18 @@ export struct RollbackStagingPreview {
       Column() {
         this.Conversation()
       }
-      .width('100%')
+      .width(this.compactPane ? 360 : '100%')
       .layoutWeight(1)
+      .onAreaChange((_oldArea: Area, newArea: Area) => {
+        this.refreshGeometry(
+          WideLayoutGeometry.areaLength(newArea.width),
+          WideLayoutGeometry.areaLength(newArea.height)
+        );
+      })
     }
     .width('100%')
     .height('100%')
     .backgroundColor(PAGE_BG)
-    .onAreaChange((_oldArea: Area, newArea: Area) => {
-      this.refreshGeometry(
-        WideLayoutGeometry.areaLength(newArea.width),
-        WideLayoutGeometry.areaLength(newArea.height)
-      );
-    })
   }
 
   @Builder
@@ -413,6 +438,12 @@ export struct RollbackStagingPreview {
   @Builder
   private Diagnostics() {
     Column({ space: 2 }) {
+      Row({ space: 8 }) {
+        Button('Switch session').id('rollback-preview-switch-session')
+          .onClick(() => this.switchSession())
+        Button('Resize').id('rollback-preview-resize')
+          .onClick(() => { this.compactPane = !this.compactPane; })
+      }
       Text(`scenario=${this.scenarioId()} variant=${this.variantLabel} api=${this.apiLevel} ` +
         `w=${Math.round(this.viewportWidth)} busy=${this.busy ? 1 : 0} ` +
         `caps=${RollbackPreviewScenario.hostCapabilities(this.variant).length}`)

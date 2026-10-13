@@ -95,6 +95,8 @@ export class RemotePageState {
    */
   @Trace rollbackOutcome: string = '';
   @Trace rollbackOutcomeSeq: number = 0;
+  /** Changes even when navigation leaves a session and later returns to it. */
+  @Trace sessionContextRevision: number = 0;
   // Deliberately untraced: the memo behind visibleSessions(), not state anything
   // renders. Tracing it would make reading the list a write to the list.
   private visibleSessionsCache: RemoteSession[] = [];
@@ -276,11 +278,19 @@ export class RemotePageState {
   }
 
   setActiveSession(session: SessionSummary): void {
-    if (this.conversation.activeSession.sessionId !== session.sessionId) this.interactionMailbox = new InteractionMailboxState();
+    if (this.conversation.activeSession.sessionId !== session.sessionId) {
+      this.sessionContextRevision += 1;
+      this.interactionMailbox = new InteractionMailboxState();
+      this.clearRollbackNotice();
+      this.clearRollbackOutcome();
+    }
     this.conversation.setActiveSession(session);
   }
 
   clearActiveSession(): void {
+    this.sessionContextRevision += 1;
+    this.clearRollbackNotice();
+    this.clearRollbackOutcome();
     this.interactionMailbox = new InteractionMailboxState();
     this.conversation.clearActiveSession();
     this.isLoadingConversation = false;
@@ -429,6 +439,7 @@ export class RemotePageState {
 
   /** Clears every conversation-scoped value when its remote identity ends. */
   resetConversationContext(): void {
+    this.sessionContextRevision += 1;
     this.interactionMailbox = new InteractionMailboxState();
     this.conversation.reset();
     this.hasMoreSessions = false;

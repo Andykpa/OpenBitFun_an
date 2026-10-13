@@ -69,6 +69,8 @@ export class ConversationViewState {
   rollbackOutcome: string = '';
   /** Monotonic id of that outcome, so two identical failures are two outcomes. */
   rollbackOutcomeSeq: number = 0;
+  /** Identity generation for a reused pane; a resize alone does not change it. */
+  sessionContextRevision: number = 0;
 
   static project(
     route: AppRoute,
@@ -114,6 +116,7 @@ export class ConversationViewState {
     state.rollbackNotice = remote.rollbackNotice;
     state.rollbackOutcome = remote.rollbackOutcome;
     state.rollbackOutcomeSeq = remote.rollbackOutcomeSeq;
+    state.sessionContextRevision = remote.sessionContextRevision;
     return state;
   }
 

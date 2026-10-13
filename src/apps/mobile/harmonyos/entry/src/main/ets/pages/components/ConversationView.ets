@@ -109,6 +109,7 @@ export struct ConversationView {
    * sequence, because the same refusal twice is two outcomes.
    */
   @Local handledRollbackOutcomeSeq: number = 0;
+  private rollbackContextIdentity: string = '';
   /**
    * How much of the pane the two floating layers cover, measured rather than
    * assumed: the composer grows with multiline text and attachments, and the
@@ -149,6 +150,7 @@ export struct ConversationView {
     // for it: mounting is not a reason to resync a transcript it never showed, or
     // to repeat a refusal the reader was already told about.
     this.handledRollbackOutcomeSeq = this.state.rollbackOutcomeSeq;
+    this.rollbackContextIdentity = `${this.state.surface}:${this.state.activeSession.sessionId}:${this.state.sessionContextRevision}`;
   }
 
   aboutToDisappear(): void {
@@ -827,6 +829,21 @@ export struct ConversationView {
    */
   @Monitor('state')
   onViewStateChanged(): void {
+    const identity = `${this.state.surface}:${this.state.activeSession.sessionId}:${this.state.sessionContextRevision}`;
+    if (identity !== this.rollbackContextIdentity) {
+      this.rollbackContextIdentity = identity;
+      // A reused wide pane must drop A's preview without restoring its draft
+      // through an intent now routed to B. Resizing the same session keeps it.
+      this.stagingTargetTurnId = '';
+      this.stagingTargetText = '';
+      this.composerSnapshot = '';
+      this.showFullText = false;
+      this.fullTextMessage = '';
+      this.fullTextTurnId = '';
+      this.showHeaderActions = false;
+      this.handledRollbackOutcomeSeq = this.state.rollbackOutcomeSeq;
+      return;
+    }
     const sequence = this.state.rollbackOutcomeSeq;
     if (sequence <= this.handledRollbackOutcomeSeq) {
       return;

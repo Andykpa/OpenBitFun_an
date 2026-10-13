@@ -106,14 +106,19 @@ export class RemoteTranscriptController {
 
   async sendRemoteMessage(): Promise<void> {
     const runtime = requireRemoteRuntime(this.remoteRuntime);
+    const sessionId = this.remote.activeSession.sessionId || '';
+    const contextRevision = this.remote.sessionContextRevision;
     if (this.remote.isVoiceListening) {
       await runtime.hooks.stopVoiceInput();
+    }
+    if (this.remote.activeSession.sessionId !== sessionId ||
+      this.remote.sessionContextRevision !== contextRevision) {
+      return;
     }
     const rawText = this.remote.chatInput.trim();
     const images = this.remote.selectedImages.slice();
     const text = rawText.length > 0 ? rawText :
       (images.length > 0 ? RemoteI18n.t('chat.analyzeImageDefault') : '');
-    const sessionId = this.remote.activeSession.sessionId || '';
     if ((!text && images.length === 0) || !sessionId || this.remote.isBusy || this.remote.connectionState !== 'connected' ||
       !runtime.connection.ensureAvailable()) {
       return;
@@ -295,6 +300,7 @@ export class RemoteTranscriptController {
   async rollbackRemoteSession(request: SessionRollbackRequest): Promise<void> {
     const runtime = requireRemoteRuntime(this.remoteRuntime);
     const sessionId = this.remote.activeSession.sessionId || '';
+    const contextRevision = this.remote.sessionContextRevision;
     const targetTurnId = request.targetTurnId.trim();
     if (sessionId.length === 0 || targetTurnId.length === 0) {
       // Nothing addressable reached this layer, so nothing can succeed. Say so
@@ -305,6 +311,9 @@ export class RemoteTranscriptController {
     }
     try {
       const result = await runtime.chat.rollbackSessionToTurn(sessionId, targetTurnId);
+      if (!this.isCurrentSessionContext(sessionId, contextRevision)) {
+        return;
+      }
       RemoteLogger.info(
         `rollback projected retired=${result.retiredTurnIds.length} restored=${result.restoredFiles.length} ` +
           `changed=${result.changed ? '1' : '0'}`
@@ -324,9 +333,15 @@ export class RemoteTranscriptController {
         this.remote.setChatInput(sendText);
         await this.sendRemoteMessage();
       }
+      if (!this.isCurrentSessionContext(sessionId, contextRevision)) {
+        return;
+      }
       this.remote.setRollbackNotice(notice);
       this.rebuildRemoteTranscript(sessionId);
     } catch (err) {
+      if (!this.isCurrentSessionContext(sessionId, contextRevision)) {
+        return;
+      }
       const kind = RollbackOutcomePolicy.failureKind(err);
       RemoteLogger.info(
         `rollback refused session=${shortSessionId(sessionId)} target=${shortSessionId(targetTurnId)} ` +
@@ -337,6 +352,12 @@ export class RemoteTranscriptController {
           SessionRollbackEventType.StaleViewDetected : SessionRollbackEventType.RollbackFailed
       );
     }
+  }
+
+  private isCurrentSessionContext(sessionId: string, revision: number): boolean {
+    return this.remote.sessionContextRevision === revision &&
+      this.remote.activeSession.sessionId === sessionId &&
+      requireRemoteRuntime(this.remoteRuntime).hooks.isConversationContext(sessionId);
   }
 
   /**
