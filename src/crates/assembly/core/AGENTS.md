@@ -271,6 +271,10 @@ writer ownership, unknown persisted fields, legacy metadata-only sessions, and
 both state/metadata projections on failure. These fixtures cover local storage
 and remote routing contracts, not live SSH/relay/peer/dispatch connections.
 
+Remote session host rollback port wiring:
+
+`cargo test --locked -p openbitfun-core --no-default-features --features remote-connect --lib remote_session_host_registers_targeted_rollback_port`.
+
 Configuration persistence, account settings import, backup restore, legacy
 field/deletion compatibility, local-change notifications, and save/reload/model
 concurrency regressions have feature-free fixtures:
