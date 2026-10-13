@@ -2,7 +2,7 @@
 use openbitfun_product_domains::session_import::*;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -15,6 +15,12 @@ const MAX_DOCUMENT_BYTES: usize = 128 * 1024 * 1024;
 const HEADER_BYTES: usize = 256 * 1024;
 const MAX_FILES: usize = 100_000;
 const MAX_TURNS: usize = 4096;
+
+struct WorkspaceSources {
+    key: String,
+    cwd: Option<String>,
+    paths: Vec<PathBuf>,
+}
 
 #[derive(Clone)]
 pub struct CodexSessionReader {
@@ -105,6 +111,153 @@ impl CodexSessionReader {
             next_cursor: has_more.then_some(cursor + candidates.len()),
             candidates,
             diagnostics,
+            workspaces: None,
+        })
+    }
+
+    pub fn discover_workspaces(
+        &self,
+        cursor: usize,
+        limit: usize,
+        query: &str,
+        scope: ExternalSessionCatalogScope,
+    ) -> Result<ExternalSessionCatalog, String> {
+        let mut paths = self.paths()?;
+        paths.sort_by_cached_key(|path| {
+            (
+                std::cmp::Reverse(
+                    fs::metadata(path)
+                        .ok()
+                        .and_then(|meta| meta.modified().ok()),
+                ),
+                path.clone(),
+            )
+        });
+        let mut diagnostics = Vec::new();
+        let mut groups: Vec<WorkspaceSources> = Vec::new();
+        let mut positions = HashMap::new();
+        let query = query.to_lowercase();
+        for path in paths {
+            // Group discovery only needs the source header. Read title previews
+            // for the selected sessions, not the full prefix of every rollout.
+            let cwd = if query.is_empty() {
+                self.inspect_workspace(&path)
+            } else {
+                match self.inspect_path(&path) {
+                    Ok(candidate) => {
+                        if !format!(
+                            "{} {}",
+                            candidate.title.as_deref().unwrap_or(""),
+                            candidate.cwd.as_deref().unwrap_or("")
+                        )
+                        .to_lowercase()
+                        .contains(&query)
+                        {
+                            continue;
+                        }
+                        Ok(candidate.cwd)
+                    }
+                    Err(error) => Err(error),
+                }
+            };
+            let cwd = match cwd {
+                Ok(cwd) => cwd,
+                Err(error) => {
+                    if diagnostics.len() < 20 {
+                        diagnostics.push(warning("source_unreadable", &error));
+                    }
+                    continue;
+                }
+            };
+            let key = workspace_key(cwd.as_deref());
+            let position = *positions.entry(key.clone()).or_insert_with(|| {
+                groups.push(WorkspaceSources {
+                    key,
+                    cwd,
+                    paths: Vec::new(),
+                });
+                groups.len() - 1
+            });
+            groups[position].paths.push(path);
+        }
+        let limit = limit.clamp(1, 50);
+        let (workspaces, next_cursor) = match scope {
+            ExternalSessionCatalogScope::Workspaces { preview_limit } => {
+                let end = cursor.saturating_add(limit).min(groups.len());
+                let next_cursor = (end < groups.len()).then_some(end);
+                let workspaces = groups
+                    .iter()
+                    .skip(cursor)
+                    .take(limit)
+                    .map(|group| self.workspace_page(group, 0, preview_limit.clamp(1, 50)))
+                    .collect::<Result<Vec<_>, _>>()?;
+                (workspaces, next_cursor)
+            }
+            ExternalSessionCatalogScope::Workspace { workspace_key } => {
+                let group = groups
+                    .iter()
+                    .find(|group| group.key == workspace_key)
+                    .ok_or("Codex workspace sessions were removed or moved; refresh the list")?;
+                (vec![self.workspace_page(group, cursor, limit)?], None)
+            }
+        };
+        Ok(ExternalSessionCatalog {
+            schema_version: 1,
+            ecosystem_id: "codex".into(),
+            source_revision: SOURCE_REVISION.into(),
+            candidates: Vec::new(),
+            diagnostics,
+            next_cursor,
+            workspaces: Some(workspaces),
+        })
+    }
+
+    fn inspect_workspace(&self, path: &Path) -> Result<Option<String>, String> {
+        let mut reader = BufReader::new(File::open(path).map_err(|error| error.to_string())?)
+            .take(HEADER_BYTES as u64);
+        let mut line = Vec::new();
+        while reader
+            .read_until(b'\n', &mut line)
+            .map_err(|error| error.to_string())?
+            > 0
+        {
+            if let Ok(value) = serde_json::from_slice::<Value>(&line) {
+                if value["type"] == "session_meta" {
+                    let meta = value["payload"].get("meta").unwrap_or(&value["payload"]);
+                    if meta["id"]
+                        .as_str()
+                        .or_else(|| meta["session_id"].as_str())
+                        .is_some()
+                    {
+                        return Ok(meta["cwd"].as_str().map(str::to_owned));
+                    }
+                }
+            }
+            line.clear();
+        }
+        Err("Rollout header not found in the bounded prefix".into())
+    }
+
+    fn workspace_page(
+        &self,
+        group: &WorkspaceSources,
+        cursor: usize,
+        limit: usize,
+    ) -> Result<ExternalSessionWorkspaceGroup, String> {
+        let end = cursor.saturating_add(limit).min(group.paths.len());
+        let candidates = group
+            .paths
+            .iter()
+            .skip(cursor)
+            .take(limit)
+            .map(|path| self.inspect_path(path))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ExternalSessionWorkspaceGroup {
+            workspace_key: group.key.clone(),
+            cwd: group.cwd.clone(),
+            total_count: group.paths.len(),
+            candidates,
+            next_cursor: (end < group.paths.len()).then_some(end),
         })
     }
     pub fn read_candidate(
@@ -193,6 +346,9 @@ impl CodexSessionReader {
                 .strip_prefix(&self.codex_home)
                 .ok()
                 .map(|p| format!("$CODEX_HOME/{}", p.to_string_lossy().replace('\\', "/"))),
+            target_workspace_id: None,
+            target_workspace_name: None,
+            imported_session_id: None,
         })
     }
     fn read_path(
@@ -255,6 +411,7 @@ impl CodexSessionReader {
                 "response_item" => state.item(
                     record["payload"].get("item").unwrap_or(&record["payload"]),
                     time,
+                    mode,
                     &mut warnings,
                 )?,
                 "turn_context" => {
@@ -271,13 +428,18 @@ impl CodexSessionReader {
                         if let Some(items) = payload["replacement_history"].as_array() {
                             state = Materializer::default();
                             for item in items {
-                                state.item(item, time, &mut warnings)?;
+                                state.item(item, time, mode, &mut warnings)?;
                             }
                         } else if let Some(summary) =
                             payload["message"].as_str().filter(|s| !s.is_empty())
                         {
                             state = Materializer::default();
-                            state.item(&json!({"type":"message","role":"user","content":format!("[Imported Codex compaction summary]\n{summary}")}), time, &mut warnings)?;
+                            state.item(
+                                &json!({"type":"message","role":"user","content":format!("[Imported Codex compaction summary]\n{summary}")}),
+                                time,
+                                mode,
+                                &mut warnings,
+                            )?;
                             warnings.insert("summary_only");
                         } else {
                             return Err(
@@ -341,6 +503,7 @@ impl Materializer {
         &mut self,
         item: &Value,
         time: u64,
+        mode: ExternalSessionImportMode,
         warnings: &mut BTreeSet<&'static str>,
     ) -> Result<(), String> {
         if let Some(id) = item["id"].as_str() {
@@ -439,10 +602,13 @@ impl Materializer {
                 }
             }
             "compaction" | "context_compaction" => {
-                return Err(
-                    "Provider compaction response requires a supported rollout compaction boundary"
-                        .into(),
-                )
+                warnings.insert("compaction_present");
+                if mode == ExternalSessionImportMode::LatestCompacted {
+                    return Err(
+                        "Codex compacted history contains an encrypted context summary; select full history to preserve readable conversation"
+                            .into(),
+                    );
+                }
             }
             _ => {
                 warnings.insert("unsupported_response_item");
@@ -530,6 +696,22 @@ fn collect(
     }
     Ok(())
 }
+fn workspace_key(cwd: Option<&str>) -> String {
+    let path = cwd.unwrap_or("").trim();
+    let windows_path = path.as_bytes().get(1) == Some(&b':') || path.starts_with("\\\\");
+    let normalized = if windows_path {
+        path.replace('\\', "/").trim_end_matches('/').to_lowercase()
+    } else if path == "/" {
+        path.to_owned()
+    } else {
+        path.trim_end_matches('/').to_owned()
+    };
+    format!(
+        "codex-workspace:{}",
+        hex::encode(Sha256::digest(normalized.as_bytes()))
+    )
+}
+
 fn candidate_id(path: &Path) -> String {
     format!(
         "codex:{}",
@@ -565,10 +747,16 @@ fn content_text(v: &Value) -> String {
         .unwrap_or_default()
 }
 fn is_injected(text: &str) -> bool {
+    let text = text.trim_start();
     text.starts_with("# AGENTS.md instructions for ")
         || text.starts_with("<environment_context>")
         || text.starts_with("<turn_aborted>")
         || text.starts_with("<permissions instructions>")
+        || text.starts_with("<codex_internal_context ")
+        || (text.starts_with("<external_codex_apps_open_page>")
+            && text
+                .trim_end()
+                .ends_with("</external_codex_apps_open_page>"))
 }
 pub fn preview(text: &str, chars: usize) -> String {
     text.chars().take(chars).collect()
@@ -583,6 +771,111 @@ fn warning(code: &str, detail: &str) -> ExternalSessionImportWarning {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn workspace_fixture() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("sessions")).unwrap();
+        for (id, cwd, modified) in [
+            ("a-new", "/a", 60),
+            ("a-middle", "/a", 50),
+            ("a-old", "/a", 10),
+            ("b-new", "/b", 40),
+            ("b-old", "/b", 20),
+            ("a-other", "/a-other", 30),
+        ] {
+            let path = dir.path().join(format!("sessions/rollout-{id}.jsonl"));
+            fs::write(
+                &path,
+                format!(
+                    "{}\n{}\n",
+                    json!({"type":"session_meta","payload":{"id":id,"cwd":cwd}}),
+                    msg("user", id)
+                ),
+            )
+            .unwrap();
+            File::options()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_times(
+                    fs::FileTimes::new()
+                        .set_modified(UNIX_EPOCH + std::time::Duration::from_secs(modified)),
+                )
+                .unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn workspace_pages_follow_recent_activity_with_independent_preview_limits() {
+        let dir = workspace_fixture();
+        let reader = CodexSessionReader::new(dir.path().into());
+        let first = reader
+            .discover_workspaces(
+                0,
+                2,
+                "",
+                ExternalSessionCatalogScope::Workspaces { preview_limit: 1 },
+            )
+            .unwrap();
+        let groups = first.workspaces.unwrap();
+        assert!(first.candidates.is_empty());
+        assert_eq!(first.next_cursor, Some(2));
+        assert_eq!(
+            groups
+                .iter()
+                .map(|group| group.cwd.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["/a", "/b"]
+        );
+        assert_eq!(groups[0].total_count, 3);
+        assert_eq!(groups[0].candidates[0].source_session_id, "a-new");
+        assert_eq!(groups[0].next_cursor, Some(1));
+        let next = reader
+            .discover_workspaces(
+                2,
+                2,
+                "",
+                ExternalSessionCatalogScope::Workspaces { preview_limit: 1 },
+            )
+            .unwrap();
+        assert!(next.next_cursor.is_none());
+        let groups = next.workspaces.unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].cwd.as_deref(), Some("/a-other"));
+        assert!(groups[0].next_cursor.is_none());
+    }
+
+    #[test]
+    fn workspace_session_cursor_never_includes_other_workspaces() {
+        let dir = workspace_fixture();
+        let reader = CodexSessionReader::new(dir.path().into());
+        let scope = ExternalSessionCatalogScope::Workspace {
+            workspace_key: workspace_key(Some("/a")),
+        };
+        let page = reader.discover_workspaces(1, 1, "", scope.clone()).unwrap();
+        assert!(page.next_cursor.is_none());
+        let group = &page.workspaces.unwrap()[0];
+        assert_eq!(group.candidates[0].source_session_id, "a-middle");
+        assert_eq!(group.next_cursor, Some(2));
+        let last = reader.discover_workspaces(2, 1, "", scope).unwrap();
+        let group = &last.workspaces.unwrap()[0];
+        assert_eq!(group.candidates[0].source_session_id, "a-old");
+        assert!(group.next_cursor.is_none());
+    }
+
+    #[test]
+    fn workspace_source_identity_normalizes_windows_paths_without_folding_posix_case() {
+        assert_eq!(
+            workspace_key(Some("C:\\Work\\Repo\\")),
+            workspace_key(Some("c:/work/repo"))
+        );
+        assert_ne!(
+            workspace_key(Some("/Work/Repo")),
+            workspace_key(Some("/work/repo"))
+        );
+        assert_ne!(workspace_key(Some("/")), workspace_key(None));
+    }
+
     fn fixture(records: Vec<Value>) -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         fs::create_dir(dir.path().join("sessions")).unwrap();
@@ -650,6 +943,32 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["summary", "keep"]
         );
+    }
+    #[test]
+    fn encrypted_compaction_requires_full_history_fallback() {
+        let dir = fixture(vec![
+            msg("user", "before"),
+            msg("assistant", "answer"),
+            json!({"type":"response_item","payload":{"type":"compaction","id":"compact-1"}}),
+            msg("user", "after"),
+            msg("assistant", "done"),
+        ]);
+        let reader = CodexSessionReader::new(dir.path().into());
+        let list = reader.discover(0, 50, "").unwrap();
+        let id = &list.candidates[0].candidate_id;
+        let error = match reader.read_candidate(id, ExternalSessionImportMode::LatestCompacted) {
+            Ok(_) => panic!("latest compacted history should require a readable fallback"),
+            Err(error) => error,
+        };
+        assert!(error.contains("encrypted context summary"));
+        let document = reader
+            .read_candidate(id, ExternalSessionImportMode::Full)
+            .unwrap();
+        assert_eq!(document.turns.len(), 2);
+        assert!(document
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "compaction_present"));
     }
     #[test]
     fn corrupt_middle_fails_and_torn_tail_is_disclosed() {

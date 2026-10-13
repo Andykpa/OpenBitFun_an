@@ -6,6 +6,12 @@
 - Preserve Codex configuration-layer and field-overlay semantics inside each typed provider. Unknown behavior fields must block explicitly; do not invent Codex Command or standalone Tool sources.
 - Do not depend on another ecosystem adapter. Shared product behavior belongs in contracts or assembly.
 
+## Session discovery and import verification
+
+```bash
+cargo test -p openbitfun-codex-adapter --lib session::tests
+```
+
 ## Pet source verification
 
 ```bash

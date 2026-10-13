@@ -38,6 +38,7 @@ import {
   type EcosystemProductRuntime,
 } from './ecosystemCompatibilityModel';
 import ExternalAgentContent, { type ExternalAgentContentHandle, type ExternalAgentContentActionState } from './ExternalAgentContent';
+import ExternalAgentSessions from './ExternalAgentSessions';
 import { EcosystemDialog as Dialog } from './EcosystemDialog';
 import ExternalDiscoveryToggle from './ExternalDiscoveryToggle';
 import { ecosystemDiscoveryCache, rememberEcosystemCatalog } from './ecosystemDiscoveryCache';
@@ -117,6 +118,14 @@ const EcosystemCompatibilityScene: React.FC = () => {
   const discoveryControlRef = useRef<HTMLDivElement>(null);
   const externalContentRef = useRef<ExternalAgentContentHandle>(null);
   const [contentActionState, setContentActionState] = useState<{ scope: string; actions: ExternalAgentContentActionState }>();
+  const [sessionImportBusy, setSessionImportBusy] = useState(false);
+  const [sessionRefreshVersion, setSessionRefreshVersion] = useState(0);
+  const [sessionCountState, setSessionCountState] = useState<{ host: string | undefined; count: number }>();
+  const sessionCount = sessionCountState?.host === peerDeviceId ? sessionCountState?.count ?? 0 : 0;
+  const onSessionCountChange = useCallback((count: number) => {
+    setSessionCountState((previous) => previous && previous.host === peerDeviceId && previous.count === count
+      ? previous : { host: peerDeviceId, count });
+  }, [peerDeviceId]);
   const [snapshotState, setSnapshotState] = useState<{ scope: string; value: ExternalSourceCatalogSnapshot | null }>();
   const [clientState, setClientState] = useState<{ scope: string; value: AcpClientInfo[] }>();
   const [supplementalState, setSupplementalState] = useState<{ scope: string; counts: Record<string, number> }>();
@@ -329,7 +338,8 @@ const EcosystemCompatibilityScene: React.FC = () => {
 
   const renderProductSummary = (runtime: EcosystemProductRuntime): string => {
     const assetCount = totalDiscoveredAssets(runtime.capabilityCounts)
-      + (supplementalCounts?.[runtime.spec.ecosystemId] ?? 0);
+      + (supplementalCounts?.[runtime.spec.ecosystemId] ?? 0)
+      + (runtime.spec.id === 'codex' ? sessionCount : 0);
     if (runtime.spec.development) return t('productSummary.development');
     if (assetCount > 0) {
       return t('productSummary.assets', { count: formatNumber(assetCount) });
@@ -647,8 +657,11 @@ const EcosystemCompatibilityScene: React.FC = () => {
                       variant="outline"
                       labelBehavior="static"
                       aria-label={t('content.refresh')}
-                      disabled={loading || !contentActions || contentActions.refreshDisabled}
-                      onClick={() => void externalContentRef.current?.refresh()}
+                      disabled={loading || !contentActions || contentActions.refreshDisabled || sessionImportBusy}
+                      onClick={() => {
+                        setSessionRefreshVersion((value) => value + 1);
+                        void externalContentRef.current?.refresh();
+                      }}
                     >
                       {t('content.refresh')}
                     </Button>
@@ -686,6 +699,12 @@ const EcosystemCompatibilityScene: React.FC = () => {
                   </div>
                 ) : null}
                 {selectedRuntime.acpClients.length > 0 ? renderRun() : null}
+                {selectedRuntime.spec.id === 'codex' ? <ExternalAgentSessions
+                  key={peerDeviceId ?? 'local'}
+                  onCountChange={onSessionCountChange}
+                  onBusyChange={setSessionImportBusy}
+                  refreshVersion={sessionRefreshVersion}
+                /> : null}
                 <ExternalAgentContent
                   key={JSON.stringify([requestScope, selectedRuntime.spec.id])}
                   scopeKey={requestScope}

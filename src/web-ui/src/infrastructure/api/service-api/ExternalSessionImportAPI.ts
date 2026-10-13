@@ -1,9 +1,8 @@
 import { invokePrepared } from './invokePrepared';
+import { invokeExternalSourceCommand } from './ExternalSourcesAPI';
 
 export type ExternalSessionStatus = 'complete' | 'interrupted' | 'unsupported' | 'corrupt';
 export type ExternalSessionWorkspaceMapping = 'exact' | 'user_selected' | 'missing_source_path' | 'unsupported';
-export type ExternalSessionImportMode = 'full' | 'latest_compacted';
-
 export interface ExternalSessionCandidate {
   candidateId: string;
   ecosystemId: string;
@@ -20,6 +19,9 @@ export interface ExternalSessionCandidate {
   status: ExternalSessionStatus;
   fingerprint: string;
   sourceLocation?: string;
+  targetWorkspaceId?: string;
+  targetWorkspaceName?: string;
+  importedSessionId?: string;
 }
 
 export interface ExternalSessionImportWarning {
@@ -56,6 +58,19 @@ export interface ExternalSessionCatalog {
   candidates: ExternalSessionCandidate[];
   diagnostics: ExternalSessionImportWarning[];
   nextCursor?: number;
+  workspaces?: ExternalSessionWorkspaceGroup[];
+}
+
+export interface ExternalSessionWorkspaceGroup {
+  workspaceKey: string;
+  cwd?: string;
+  totalCount: number;
+  candidates: ExternalSessionCandidate[];
+  nextCursor?: number;
+}
+
+export interface ExternalSessionWorkspaceCatalog extends ExternalSessionCatalog {
+  workspaces: ExternalSessionWorkspaceGroup[];
 }
 
 export interface ExternalSessionImportApplied {
@@ -90,6 +105,9 @@ function normalizeCandidate(value: unknown): ExternalSessionCandidate {
     fileSizeBytes: item.fileSizeBytes, formatVersion: boundedString(item.formatVersion, 256),
     status: item.status as ExternalSessionStatus, fingerprint: item.fingerprint,
     sourceLocation: boundedString(item.sourceLocation),
+    targetWorkspaceId: boundedString(item.targetWorkspaceId, 256),
+    targetWorkspaceName: boundedString(item.targetWorkspaceName, 512),
+    importedSessionId: boundedString(item.importedSessionId, 256),
   };
 }
 
@@ -104,7 +122,35 @@ function normalizeCatalog(value: unknown): ExternalSessionCatalog {
     candidates: item.candidates.map(normalizeCandidate),
     diagnostics: Array.isArray(item.diagnostics) ? item.diagnostics as ExternalSessionImportWarning[] : [],
     nextCursor: typeof item.nextCursor === 'number' ? item.nextCursor : undefined,
+    workspaces: Array.isArray(item.workspaces) ? item.workspaces.map(normalizeWorkspace) : undefined,
   };
+}
+
+function normalizeWorkspace(value: unknown): ExternalSessionWorkspaceGroup {
+  const item = value as Record<string, unknown>;
+  if (!item || typeof item !== 'object' || !boundedString(item.workspaceKey, 256)
+    || !Number.isSafeInteger(item.totalCount) || (item.totalCount as number) < 0
+    || !Array.isArray(item.candidates)
+    || (item.nextCursor != null && (!Number.isSafeInteger(item.nextCursor) || (item.nextCursor as number) < 1))) {
+    throw new Error('Invalid external session workspace response');
+  }
+  return {
+    workspaceKey: item.workspaceKey as string,
+    cwd: boundedString(item.cwd),
+    totalCount: item.totalCount as number,
+    candidates: item.candidates.map(normalizeCandidate),
+    nextCursor: typeof item.nextCursor === 'number' ? item.nextCursor : undefined,
+  };
+}
+
+function normalizeWorkspaceCatalog(value: unknown): ExternalSessionWorkspaceCatalog {
+  const catalog = normalizeCatalog(value);
+  if (!catalog.workspaces) {
+    throw Object.assign(new Error('The host does not support workspace-scoped session discovery'), {
+      code: 'workspace_pagination_unsupported',
+    });
+  }
+  return { ...catalog, workspaces: catalog.workspaces };
 }
 
 export const externalSessionImportAPI = {
@@ -114,13 +160,34 @@ export const externalSessionImportAPI = {
     })).then(normalizeCatalog);
   },
 
-  plan(workspaceId: string, candidateId: string, mode: ExternalSessionImportMode): Promise<ExternalSessionImportPlan> {
-    return invokePrepared('plan_external_session_import', async () => ({
-      request: { workspaceId, candidateId, mode },
+  listWorkspaces(cursor = 0): Promise<ExternalSessionWorkspaceCatalog> {
+    return invokeExternalSourceCommand('list_external_session_import_candidates', {
+      request: { cursor, limit: 5, scope: { kind: 'workspaces', previewLimit: 5 } },
+    }).then(normalizeWorkspaceCatalog);
+  },
+
+  async listWorkspaceSessions(workspaceKey: string, cursor: number): Promise<ExternalSessionWorkspaceGroup> {
+    const catalog = normalizeWorkspaceCatalog(await invokeExternalSourceCommand('list_external_session_import_candidates', {
+      request: { cursor, limit: 25, scope: { kind: 'workspace', workspaceKey } },
     }));
+    if (catalog.workspaces.length !== 1 || catalog.workspaces[0].workspaceKey !== workspaceKey) {
+      throw new Error('External session workspace response does not match the requested workspace');
+    }
+    const group = catalog.workspaces[0];
+    if (group.nextCursor !== undefined && group.nextCursor <= cursor) {
+      throw new Error('External session workspace cursor did not advance');
+    }
+    return group;
+  },
+
+  plan(candidateId: string, operationId?: string): Promise<ExternalSessionImportPlan> {
+    return invokeExternalSourceCommand('plan_external_session_import', {
+      request: { candidateId, operationId },
+    });
   },
 
   apply(request: {
+    operationId?: string;
     schemaVersion: number;
     planFingerprint: string;
     candidateId: string;
@@ -129,8 +196,11 @@ export const externalSessionImportAPI = {
     sessionTitle?: string;
     includeToolHistory: boolean;
     includeThinking: boolean;
-    mode: ExternalSessionImportMode;
   }): Promise<ExternalSessionImportApplied> {
-    return invokePrepared('apply_external_session_import', async () => ({ request }));
+    return invokeExternalSourceCommand('apply_external_session_import', { request });
+  },
+
+  cancel(operationId: string): Promise<boolean> {
+    return invokeExternalSourceCommand('cancel_external_session_import', { request: { operationId } });
   },
 };

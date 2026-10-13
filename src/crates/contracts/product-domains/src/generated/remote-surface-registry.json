@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "digest": "fnv1a64:92bbccee184ebd3a",
+  "digest": "fnv1a64:4123da56a34c05c4",
   "retiredCommandPrefixes": [
     {
       "prefix": "lsp_",
@@ -790,6 +790,18 @@
       },
       "cliPeer": {
         "kind": "handled"
+      }
+    },
+    {
+      "id": "cancel_external_session_import",
+      "surface": "tauri_command",
+      "remoteWorkspace": "RemoteUnsupported",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no handler for this command"
       }
     },
     {

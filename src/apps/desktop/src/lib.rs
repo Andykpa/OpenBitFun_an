@@ -1346,6 +1346,7 @@ pub async fn run() {
             list_external_session_import_candidates,
             plan_external_session_import,
             apply_external_session_import,
+            cancel_external_session_import,
             apply_external_source_control_action_command,
             get_external_ecosystem_awareness_command,
             acknowledge_external_ecosystems_command,

@@ -4,7 +4,7 @@
   "title": "OpenBitFun Playbook",
   "origin": "https://playbook.openbitfun.com",
   "source": "src/shared/interactive-capabilities/catalog.json",
-  "digest": "f614cf831e0617d059f12d9399c878268450af6052523a803e955ce18bf401b9",
+  "digest": "30ba314ca2dc4304bbea05f49966ac1a9815f0a3d6d7c345a09e6f9be482546b",
   "ownerDigest": "b96bf9292a92548facbd835b8b89c4865bfdd984b356c9001995f552c6a34f51",
   "searchAcceptance": [
     {
@@ -23592,8 +23592,8 @@
           "control": {
             "kind": "open",
             "reasonCode": "unstructuredInteraction",
-            "reasonZh": "“按需导入 Codex 会话并在 OpenBitFun 中继续对话”需要用户选择来源会话、审阅历史范围并确认目标工作区；智能体会打开生态兼容入口，并把后续交互保留在用户可见界面。",
-            "reasonEn": "“Import selected Codex sessions on demand and continue them in OpenBitFun” requires the user to select a source session, review the history scope, and confirm the target workspace; the Agent opens the ecosystem compatibility entry and keeps the remaining interaction visible to the user."
+            "reasonZh": "用户可直接导入单个 Codex 会话或一个工作区的全部会话，在按钮处查看进度并取消，再进入已导入会话继续对话。完整可读历史归入来源工作区；智能体打开生态兼容入口，后续选择保留在用户可见界面。",
+            "reasonEn": "Users can directly import one Codex session or all sessions in a workspace, follow progress and cancel at the import button, then open an imported session to continue. Full readable history belongs to its source workspace; the Agent opens ecosystem compatibility and leaves selection in the visible interface."
           }
         },
         {

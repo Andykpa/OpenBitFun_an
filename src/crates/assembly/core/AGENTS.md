@@ -375,6 +375,12 @@ local versus remote instruction composition:
 cargo test --locked -p openbitfun-core --no-default-features --features external-sources,git --lib instruction_
 ```
 
+For Codex session import assembly, workspace ownership and cancellation:
+
+```bash
+cargo test -p openbitfun-core --no-default-features --features external-sources,git --lib external_session_import::tests
+```
+
 Detached Dispatch controller, target query compatibility, and managed-baseline checks:
 
 ```bash

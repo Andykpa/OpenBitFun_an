@@ -48,6 +48,16 @@ pub struct ExternalSessionCandidate {
     /// client in order to apply an import.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_location: Option<String>,
+    /// The tracked local workspace that owns the source working directory.
+    /// This is resolved by the host, never inferred from the active UI
+    /// workspace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_workspace_name: Option<String>,
+    /// Existing OpenBitFun session created from this source rollout, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imported_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +96,8 @@ pub struct ExternalSessionImportPlan {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExternalSessionImportRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
     pub schema_version: u32,
     pub plan_fingerprint: String,
     pub candidate_id: String,
@@ -96,12 +108,16 @@ pub struct ExternalSessionImportRequest {
     pub include_tool_history: bool,
     #[serde(default)]
     pub include_thinking: bool,
-    #[serde(default)]
+    #[serde(default = "default_full_import_mode")]
     pub mode: ExternalSessionImportMode,
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_full_import_mode() -> ExternalSessionImportMode {
+    ExternalSessionImportMode::Full
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,13 +139,41 @@ pub struct ExternalSessionCatalog {
     pub candidates: Vec<ExternalSessionCandidate>,
     pub diagnostics: Vec<ExternalSessionImportWarning>,
     pub next_cursor: Option<usize>,
+    /// Present only for workspace-scoped discovery. Legacy flat pages retain
+    /// their original wire shape and cursor semantics.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspaces: Option<Vec<ExternalSessionWorkspaceGroup>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum ExternalSessionCatalogScope {
+    Workspaces { preview_limit: usize },
+    Workspace { workspace_key: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalSessionWorkspaceGroup {
+    /// Stable source identity, independent of registration in OpenBitFun.
+    pub workspace_key: String,
+    pub cwd: Option<String>,
+    pub total_count: usize,
+    pub candidates: Vec<ExternalSessionCandidate>,
+    /// A session cursor within this workspace, never a global session offset.
+    pub next_cursor: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExternalSessionImportMode {
-    Full,
     #[default]
+    Full,
     LatestCompacted,
 }
 
@@ -174,6 +218,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn legacy_flat_catalog_round_trips_without_workspace_pagination_fields() {
+        let legacy = serde_json::json!({
+            "schemaVersion": 1, "ecosystemId": "codex", "sourceRevision": "v1",
+            "candidates": [], "diagnostics": [], "nextCursor": 50
+        });
+        let catalog: ExternalSessionCatalog = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(catalog.workspaces.is_none());
+        assert_eq!(serde_json::to_value(catalog).unwrap(), legacy);
+    }
+
+    #[test]
+    fn workspace_scope_uses_distinct_typed_cursor_contracts() {
+        let scope: ExternalSessionCatalogScope = serde_json::from_value(serde_json::json!({
+            "kind": "workspaces", "previewLimit": 5
+        }))
+        .unwrap();
+        assert!(matches!(
+            scope,
+            ExternalSessionCatalogScope::Workspaces { preview_limit: 5 }
+        ));
+        let source = serde_json::json!({ "kind": "workspace", "workspaceKey": "source" });
+        let scope: ExternalSessionCatalogScope = serde_json::from_value(source.clone()).unwrap();
+        assert_eq!(serde_json::to_value(scope).unwrap(), source);
+    }
+
+    #[test]
     fn import_request_defaults_to_including_tool_history() {
         let request: ExternalSessionImportRequest = serde_json::from_value(serde_json::json!({
             "schemaVersion": 1,
@@ -185,5 +255,37 @@ mod tests {
         .expect("request should deserialize");
         assert!(request.include_tool_history);
         assert!(!request.include_thinking);
+        assert!(request.operation_id.is_none());
+        assert_eq!(request.mode, ExternalSessionImportMode::Full);
+    }
+
+    #[test]
+    fn legacy_candidate_round_trips_without_workspace_annotations() {
+        let legacy = serde_json::json!({
+            "candidateId": "codex:session", "ecosystemId": "codex",
+            "sourceSessionId": "session", "title": null, "cwd": "/project",
+            "createdAt": null, "updatedAt": null, "modelProvider": null,
+            "modelName": null, "turnCount": null, "fileSizeBytes": 120,
+            "formatVersion": null, "status": "complete", "fingerprint": "sha256:test"
+        });
+        let candidate: ExternalSessionCandidate = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(candidate.target_workspace_id.is_none());
+        assert!(candidate.target_workspace_name.is_none());
+        assert!(candidate.imported_session_id.is_none());
+        assert_eq!(serde_json::to_value(candidate).unwrap(), legacy);
+    }
+
+    #[test]
+    fn explicit_legacy_import_mode_remains_readable() {
+        let legacy = serde_json::json!({
+            "schemaVersion": 1, "planFingerprint": "sha256:test",
+            "candidateId": "codex:test", "targetWorkspaceId": "workspace-1",
+            "agentId": "code", "sessionTitle": null,
+            "includeToolHistory": true, "includeThinking": false,
+            "mode": "latest_compacted"
+        });
+        let request: ExternalSessionImportRequest = serde_json::from_value(legacy.clone()).unwrap();
+        assert_eq!(request.mode, ExternalSessionImportMode::LatestCompacted);
+        assert_eq!(serde_json::to_value(request).unwrap(), legacy);
     }
 }

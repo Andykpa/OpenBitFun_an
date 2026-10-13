@@ -30,6 +30,8 @@ impl OfflineSessionBundle {
 
 #[derive(Debug, Error)]
 pub enum OfflineSessionImportError {
+    #[error("Session import cancelled")]
+    Cancelled,
     #[error(transparent)]
     Metadata(#[from] SessionMetadataStoreError),
     #[error(transparent)]
@@ -87,6 +89,19 @@ impl OfflineSessionImportStore {
         &self,
         bundle: &OfflineSessionBundle,
     ) -> Result<(), OfflineSessionImportError> {
+        self.write_bundle_atomic_cancellable(bundle, || false).await
+    }
+
+    /// Cancellation is honored until publication starts. Once published, the
+    /// complete Session remains authoritative even if a late cancel arrives.
+    pub async fn write_bundle_atomic_cancellable(
+        &self,
+        bundle: &OfflineSessionBundle,
+        is_cancelled: impl Fn() -> bool,
+    ) -> Result<(), OfflineSessionImportError> {
+        if is_cancelled() {
+            return Err(OfflineSessionImportError::Cancelled);
+        }
         validate_bundle_shape(bundle)?;
         fs::create_dir_all(self.sessions_root())
             .await
@@ -128,6 +143,9 @@ impl OfflineSessionImportStore {
 
         let write_result = async {
             for turn in &bundle.turns {
+                if is_cancelled() {
+                    return Err(OfflineSessionImportError::Cancelled);
+                }
                 self.json_store
                     .write_atomic_strict(
                         &staging_layout.turn_path(session_id, turn.turn_index),
@@ -136,6 +154,9 @@ impl OfflineSessionImportStore {
                     .await?;
             }
 
+            if is_cancelled() {
+                return Err(OfflineSessionImportError::Cancelled);
+            }
             fs::rename(staging_layout.session_dir(session_id), &final_dir)
                 .await
                 .map_err(|error| {
@@ -282,6 +303,46 @@ fn validate_bundle_shape(bundle: &OfflineSessionBundle) -> Result<(), OfflineSes
 mod tests {
     use super::*;
     use std::fs;
+
+    #[tokio::test]
+    async fn cancelled_atomic_import_cleans_staging_without_publishing_or_removing_existing_data() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../legacy-migration/tests/fixtures/v0.2.19/home/projects/c--fixture-workspace/sessions/session-1",
+        );
+        let stored_metadata: StoredSessionMetadataFile =
+            serde_json::from_slice(&fs::read(fixture.join("metadata.json")).unwrap()).unwrap();
+        let stored_turn: StoredDialogTurnFile =
+            serde_json::from_slice(&fs::read(fixture.join("turns/turn-0000.json")).unwrap())
+                .unwrap();
+        let bundle = OfflineSessionBundle {
+            metadata: stored_metadata.metadata,
+            turns: vec![stored_turn.turn],
+        };
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("existing-data"), b"preserved").unwrap();
+        let store = OfflineSessionImportStore::new(temp.path());
+        let checkpoints = AtomicUsize::new(0);
+
+        let result = store
+            .write_bundle_atomic_cancellable(&bundle, || {
+                checkpoints.fetch_add(1, Ordering::SeqCst) >= 2
+            })
+            .await;
+
+        assert!(matches!(result, Err(OfflineSessionImportError::Cancelled)));
+        assert_eq!(checkpoints.load(Ordering::SeqCst), 3);
+        assert!(store.load_bundle("session-1").await.unwrap().is_none());
+        assert_eq!(
+            fs::read(temp.path().join("existing-data")).unwrap(),
+            b"preserved"
+        );
+        assert!(!fs::read_dir(temp.path()).unwrap().any(|entry| entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".importing-")));
+    }
 
     #[tokio::test]
     async fn owner_writer_round_trips_a_legacy_bundle_in_the_current_format() {

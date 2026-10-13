@@ -1,11 +1,11 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "f614cf831e0617d059f12d9399c878268450af6052523a803e955ce18bf401b9",
-  "commandCount": 677,
+  "catalogDigest": "30ba314ca2dc4304bbea05f49966ac1a9815f0a3d6d7c345a09e6f9be482546b",
+  "commandCount": 678,
   "coverage": {
-    "commandCount": 677,
-    "documentedCommandCount": 628,
+    "commandCount": 678,
+    "documentedCommandCount": 629,
     "implementationCommandCount": 49,
     "implementationDigest": "bc5063388e1b0dc13add3e967dd1b9c8638ee5e17d05ebcc680b419830c859ff"
   },
@@ -977,6 +977,22 @@
       "sourceFile": "src/apps/desktop/src/api/agentic_api.rs",
       "signature": "fn cancel_dialog_turn( runtime: State<'_, DesktopRuntimeContext>, app_state: State<'_, AppState>, request: CancelDialogTurnRequest, ) -> Result<(), String>",
       "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
+      "id": "cancel_external_session_import",
+      "moduleId": "external_session_import",
+      "capabilityId": "feature.ecosystem-compatibility",
+      "capabilityIds": [
+        "feature.ecosystem-compatibility"
+      ],
+      "documentedItemIds": [
+        "feature.ecosystem-compatibility:codex-session-import"
+      ],
+      "visibility": "documented",
+      "rustPath": "cancel_external_session_import",
+      "sourceFile": "src/apps/desktop/src/api/external_session_import_api.rs",
+      "signature": "fn cancel_external_session_import(request: CancelExternalSessionImportRequest) -> bool",
+      "remoteWorkspacePolicy": "RemoteUnsupported"
     },
     {
       "id": "cancel_insights_generation",
