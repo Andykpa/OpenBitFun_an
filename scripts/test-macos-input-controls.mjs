@@ -75,6 +75,7 @@ try {
   const hostReady = join(directory, 'host-ready');
   const testEnvironment = {
     ...process.env, OPENBITFUN_INPUT_FIXTURE_PID: pid,
+    OPENBITFUN_INPUT_FIXTURE_APP: join(directory, 'OpenBitFun Input Target.app'),
     OPENBITFUN_INPUT_FIXTURE_RESULT: result, OPENBITFUN_INPUT_OBSERVER_RESULT: `${result}.observer`,
     OPENBITFUN_INPUT_HOST_READY: hostReady,
   };

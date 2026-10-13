@@ -8,7 +8,11 @@ use std::sync::Arc;
 
 const OWNER: &str = "native-control-roundtrip-fixture";
 async fn select_and_grant_fixture(host: &DesktopComputerUseHost, pid: i32, window: Option<u64>) {
-    let pending = host.control_snapshot();
+    let pending = crate::computer_use::control_session::request_share(
+        OWNER,
+        openbitfun_agent_tools::computer_use_control::ControlMode::Background,
+    )
+    .unwrap();
     assert_eq!(pending.state, "awaiting_share");
     assert!(crate::computer_use::control_session::acquire(OWNER, "app_click").is_err());
     let target = crate::computer_use::share_targets()
@@ -174,14 +178,8 @@ pub(crate) async fn run() {
     context.primary_model_facts.api_format = "anthropic".into();
     let tool = ComputerUseTool::new();
     let _cleanup = StopOnExit;
-    let start = call(
-        &tool,
-        &context,
-        json!({"action":"start_control", "mode":"background"}),
-    )
-    .await;
-    let generation = start["generation"].as_u64().expect("control generation");
-    select_and_grant_fixture(&host, pid, None).await;
+    // Reproduce ordinary Agent usage: discovery followed by the first app
+    // observation starts background control without any UI sharing calls.
     let apps = call(&tool, &context, json!({"action":"list_apps"})).await;
     assert!(
         apps.to_string().contains(&pid.to_string()),
@@ -193,6 +191,10 @@ pub(crate) async fn run() {
         json!({"action":"get_app_state", "app":{"pid":pid}}),
     )
     .await;
+    let control = host.control_snapshot();
+    assert_eq!(control.state, "active");
+    assert!(control.sharing.is_none());
+    let generation = control.generation;
     let old_observation_id = observation["app_state"]["observation_id"]
         .as_str()
         .expect("scoped observation identity")
@@ -358,7 +360,35 @@ async fn run_covered_semantic() {
         json!({"action":"start_control","mode":"background"}),
     )
     .await;
-    select_and_grant_fixture(&host, pid, initial["window_id"].as_u64()).await;
+    assert_eq!(host.control_snapshot().state, "active");
+    assert!(host.control_snapshot().sharing.is_none());
+    let opened = call(
+        &tool,
+        &context,
+        json!({
+            "action":"open_app", "app_name":"dev.openbitfun.input-fixture.target"
+        }),
+    )
+    .await;
+    assert_eq!(opened["success"], true);
+    assert_eq!(opened["process_id"], pid);
+    assert_eq!(
+        crate::computer_use::macos_bg_input::frontmost_pid_macos(),
+        foreground
+    );
+    let opened_by_path = call(
+        &tool,
+        &context,
+        json!({"action":"open_app", "app_name":std::env::var("OPENBITFUN_INPUT_FIXTURE_APP").unwrap()}),
+    )
+    .await;
+    assert_eq!(opened_by_path["success"], true);
+    assert_eq!(opened_by_path["process_id"], pid);
+    assert_eq!(opened_by_path["launch_path"], "open_background");
+    assert_eq!(
+        crate::computer_use::macos_bg_input::frontmost_pid_macos(),
+        foreground
+    );
     let observation = call(
         &tool,
         &context,
@@ -542,6 +572,9 @@ async fn run_covered_semantic() {
     );
     // Human preview input uses a separate host instance but the same native
     // sharing resource, lease and background guard as the Agent.
+    // Exercise that optional API separately, after the entire Agent task has
+    // completed without a share selection or per-application grant.
+    select_and_grant_fixture(&host, pid, initial["window_id"].as_u64()).await;
     use crate::computer_use::shared_preview::{self, SharedInputRequest, SharedPreviewRequest};
     let shared = host.control_snapshot();
     let scope = || SharedPreviewRequest {

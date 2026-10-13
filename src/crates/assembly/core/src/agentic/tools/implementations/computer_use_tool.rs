@@ -641,7 +641,7 @@ If neither accessibility nor built-in OCR exposes the required content, report t
             json!("Target from list_apps. Omit to keep the bound application.");
         properties["mode"]["description"] =
             json!("Default background. Foreground only for a user-requested takeover.");
-        properties["app_name"]["description"] = json!("Application name for open_app; launching may activate it and requires foreground control.");
+        properties["app_name"]["description"] = json!("Application name, bundle identifier or path for open_app. Background mode requests a launch without activation where the host supports it; then observe the returned target.");
         properties["steps"]["description"] = json!("Use app_batch when multiple inputs are already decided. One app, ordered steps, one final observation. Example assumes an observed search field where Return submits the query. Stop before selecting unseen results; batch changes neither input capability nor authorization. Never replay completed steps.");
         let observed_focus = if vision {
             json!({"kind":"image_xy","x":120,"y":80,"screenshot_id":"observed-frame"})
@@ -2548,8 +2548,8 @@ impl ComputerUseTool {
                 let next_step = if windowless {
                     Some(format!(
                         "'{}' is running (PID {}) but owns no window, so there is nothing on screen to click. \
-The host already retried via `open -b`. Re-run `open_app`, or ask the user to open the app's main window (e.g. from its Dock icon). \
-Do not fall back to screen-coordinate clicks — there is no window to hit.",
+Inspect the application's current state and supported reopen or menu actions, then continue the task. \
+Do not send screen-coordinate clicks without an observed window or report launch as task completion.",
                         result.app_name,
                         result
                             .process_id
@@ -2834,6 +2834,11 @@ mod tests {
             .await;
         assert!(visual.to_string().len() < legacy.to_string().len() / 2);
         for schema in [&visual, &textual] {
+            let launch = schema["properties"]["app_name"]["description"]
+                .as_str()
+                .unwrap();
+            assert!(launch.contains("without activation"));
+            assert!(!launch.contains("requires foreground"));
             let actions = action_enum(schema);
             for current in [
                 "app_batch",
