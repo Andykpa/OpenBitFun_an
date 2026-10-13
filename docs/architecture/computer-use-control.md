@@ -1,8 +1,10 @@
 # Computer Use control-session SPEC
 
-Status: the October 2026 migration implements permissions, user-selected App
-sharing and control grants, coordinate mapping, virtual cursor feedback and
-platform-scoped background input. Validation includes native macOS Tool/input/
+Status: Agent tasks select applications and execute through the existing tool
+permission policy without a manual App-sharing or per-application grant step.
+Optional manual-sharing APIs remain compatible for existing clients. The October
+2026 migration implements permissions, coordinate mapping, virtual cursor
+feedback and platform-scoped background input. Validation includes native macOS Tool/input/
 capture checks, Linux GTK/AT-SPI execution and Windows native-module
 cross-compilation. Windows native execution, GNOME Wayland portal execution and
 remote end-to-end control remain acceptance gaps. Compilation is not native
@@ -33,7 +35,7 @@ replace system consent or system Stop Sharing.
 | macOS | Persistent ScreenCaptureKit `SCStream`, exact single-window filter | AX semantic actions; directed application events where supported; global input only with foreground authorization | System sharing integration and native stop; nonactivating AppKit feedback |
 | Windows | Persistent Windows.Graphics.Capture window session | UI Automation patterns and supported targeted window messages; `SendInput` requires foreground authorization | WGC capture border and Closed event; product preview/Stop |
 | Ubuntu Wayland | RemoteDesktop and ScreenCast portals sharing one session and its authorized PipeWire FD/stream | AT-SPI semantic actions; portal Notify seat input only in explicit foreground mode | Portal consent, compositor sharing UI and Session.Closed |
-| Ubuntu X11 | New explicit control sessions use the same portal path | AT-SPI; missing portal capabilities fail explicitly | Product status/Stop; no claim of Wayland isolation for legacy X11 calls |
+| Ubuntu X11 | Observe/foreground sessions use the same portal path; background semantic sessions need no picker | AT-SPI; missing portal capabilities fail explicitly | Product status/Stop; no claim of Wayland isolation for legacy X11 calls |
 
 The control snapshot’s `capabilities` lists backend routes, such as semantic
 input, directed keyboard/scroll or foreground seat input. It is not a promise
@@ -73,25 +75,35 @@ runtime, build, test or filesystem dependency of OpenBitFun.
 | App sharing and control grants | `src/sharing.rs`, `src/grants.rs`, sharing controls in `src/gui.rs` | Admission state machine plus Desktop `sharing.rs`, `shared_preview.rs`, `process_identity.rs`, `grants.rs`, `share_grants.rs`; user-selected native window, observe first, separate revocable grant, executable-bound remembered preference, manual preview gestures |
 | Coordinate conversion | `CoordinateMap` in `src/sharing.rs` | Portable `CaptureGeometry` and Web `previewGeometry.ts`; image/content/global/preview round trips, aspect fit, negative origins, independent X/Y scales, strict padding rejection and immutable screenshot identity |
 | Virtual mouse | `src/cursor.rs`, GUI cursor rendering | Web `VirtualCursor.ts` ports the deterministic physical model, rendered by `PreviewCursor.tsx`; 63 Rust-generated reference samples cover movement, retargeting, immediate placement, resize and visibility. Existing passive native overlays remain platform adapters |
-| Background control | Native directed/semantic input and desktop-state comparison | Existing AX/UIA/AT-SPI and directed-input providers plus `background_guard.rs`; focus/pointer/window-order evidence, explicit unsupported routes, revocation on observed interference, no restore or replay. The reference's implicit Command modifier is not copied because it changes the requested click |
+| Background control | Native directed/semantic input and desktop-state comparison | Existing AX/UIA/AT-SPI and directed-input providers plus `background_guard.rs`; diagnostic focus/pointer/window-order evidence, explicit unsupported routes, no restore or replay. Concurrent human input does not revoke Agent control. The reference's implicit Command modifier is not copied because it changes the requested click |
 
 ### Permissions and user sharing
 
-Opening settings, checking status or reading AX never requests OS permission.
+Opening the OpenBitFun settings page, checking status or reading AX never requests OS permission.
 The user selects each request explicitly. Receipts distinguish a request API
 invocation from the current grant and from observing a visible OS dialog. Input
 Monitoring is optional. Windows does not invent a macOS-style grant; protected
 desktops, capture policy and target integrity still apply. Linux's portal grant
 belongs to one selected session; AT-SPI availability does not grant seat input.
 
-`start_control` and implicit tool admission return `awaiting_share` / a clear
-`SHARE_REQUIRED` result until the user selects a target in the executing host's
-control card. Discovery returns opaque choices bound to the process lifetime,
-not authority derived from a title or a client-supplied PID. Starting the selected
-share validates the live process and exact window, obtains real pixels or the
-supported AT-SPI tree, then exposes observation. Input requires a separate user
-grant for the selected background or foreground mode. A tool cannot select a
-different window, grant itself input or widen the mode.
+`start_control` enters the requested mode directly. An initial app action can
+start background control implicitly. The Agent discovers applications through
+`list_apps`, supplies the target selector and continues observation/input under
+the existing Runtime tool policy. Application changes invalidate old references;
+they do not require a user to select the next app. Background AT-SPI startup
+does not open a portal picker. Linux portal capture and foreground seat input
+still require compositor-owned consent.
+
+The optional manual-sharing API uses `awaiting_share`, opaque process-bound
+choices, observe-first capture and a separate revocable input grant. Its scope
+does not apply to normal Agent tasks. Existing remembered preferences and manual
+clients remain readable; no stored user grants are deleted by this correction.
+Settings uses the established `ConfigPageRow` layout: desktop-control toggle and
+the two required macOS permissions, with setup actions only for missing grants.
+Input Monitoring, executable diagnostics and manual-sharing controls are not
+part of this settings page. The missing-permission setup button explicitly
+requests the corresponding OS permission on capable hosts before opening its
+system pane; older hosts retain their existing system-pane action.
 
 Remembering a grant is optional and never starts a share or selects a window.
 The preference binds the canonical executable path, full executable SHA-256,
@@ -101,6 +113,27 @@ grant. The versioned bounded file preserves unknown fields and unreadable user
 data; writes are atomic, privately permissioned and protected against concurrent
 changes. Forgetting an active matching preference revokes input before disk IO.
 Portal streams have no verified executable identity and remain session-only.
+
+### Autonomous task execution
+
+The built-in prompt carries the user's task through app discovery, observation,
+input, verification and supported recovery. Routine app targeting, connection
+alternatives and message composition do not create additional approval steps.
+A request to compose and send specified information to a named recipient includes
+composing the wording; the Agent verifies the recipient/content without asking
+for the same authorization again. Genuine missing information, OS-owned consent,
+explicit permission denials and user Stop remain authoritative.
+
+Computer Use, Cowork, Claw and shared parent-agent guidance use the same autonomous
+targeting and composition rules. Browser connection hints offer an already-authorized ComputerUse route when CDP
+is unavailable instead of requiring the user to operate Settings. A user-disabled
+browser connection is not re-enabled. `open_app` no longer has a platform-wide
+foreground-only policy: macOS uses `open -g` and Windows requests
+`SW_SHOWNOACTIVATE` for background launches. These are launch requests, not proof
+that every third-party app honors activation policy; subsequent observations
+establish actual state. Linux currently reports unavailable background launch
+instead of silently using an activating launcher. Existing AT-SPI targets remain
+usable. GUI-less hosts and remote workspaces do not fall back to the local GUI.
 
 Manual preview input joins the same exclusive action lease as the Agent. Pointer
 gestures retain their screenshot until release; resizing or revocation cancels
@@ -174,20 +207,19 @@ authorization boundary for native chrome, dialogs or unattached windows.
 
 ## Session lifecycle and revocation
 
-The user-facing resource lifecycle is
-`idle → awaiting_share → active(observe) → active(authorized mode) → stopped|failed`,
+The Agent resource lifecycle is `idle → active(requested mode) → stopped|failed`,
 with internal starting/cleanup transitions. One Runtime session owns the GUI
 resource. Competing ownership returns `control_busy`; it does not create a
 second permission owner or Agent loop.
 
-An explicit tool start requests a mode; the user's share selection and grant
-establish authority. Discovery alone does not create capture. Legacy wire fields
-remain readable but do not bypass the new host's user-selection gate. Linux
-portal capture binds the consented surface separately from semantic application
-identity. Stop/status are idempotent. A stopped generation requires an explicit
-restart, not a screenshot-driven resurrection. Revoking control preserves the
-shared observation and increments the authorization revision immediately; stale
-workers lose input authority and held native inputs are released.
+An explicit tool start requests a mode under Runtime permission policy. Discovery
+alone does not create capture. Linux portal capture binds the consented surface
+separately from semantic application identity. Stop/status are idempotent. A
+stopped generation requires an explicit restart, not a screenshot-driven
+resurrection. The Agent may restart after recoverable target/capture loss, but
+must respect a user stop or denial. Optional manual sharing retains its separate
+`awaiting_share → active(observe) → active(granted mode)` lifecycle; revoking its
+grant preserves observation and invalidates stale input workers immediately.
 
 Stop revokes admission and advances generation before cancelling native work,
 releasing owned pressed keys/buttons, stopping capture and hiding feedback.
@@ -279,12 +311,13 @@ Background actions capture desktop witnesses before and after submission.
 macOS checks foreground identity plus its activation epoch, the physical pointer
 and relative order of existing windows; Windows checks foreground HWND, pointer
 and window order. Linux can inspect active AT-SPI top-level windows but cannot
-observe compositor cursor/stacking, which remain unknown in the receipt. A
-missing preflight witness sends no input. Changed or unavailable post-action
-evidence revokes the session without focus restoration or retry. Concurrent
-human/system input can also change these witnesses, so an interference error
-does not blame the application or claim that already submitted effects were
-undone. Boundary samples cannot prove all transient or later application behavior.
+observe compositor cursor/stacking, which remain unknown in the receipt. These
+witnesses are diagnostics, not admission or revocation gates: the user may keep
+working while directed input runs. Missing samples leave evidence unavailable;
+changed samples retain their actual values without replacing the native action's
+result, stopping the session or replaying input. Native target, mode and lease
+checks still govern input. Boundary samples cannot attribute changes to this
+operation or prove all transient or later application behavior.
 
 ### macOS
 
@@ -453,7 +486,7 @@ checks discard stale preview responses and device-switch results.
 | Scenario | Required behavior |
 |---|---|
 | Remote workspace | Existing SSH/Docker workspace refusal; never operate the controller's local GUI as fallback |
-| Remote control | Mobile/IM have no App picker or grant UI and receive an explicit unsupported/`SHARE_REQUIRED` state; no hidden blocking prompt; task cancellation remains reachable |
+| Remote control | An executing Desktop's Agent selects and controls its own applications without requiring an App picker on Mobile/IM; cancellation remains reachable. Native OS consent and missing GUI providers are explicit limitations; no hidden app-selection dialog |
 | Peer Device | Share/permission/preview commands proxy to the peer only after `computer_use_sharing_v1` negotiation; controller permission is not peer permission; old peers and CLI without GUI reject explicitly |
 | Detached Dispatch | Headless execution has no implied GUI capability or submitter UI dependency; require an explicitly negotiated target provider |
 
@@ -464,6 +497,52 @@ port cleanup does not authorize changing persisted or cross-version wire shapes.
 Local fixtures and unsupported-host unit tests are not remote end-to-end evidence.
 
 ## Verification and acceptance
+
+### Autonomous-control correction, 2026-10-13
+
+The correction starts from `99acb6f04`. Focused checks passed: 51 Core
+ComputerUse tool tests, two browser connection-hint tests, 163 Desktop Computer
+Use tests, 33 control/permission contract tests, eight prompt-catalog tests,
+64 isolated production-source context tests and 27 frontend settings/control
+tests. Nine Desktop native tests and one isolated browser test are ignored in
+those unit commands. `cargo build -p openbitfun-desktop`, `check:web`, the Web
+production build, changed-page ESLint, generated capabilities, repository hygiene
+and core boundaries passed. These suite counts overlap.
+
+The real macOS Tool roundtrip starts implicitly through application observation,
+with no manual sharing API or separate input grant. It passed exact click,
+Unicode/Return delivery, OCR verification, stale-reference rejection and Stop.
+The strict native fixture starts background control explicitly, resolves a
+running bundle, opens its explicit app path without activation, then passes
+the covered button/text/scroll and five-action canvas/shortcut/emoji program.
+Observer foreground/key/stacking, activation history, input history and the
+physical cursor stay unchanged. Optional manual-preview tests run only after
+the Agent sequence has passed. Two earlier strict runs exposed bundle-ID and
+unregistered-path resolution failures; both were fixed before the final pass,
+with no relaxed assertions or input replay.
+
+The settings page was inspected in a real macOS Tauri window using the newly
+built frontend and an isolated test profile. The desktop-control section has
+the standard toggle and two permission rows, with no app selector, grant panel,
+Input Monitoring or executable diagnostics. The test profile does not exercise
+a fresh OS permission denial/approval/restart cycle.
+
+Windows production modules, including the shell launcher, pass cross-compilation.
+Windows and Linux native execution and all four remote scenarios were not rerun
+for this correction. Prior platform evidence below does not prove the updated
+end-to-end behavior. Cold application startup and arbitrary third-party app
+activation behavior are not covered by the macOS already-running fixture.
+
+A wider Core `--lib computer_use` filter additionally selected the unchanged
+`registry_exposes_controlhub_and_computer_use` test, whose product-registry
+expectation failed under the minimal feature set: without `product-full`, the
+default runtime selects the Agent Runtime baseline tool plan. The owning
+`computer_use_tool::tests` suite passes. Full product assembly is covered by CI;
+the registry test's narrow-feature mismatch remains unresolved. The older
+`direct_desktop_policy_tests` filter matches no current
+tests and is not counted as coverage.
+
+### Historical migration evidence, 2026-10-12
 
 The 2026-10-12 refactor started from `f5b6d3ab2`. Focused checks passed: 72 Core
 Computer Use tests, 160 Desktop tests, 33 contract tests, five runtime-evidence

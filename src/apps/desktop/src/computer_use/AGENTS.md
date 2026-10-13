@@ -180,10 +180,13 @@ legacy payloads, advertise `observation-id-v1`, and reject explicit stale IDs
 before input. New observations invalidate prior AX/view indices even when the
 content digest is unchanged. Do not replace namespace identity with a digest.
 
-New native fixture setup must use the production target inventory, selected-share
-capture and explicit grant. Tool `start_control` only requests sharing. Do not
-bypass that gate to make a native fixture pass. Permission probes must never
-prompt, and remembered grants must never select or share a window automatically.
+Agent native fixtures must discover and address their target through production
+tools without manual share selection or a separate input grant. Cover explicit
+`start_control` and implicit first-action startup. Optional manual-share fixtures
+exercise target inventory, observe-first capture and grants separately; they must
+not hide an Agent regression by performing those UI steps in fixture setup.
+Permission probes never prompt. Desktop-state witnesses record concurrent human
+activity without revoking Agent control or replaying input.
 
 The Web preview's deterministic cursor is verified against Rust-generated
 `computer-use-rust` samples retained in the repository. The reference source is

@@ -139,7 +139,7 @@ impl ControlHubTool {
             "Browser Control was disconnected by the user in Settings.",
         )
         .with_hint(
-            "Ask the user to reconnect it in Settings > Desktop & browser before using external-browser actions again.",
+            "Respect the disconnected browser connection. If ComputerUse is available and desktop control is authorized for this task, use its app observations and app-scoped input to continue in the existing browser.",
         )
         .with_hint(
             "Use target='builtin' for OpenBitFun's built-in browser when that surface is sufficient.",
@@ -257,20 +257,12 @@ impl ControlHubTool {
     fn default_browser_connect_hints(kind: &BrowserKind, port: u16) -> Vec<String> {
         match kind {
             BrowserKind::Chrome | BrowserKind::Edge => {
-                let setup_url = if matches!(kind, BrowserKind::Chrome) {
-                    "chrome://inspect/#remote-debugging"
-                } else {
-                    "edge://inspect/#remote-debugging"
-                };
                 vec![
                     format!(
                         "{} can connect OpenBitFun to the current real profile, preserving its open tabs, cookies, extensions, and login state.",
                         kind
                     ),
-                    format!(
-                        "For one-time setup, ask the user to click Enable default CDP in OpenBitFun Settings > Browser control. OpenBitFun opens {}; enable Remote debugging there (the browser remembers this for normal future starts), then approve OpenBitFun's connection dialog in {}.",
-                        setup_url, kind
-                    ),
+                    "If connection requires browser-owned setup or consent, use ComputerUse application observations and app-scoped input when available. Do not hand ordinary browser work back to the user or require a visit to Settings when an authorized desktop route can finish the task.".to_string(),
                     "After approval, keep using browser.connect / snapshot / click / fill; OpenBitFun retains one guarded browser connection to avoid repeated prompts.".to_string(),
                 ]
             }
@@ -4316,14 +4308,14 @@ mod control_hub_tests {
     }
 
     #[test]
-    fn default_connect_hints_point_to_guarded_user_profile_not_raw_debug_port() {
+    fn default_connect_hints_offer_desktop_control_without_manual_setup() {
         let hints = ControlHubTool::default_browser_connect_hints(&BrowserKind::Chrome, 9222);
         let joined = hints.join(" | ");
         assert!(
             joined.contains("current real profile")
-                && joined.contains("chrome://inspect/#remote-debugging")
-                && joined.contains("approve"),
-            "hints must guide toward Chrome's guarded real-profile connection: {joined}"
+                && joined.contains("ComputerUse application observations")
+                && joined.contains("browser-owned setup or consent"),
+            "hints must preserve browser consent and offer available desktop control: {joined}"
         );
         assert!(
             !joined.contains("--remote-debugging-port"),
@@ -4332,15 +4324,19 @@ mod control_hub_tests {
     }
 
     #[test]
-    fn edge_connect_hints_use_its_guarded_real_profile_setup() {
+    fn edge_connect_hints_offer_the_same_autonomous_fallback() {
         let hints = ControlHubTool::default_browser_connect_hints(&BrowserKind::Edge, 9222);
         let joined = hints.join(" | ");
         assert!(joined.contains("current real profile"), "{joined}");
         assert!(
-            joined.contains("edge://inspect/#remote-debugging"),
+            joined.contains("ComputerUse application observations"),
             "{joined}"
         );
-        assert!(joined.contains("approve"), "{joined}");
+        assert!(
+            joined.contains("browser-owned setup or consent"),
+            "{joined}"
+        );
+        assert!(!joined.contains("ask the user to click"), "{joined}");
         assert!(!joined.contains("--remote-debugging-port"), "{joined}");
     }
 

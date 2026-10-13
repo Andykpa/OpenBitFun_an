@@ -124,6 +124,50 @@ describe('Tool execution concurrency settings', () => {
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 
 describe('Browser and desktop control settings', () => {
+  it('keeps detailed host permissions in the standard compact settings rows', async () => {
+    const original = mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation(async (command: string, ...args: unknown[]) => command === 'computer_use_get_status'
+      ? { computerUseEnabled: true, accessibilityGranted: true, screenCaptureGranted: true,
+        platformNote: 'Accessibility is available.', permissions: { process_id: 1234,
+          executable: '/private/runtime', permissions: [{ kind: 'input_monitoring', state: 'granted' }] } }
+      : original(command, ...args));
+    await render();
+    for (const label of ['computerUse.enable', 'computerUse.accessibility', 'computerUse.screenCapture']) {
+      expect(Array.from(container.querySelectorAll('[data-openbitfun-part="row"]'))
+        .some(row => row.textContent?.includes(label))).toBe(true);
+    }
+    expect(container.textContent).not.toContain('computerSharing');
+    expect(container.textContent).not.toContain('/private/runtime');
+    expect(container.textContent).not.toContain('input_monitoring');
+    expect(button('computerUse.openSettings')).toBeUndefined();
+    expect(container.textContent).not.toContain('computerUse.platformNotes.macos');
+    expect(mocks.invoke.mock.calls.filter(([name]) => String(name).startsWith('computer_use_share'))).toHaveLength(0);
+  });
+
+  it('offers system setup only for the missing permission without selecting an app', async () => {
+    await render();
+    const setup = button('computerUse.openSettings');
+    expect(setup.closest('[data-openbitfun-part="row"]')?.textContent).toContain('computerUse.screenCapture');
+    expect(Array.from(container.querySelectorAll('button')).filter(el => el.textContent === 'computerUse.openSettings')).toHaveLength(1);
+    await act(async () => setup.click());
+    expect(mocks.invoke).toHaveBeenCalledWith('computer_use_open_system_settings', { request: { pane: 'screen_capture' } });
+    expect(mocks.invoke).not.toHaveBeenCalledWith('computer_use_request_permission', expect.anything());
+  });
+
+  it('registers the missing OS permission from the same setup button on capable hosts', async () => {
+    const original = mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation(async (command: string, ...args: unknown[]) => command === 'computer_use_get_status'
+      ? { computerUseEnabled: true, accessibilityGranted: true, screenCaptureGranted: false,
+        permissions: { permissions: [{ kind: 'screen_recording', requestable: true }] } }
+      : command === 'computer_use_request_permission' ? { current_granted: false }
+        : original(command, ...args));
+    await render();
+    expect(mocks.invoke).not.toHaveBeenCalledWith('computer_use_request_permission', expect.anything());
+    await act(async () => button('computerUse.openSettings').click());
+    expect(mocks.invoke).toHaveBeenCalledWith('computer_use_request_permission', { request: { kind: 'screen_recording' } });
+    expect(mocks.invoke).toHaveBeenCalledWith('computer_use_open_system_settings', { request: { pane: 'screen_capture' } });
+    expect(mocks.invoke.mock.calls.filter(([name]) => String(name).startsWith('computer_use_share'))).toHaveLength(0);
+  });
   it('localizes the browser choice and puts the single connect action next to connection status', async () => {
     await render();
     expect(container.querySelector('option')?.textContent).toBe('browserControl.defaultBrowser');
