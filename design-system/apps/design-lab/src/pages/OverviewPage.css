@@ -15,11 +15,12 @@
   gap: calc(var(--openbitfun-space-16) * var(--_lab-home-air));
   /* No block-end padding: the closing band is full bleed and therefore ends the page itself — its own
      padding is what keeps the last line off the bottom of the window.
-     The air above the hero is the one gap on this page that is not the page's own rhythm: it is set
-     so the hero and the picture below it land in the first screen together, which is the whole point
-     of a homepage that shows a moving picture — a reader who has to scroll to see the blocks change
-     never sees them change. */
-  padding-block: calc(var(--openbitfun-space-8) * var(--_lab-home-air)) 0;
+     The air above the hero is the page's own rhythm (the same space-16 × air the page puts between
+     its blocks), so the nav sits over the headline the way every other block sits over the next.
+     It was briefly halved to squeeze the whole picture into the first screen; that read as a page
+     with no top margin, and the trade was the wrong way round — a reader only has to see the
+     picture start to know it is there, and the rest of it is one scroll away. */
+  padding-block: calc(var(--openbitfun-space-16) * var(--_lab-home-air)) 0;
 }
 
 /* Hero: one line of copy on the left, the brand mark as a standalone graphic top-right.
@@ -143,10 +144,11 @@
    picture, and the destinations. Products' own sample data stays English; the chrome labels are
    locale-invariant too (see designMessages.ts), so the frame never translates half-way. */
 .design-home-preview {
-  /* The stage is the frame's largest state and it is what the first screen has left over: topbar,
-     the air above the hero, the hero itself, and the page's gap are fixed, so the picture takes the
-     rest of the window and the surfaces it morphs between are all visible without scrolling. Capped
-     so it never outgrows a tall window, floored so it stays a legible picture on a short one — the
+  /* The stage is the frame's largest state. It is sized from the window, not from the space left
+     over: the page spends its top air on the hero, so the picture is a little taller than the gap
+     the first screen has for it and finishes just under the fold on a 1000px window — about seven
+     eighths of it shows, which is enough to see the picture and to see it start changing. Capped so
+     it never outgrows a tall window, floored so it stays a legible picture on a short one — the
      morph's own geometries are clamped by the stage, so every surface follows this height. */
   block-size: clamp(380px, calc(100dvh - 552px), 560px);
   /* The frame is a picture of the product, not of the Lab: anything inside that inherits
