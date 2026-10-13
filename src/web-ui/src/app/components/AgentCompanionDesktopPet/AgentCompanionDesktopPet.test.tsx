@@ -59,6 +59,7 @@ vi.mock('@/flow_chat/components/AgentCompanionPet', () => ({
 
 const PET_COMMAND_EVENT = 'agent-companion://pet-command';
 const ACTIVITY_EVENT = 'agent-companion://activity-updated';
+const MAIN_WINDOW_STATE_EVENT = 'agent-companion://main-window-state';
 
 let i18n: I18nInstance;
 
@@ -127,6 +128,7 @@ describe('AgentCompanionDesktopPet', () => {
   let container: HTMLDivElement;
   let root: Root;
   let pushActivity: (payload: AgentCompanionActivityPayload) => void;
+  let pushMainWindowFocus: (focused: boolean) => void;
 
   const query = <T extends Element>(selector: string): T | null =>
     container.querySelector<T>(selector);
@@ -157,15 +159,23 @@ describe('AgentCompanionDesktopPet', () => {
     listenMock.mockReset();
 
     const activityListeners: Array<(event: { payload: AgentCompanionActivityPayload }) => void> = [];
+    const focusListeners: Array<(event: { payload: { focused: boolean } }) => void> = [];
     listenMock.mockImplementation((eventName: string, handler: (event: { payload: unknown }) => void) => {
       if (eventName === ACTIVITY_EVENT) {
         activityListeners.push(handler as (event: { payload: AgentCompanionActivityPayload }) => void);
+      } else if (eventName === MAIN_WINDOW_STATE_EVENT) {
+        focusListeners.push(handler as (event: { payload: { focused: boolean } }) => void);
       }
       return Promise.resolve(() => {});
     });
     pushActivity = payload => {
       act(() => {
         activityListeners.forEach(handler => handler({ payload }));
+      });
+    };
+    pushMainWindowFocus = focused => {
+      act(() => {
+        focusListeners.forEach(handler => handler({ payload: { focused } }));
       });
     };
 
@@ -188,6 +198,54 @@ describe('AgentCompanionDesktopPet', () => {
     container.remove();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it.each(['before activity', 'after activity'])(
+    'shows a new task without dragging when the main window gains focus %s',
+    focusOrder => {
+      if (focusOrder === 'before activity') pushMainWindowFocus(true);
+      pushActivity({ mood: 'working', tasks: [task()], emittedAt: 1, sequence: 1 });
+      if (focusOrder === 'after activity') pushMainWindowFocus(true);
+
+      const bubble = query('.openbitfun-agent-companion-window__bubble');
+      expect(bubble).not.toBeNull();
+      expect(bubble?.textContent).toContain('Refactor login');
+      expect(invokeMock).toHaveBeenLastCalledWith('resize_agent_companion_desktop_pet', {
+        width: 288,
+        height: 102,
+      });
+      expect(startDraggingMock).not.toHaveBeenCalled();
+      expect(controlledDragMock).not.toHaveBeenCalled();
+
+      pushMainWindowFocus(false);
+      pushMainWindowFocus(true);
+      pushActivity({
+        mood: 'working', tasks: [task({ latestOutput: 'Still working' })], emittedAt: 2, sequence: 2,
+      });
+      expect(query('.openbitfun-agent-companion-window__bubble-output')?.textContent).toContain('Still workin');
+    },
+  );
+
+  it('preserves manual dismissal while the main window is focused and restores an attention bubble', () => {
+    pushMainWindowFocus(true);
+    pushActivity({ mood: 'working', tasks: [task()], emittedAt: 1, sequence: 1 });
+    const bubble = query('.openbitfun-agent-companion-window__bubble-shell');
+    expect(bubble).not.toBeNull();
+    dispatch(bubble!, 'contextmenu');
+    const closeButton = query('[data-openbitfun-menu-item]');
+    expect(closeButton?.textContent).toBe('Close this bubble');
+    dispatch(closeButton!, 'click');
+    expect(query('.openbitfun-agent-companion-window__bubble')).toBeNull();
+
+    pushMainWindowFocus(false);
+    pushMainWindowFocus(true);
+    pushActivity({ mood: 'working', tasks: [task()], emittedAt: 2, sequence: 2 });
+    expect(query('.openbitfun-agent-companion-window__bubble')).toBeNull();
+
+    pushActivity({
+      mood: 'waiting', tasks: [task({ state: 'attention', mood: 'waiting' })], emittedAt: 3, sequence: 3,
+    });
+    expect(query('.openbitfun-agent-companion-window__bubble--attention')).not.toBeNull();
   });
 
   it('provides the off-window pointer direction to v2 only while idle', async () => {
