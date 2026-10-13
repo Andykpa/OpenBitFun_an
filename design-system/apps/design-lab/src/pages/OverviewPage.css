@@ -83,6 +83,15 @@
      competing with it. One factor here, and both caps below follow it, so the artwork keeps its
      ratio to the column at every width. */
   --_lab-hero-art: 0.64;
+  /* The figure is centred on the copy text, not on the whole copy column. The action row under
+     the support line would otherwise pull the artwork down by half its footprint, so the mark
+     ends up 50px below the middle of the words it stands beside — the gap the eye reads as a
+     misalignment. Half the footprint is written from the same two things that build that row
+     (the button's own control height and the margin above it), so the figure keeps its relation
+     to the text if either one changes. It is a translate rather than a margin or padding on
+     purpose: the lift must not add a single pixel of height to the hero, because the hero's
+     height is what the first screen has left over for the picture. */
+  --_lab-hero-lift: calc((var(--openbitfun-control-height-md) + var(--openbitfun-space-8) * var(--_lab-home-air)) / 2);
 
   justify-self: center;
   width: min(calc(100% * var(--_lab-hero-art)), calc(400px * var(--_lab-hero-art)));
@@ -90,6 +99,7 @@
   aspect-ratio: 1;
   color: var(--openbitfun-color-content-primary);
   pointer-events: none;
+  translate: 0 calc(-1 * var(--_lab-hero-lift));
 }
 
 /* The hatch owns the box, and the avatar fills whatever the box resolved to, so the character
@@ -507,7 +517,7 @@
 @media (max-width: 860px) {
   .lab-page.design-home { gap: calc(var(--openbitfun-space-12) * var(--_lab-home-air)); }
   .design-home-hero { grid-template-columns: minmax(0, 1fr); gap: var(--openbitfun-space-6); padding-block: 0 calc(var(--openbitfun-space-12) * var(--_lab-home-air)); }
-  .design-home-emblem { grid-column: 1; grid-row: 2; justify-self: start; width: min(calc(40% * var(--_lab-hero-art)), calc(var(--openbitfun-space-16) * 3 * var(--_lab-hero-art))); }
+  .design-home-emblem { grid-column: 1; grid-row: 2; justify-self: start; width: min(calc(40% * var(--_lab-hero-art)), calc(var(--openbitfun-space-16) * 3 * var(--_lab-hero-art))); translate: 0; }
   .design-home-preview-shell { grid-template-columns: minmax(0, 1fr); }
   .design-home-preview-sidebar { display: none; }
   .design-home-preview-stage { gap: calc(var(--openbitfun-space-6) * var(--_lab-home-air)); padding-inline: var(--openbitfun-space-4); }
