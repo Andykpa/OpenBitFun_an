@@ -5,6 +5,7 @@
 use super::model_exchange_trace::{
     prepare_model_exchange_trace_for_workspace, ModelExchangeTraceOperation,
 };
+use super::prompt_suggestion::{spawn_prompt_suggestion, PromptSuggestionRequest};
 use super::round_executor::{ModelRoundLifecycle, RoundExecutor};
 use super::types::{ExecutionContext, ExecutionResult, RoundContext, RoundResult};
 use crate::agentic::agents::{
@@ -68,6 +69,10 @@ use crate::util::{elapsed_ms_u64, truncate_at_char_boundary};
 use dashmap::DashMap;
 use log::{debug, error, info, trace, warn};
 use openbitfun_agent_runtime::permission::PERMISSION_MODE_CONTEXT_KEY;
+use openbitfun_agent_runtime::prompt_suggestion::{
+    turn_outcome_allows_prompt_suggestion, PromptSuggestionRuntime, PromptSuggestionTurnOutcome,
+    PROMPT_SUGGESTION_ELIGIBLE_CONTEXT_KEY,
+};
 use openbitfun_agent_runtime::remote_file_delivery::TOOL_CONTEXT_REMOTE_FILE_DELIVERY_KEY;
 use openbitfun_ai_adapters::ModelExchangeTraceConfig;
 use openbitfun_core_types::{ModelRequestContext, SessionModelBindingPolicy};
@@ -606,6 +611,7 @@ pub struct ExecutionEngine {
     context_compressor: Arc<ContextCompressor>,
     config: ExecutionEngineConfig,
     generation_messages: DashMap<(String, String), Vec<Message>>,
+    prompt_suggestions: PromptSuggestionRuntime,
 }
 
 impl ExecutionEngine {
@@ -686,6 +692,7 @@ impl ExecutionEngine {
             context_compressor,
             config,
             generation_messages: DashMap::new(),
+            prompt_suggestions: PromptSuggestionRuntime::new(),
         }
     }
 
@@ -2077,7 +2084,7 @@ impl ExecutionEngine {
             .await
     }
 
-    async fn build_ai_messages_for_send(
+    pub(super) async fn build_ai_messages_for_send(
         messages: &[Message],
         provider: &str,
         workspace: Option<&WorkspaceBinding>,
@@ -2898,6 +2905,12 @@ impl ExecutionEngine {
         let control_owner = context.session_id.clone();
         self.generation_messages
             .remove(&(context.session_id.clone(), dialog_turn_id.clone()));
+        if self.prompt_suggestions.cancel_session(&context.session_id) {
+            debug!(
+                "Cancelled pending prompt suggestion for new dialog turn: session_id={}, dialog_turn_id={}",
+                context.session_id, dialog_turn_id
+            );
+        }
 
         info!("Starting dialog turn: dialog_turn_id={}", dialog_turn_id);
 
@@ -4730,6 +4743,48 @@ impl ExecutionEngine {
                 .await;
 
             debug!("DialogTurnCompleted event sent");
+        }
+
+        let prompt_suggestion_eligible = context
+            .context
+            .get(PROMPT_SUGGESTION_ELIGIBLE_CONTEXT_KEY)
+            .is_some_and(|value| value == "true");
+        if prompt_suggestion_eligible
+            && last_partial_recovery_reason.is_none()
+            && turn_outcome_allows_prompt_suggestion(PromptSuggestionTurnOutcome {
+                finish_reason: effective_finish_reason,
+                has_final_response,
+                used_local_final_response_synthesis,
+                emits_lifecycle_events: context.emit_lifecycle_events,
+                is_subagent: context.subagent_parent_info.is_some(),
+            })
+            && !self
+                .round_executor
+                .is_dialog_turn_cancelled(&dialog_turn_id)
+        {
+            spawn_prompt_suggestion(
+                &self.prompt_suggestions,
+                self.event_queue.clone(),
+                self.session_manager.clone(),
+                PromptSuggestionRequest {
+                    session_id: context.session_id.clone(),
+                    turn_id: context.dialog_turn_id.clone(),
+                    messages: messages.clone(),
+                    model_id: resolved_primary_model_id.clone(),
+                    ai_client: ai_client.clone(),
+                    tool_definitions: tool_definitions.clone(),
+                    model_request_context: model_request_context.clone(),
+                    prepended_reminders: turn_prompt_scaffold
+                        .prepended_prompt_reminders
+                        .ordered_reminders()
+                        .into_iter()
+                        .map(str::to_string)
+                        .collect(),
+                    workspace: context.workspace.clone(),
+                    workspace_services: context.workspace_services.clone(),
+                    attach_images: primary_supports_image_understanding,
+                },
+            );
         }
 
         // Print dialog turn token statistics (from model's last returned usage)

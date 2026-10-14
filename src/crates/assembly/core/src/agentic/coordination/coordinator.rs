@@ -93,6 +93,9 @@ use openbitfun_agent_runtime::deep_review::FocusedReviewAssignment;
 use openbitfun_agent_runtime::permission::{
     AUTO_APPROVE_ASK_CONTEXT_KEY, PERMISSION_MODE_CONTEXT_KEY,
 };
+use openbitfun_agent_runtime::prompt_suggestion::{
+    prompt_suggestion_source_eligible, PROMPT_SUGGESTION_ELIGIBLE_CONTEXT_KEY,
+};
 use openbitfun_agent_runtime::remote_file_delivery::{
     needs_computer_links_for_source, remote_file_delivery_reminder,
     TOOL_CONTEXT_REMOTE_FILE_DELIVERY_KEY,
@@ -6971,8 +6974,20 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
                 run_manifest.to_string(),
             );
         }
-        if metadata_bool(user_message_metadata.as_ref(), "acp_transport") == Some(true) {
+        let acp_transport =
+            metadata_bool(user_message_metadata.as_ref(), "acp_transport") == Some(true);
+        if acp_transport {
             context_vars.insert("acp_transport".to_string(), "true".to_string());
+        }
+        if prompt_suggestion_source_eligible(
+            submission_policy.trigger_source,
+            session.kind,
+            acp_transport,
+        ) {
+            context_vars.insert(
+                PROMPT_SUGGESTION_ELIGIBLE_CONTEXT_KEY.to_string(),
+                "true".to_string(),
+            );
         }
         if let Some(user_input_available) = metadata_bool(
             user_message_metadata.as_ref(),

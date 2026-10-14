@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
   __test_only__,
   handleDialogTurnComplete,
+  handlePromptSuggestion,
   handleSessionHistoryChanged,
   handleSessionStateChanged,
   insertSteeringItemIfAbsent,
@@ -25,6 +26,7 @@ import { agentAPI } from '@/infrastructure/api/service-api/AgentAPI';
 import { localSessionDriver } from '../../session-drivers/local/LocalSessionDriver';
 import { chatInputSessionSubscriptionKey } from '../../utils/chatInputSessionSubscription';
 import { selectInterruptedTurnRecovery } from '../../utils/interruptedTurnRecovery';
+import { promptSuggestionKey, usePromptSuggestionStore } from '../../store/promptSuggestionStore';
 
 const {
   buildBuiltInBrowserTabOptions,
@@ -94,6 +96,70 @@ describe('Claw bootstrap cancellation', () => {
     expect(interrupt).toHaveBeenCalledExactlyOnceWith('claw-1', 'assistant-bootstrap-1');
     expect(context.userCancelledSessionIds.has('claw-1')).toBe(true);
     expect(stateMachineManager.getCurrentState('claw-1')).toBe(SessionExecutionState.FINISHING);
+  });
+});
+
+describe('prompt suggestion projection', () => {
+  beforeEach(() => {
+    resetFlowChatStore();
+    usePromptSuggestionStore.setState({ suggestions: {} });
+  });
+  afterEach(() => {
+    resetFlowChatStore();
+    usePromptSuggestionStore.setState({ suggestions: {} });
+  });
+
+  it('preserves the model text for the latest turn without post-processing', () => {
+    createSessionWithTurn(createFinishingTurn());
+
+    handlePromptSuggestion(createFlowChatContext(), {
+      sessionId: 'session-1', sourceTurnId: 'turn-1', suggestion: '  Run the tests  ',
+    });
+
+    expect(usePromptSuggestionStore.getState().suggestions[promptSuggestionKey('session-1')]).toEqual({
+      suggestion: '  Run the tests  ', sourceTurnId: 'turn-1',
+    });
+  });
+
+  it('ignores a suggestion whose source turn is no longer the latest one', () => {
+    createSessionWithTurn(createFinishingTurn());
+
+    handlePromptSuggestion(createFlowChatContext(), {
+      sessionId: 'session-1', sourceTurnId: 'turn-0', suggestion: 'Old idea',
+    });
+    handlePromptSuggestion(createFlowChatContext(), {
+      sessionId: 'missing', sourceTurnId: 'turn-1', suggestion: 'Unknown session',
+    });
+
+    expect(usePromptSuggestionStore.getState().suggestions).toEqual({});
+  });
+
+  it('clears the visible suggestion when the session starts another turn', () => {
+    createSessionWithTurn(createFinishingTurn());
+    const context = createFlowChatContext();
+    handlePromptSuggestion(context, {
+      sessionId: 'session-1', sourceTurnId: 'turn-1', suggestion: 'Commit it',
+    });
+    expect(usePromptSuggestionStore.getState().suggestions[promptSuggestionKey('session-1')]).toBeDefined();
+
+    __test_only__.handleDialogTurnStarted(context, {
+      sessionId: 'session-1', turnId: 'turn-2', turnIndex: 1, userInput: 'Next request',
+    });
+
+    expect(usePromptSuggestionStore.getState().suggestions[promptSuggestionKey('session-1')]).toBeUndefined();
+  });
+
+  it('retires suggestions before a history rewrite is reloaded', () => {
+    createSessionWithTurn(createFinishingTurn());
+    const context = createFlowChatContext();
+    const reload = vi.spyOn(context.flowChatStore, 'loadSessionHistory').mockResolvedValue(undefined);
+    handlePromptSuggestion(context, {
+      sessionId: 'session-1', sourceTurnId: 'turn-1', suggestion: 'Commit it',
+    });
+    handleSessionHistoryChanged(context, { sessionId: 'session-1' });
+    expect(usePromptSuggestionStore.getState().suggestions[promptSuggestionKey('session-1')]).toBeUndefined();
+    expect(reload).toHaveBeenCalled();
+    reload.mockRestore();
   });
 });
 

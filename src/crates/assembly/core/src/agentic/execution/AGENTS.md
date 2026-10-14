@@ -1,5 +1,21 @@
 If you modify `stream_processor.rs`, run the stream integration tests before finishing.
 
+For next-input suggestions (lowest supported reasoning with original-session
+fallback, plain-text output, unchanged message prefix, and silent failure), use:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib agentic::execution::prompt_suggestion::tests
+```
+
+Suggestion generation tries the lowest supported reasoning first. If preparing
+that client or its model call fails, make one call with the completed turn's
+original client and reasoning settings. Both attempts share one 80-second
+deadline and session cancellation. Clear the turn's output schema, retain the
+request prefix and cache routing, and request plain text on both attempts.
+Empty output, the literal `null`, tool calls, and content filters do not trigger
+fallback; all other candidate text is kept verbatim. Do not add JSON parsing,
+format negotiation, correction retries, or text reconstruction.
+
 For model retry admission and recovery, use:
 
 ```bash
