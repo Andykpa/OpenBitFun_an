@@ -141,6 +141,14 @@ pub enum AgenticEvent {
         title: String,
         method: String,
     },
+
+    /// One-sentence next-input suggestion offered after a completed turn.
+    /// Session-scoped hint: it is not part of the turn lifecycle or journal.
+    PromptSuggestionGenerated {
+        session_id: String,
+        turn_id: String,
+        suggestion: String,
+    },
     ImageAnalysisStarted {
         session_id: String,
         image_count: usize,
@@ -662,6 +670,7 @@ impl AgenticEvent {
             | Self::SessionHistoryChanged { session_id, .. }
             | Self::SessionDeleted { session_id }
             | Self::SessionTitleGenerated { session_id, .. }
+            | Self::PromptSuggestionGenerated { session_id, .. }
             | Self::ImageAnalysisStarted { session_id, .. }
             | Self::ImageAnalysisCompleted { session_id, .. }
             | Self::DialogTurnStarted { session_id, .. }
@@ -747,6 +756,7 @@ impl AgenticEvent {
             | Self::ContextCompressionStarted { .. }
             | Self::ThreadGoalUpdated { .. }
             | Self::UserSteeringInjected { .. }
+            | Self::PromptSuggestionGenerated { .. }
             | Self::ContextCompressionCompleted { .. } => AgenticEventPriority::Normal,
 
             Self::ToolEvent { tool_event, .. } => tool_event.default_priority(),

@@ -233,6 +233,20 @@ pub fn project_agentic_frontend_event(event: AgenticEvent) -> Option<AgenticFron
                 "timestamp": chrono::Utc::now().timestamp_millis(),
             }),
         )),
+        AgenticEvent::PromptSuggestionGenerated {
+            session_id,
+            turn_id,
+            suggestion,
+        } => Some(AgenticFrontendEvent::new(
+            "agentic://prompt-suggestion",
+            // Not `turnId`: clients treat `turnId` as a write to that turn and
+            // drop it once the turn settled, which always precedes this hint.
+            json!({
+                "sessionId": session_id,
+                "sourceTurnId": turn_id,
+                "suggestion": suggestion,
+            }),
+        )),
         AgenticEvent::DialogTurnCancelled {
             session_id,
             turn_id,
@@ -786,6 +800,26 @@ mod tests {
         assert_eq!(projected.event_name, "session_title_generated");
         assert_eq!(projected.payload["sessionId"], "session-1");
         assert!(projected.payload["timestamp"].as_i64().is_some());
+    }
+
+    #[test]
+    fn prompt_suggestion_projects_session_scoped_hint() {
+        let projected = project_agentic_frontend_event(AgenticEvent::PromptSuggestionGenerated {
+            session_id: "session-1".to_string(),
+            turn_id: "turn-1".to_string(),
+            suggestion: "Run the tests".to_string(),
+        })
+        .expect("projected");
+
+        assert_eq!(projected.event_name, "agentic://prompt-suggestion");
+        assert_eq!(
+            projected.payload,
+            json!({
+                "sessionId": "session-1",
+                "sourceTurnId": "turn-1",
+                "suggestion": "Run the tests",
+            })
+        );
     }
 
     #[test]
