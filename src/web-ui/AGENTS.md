@@ -127,6 +127,11 @@ run `pnpm --dir src/web-ui run test:run src/flow_chat/services/flow-chat-manager
 Missing fence identities (including legacy payloads) must reload authoritative
 history; an explicit settled-Turn identity must preserve newer live Turns.
 
+For text-entry guards, composer sanitization, or keyboard focus routing, run
+`pnpm --dir src/web-ui run test:run src/shared/utils/textInputGuard.test.tsx src/flow_chat/components/RichTextInput.test.tsx src/flow_chat/hooks/useComposerDefaultFocus.test.tsx src/flow_chat/utils/chatInputKeyOwnership.test.ts`.
+These cover DOM event ownership, controlled fields, IME and selection preservation;
+they do not establish native OS keyboard or remote transport behavior.
+
 For ecosystem discovery, import, or compatibility status presentation changes:
 
 ```bash
