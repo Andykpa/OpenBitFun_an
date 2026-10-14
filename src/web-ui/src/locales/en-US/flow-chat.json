@@ -631,6 +631,7 @@
   "input": {
     "placeholder": "How can I help you...",
     "placeholderWithContext": "Type a message, or drag and drop files to add context...",
+    "promptSuggestionAccept": "{{key}}",
     "send": "Send",
     "sendShortcut": "Send (⏎)",
     "stop": "Stop",

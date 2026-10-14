@@ -40,6 +40,7 @@ import type {
   ModelRoundAttemptSupersededEvent,
   OpenBuiltInBrowserEvent,
   AcpContextUsageUpdatedEvent,
+  PromptSuggestionEvent,
   SessionModelFallbackAppliedEvent,
   SessionReasoningPresetAutoClearedEvent,
   SubagentSessionLinkedEvent,
@@ -58,6 +59,7 @@ import { useReviewActionBarStore } from '../../store/deepReviewActionBarStore';
 import { buildDeepReviewCapacityQueueStateFromEvent } from '../../utils/deepReviewQueueStateEvents';
 import { useBackgroundCommandActivityStore } from '../../store/backgroundCommandActivityStore';
 import { useBackgroundSubagentActivityStore } from '../../store/backgroundSubagentActivityStore';
+import { clearPromptSuggestion, usePromptSuggestionStore } from '../../store/promptSuggestionStore';
 import { createTab } from '@/shared/utils/tabUtils';
 import type { TabCreationOptions } from '@/shared/utils/tabUtils';
 import { interruptedTurnRecoveryGate } from '../interruptedTurnRecoveryGate';
@@ -931,6 +933,9 @@ export async function initializeEventListeners(
     onSessionTitleGenerated: (event) => {
       handleSessionTitleGenerated(event);
     },
+    onPromptSuggestion: (event) => {
+      handlePromptSuggestion(context, event);
+    },
     onSessionModelFallbackApplied: (event) => {
       handleSessionModelFallbackApplied(event);
     },
@@ -1366,6 +1371,30 @@ function handleSessionTitleGenerated(event: any): void {
   reconcileBackgroundSubagentSession(sessionId);
 }
 
+/**
+ * Keep a next-input suggestion only while its source turn is still the
+ * session's latest turn; a newer turn makes it stale.
+ */
+export function handlePromptSuggestion(context: FlowChatContext, event: PromptSuggestionEvent): void {
+  const { sessionId, sourceTurnId, suggestion } = event ?? {};
+  if (!sessionId || !sourceTurnId || typeof suggestion !== 'string' || !suggestion) return;
+
+  const session = context.flowChatStore.getState().sessions.get(sessionId);
+  const latestTurn = session?.dialogTurns[session.dialogTurns.length - 1];
+  if (!latestTurn || latestTurn.id !== sourceTurnId) {
+    log.debug('Ignoring stale prompt suggestion', {
+      sessionId,
+      sourceTurnId,
+      latestTurnId: latestTurn?.id,
+    });
+    return;
+  }
+  usePromptSuggestionStore.getState().setSuggestion(sessionId, {
+    suggestion,
+    sourceTurnId,
+  });
+}
+
 function handleSessionModelFallbackApplied(event: SessionModelFallbackAppliedEvent): void {
   const { sessionId, previousModelId, newModelId, reason } = event;
   if (!sessionId || !newModelId) return;
@@ -1529,6 +1558,7 @@ function handleSessionDeleted(context: FlowChatContext, event: any): void {
   removedSessionIds.forEach(removedSessionId => {
     clearRecentHistorySessionOpenIntent(removedSessionId);
     clearHistorySessionOpenTransition(removedSessionId);
+    clearPromptSuggestion(removedSessionId);
   });
 
   log.info('Remote session deleted', { sessionId });
@@ -1633,6 +1663,7 @@ export function handleSessionHistoryChanged(context: FlowChatContext, event: any
     // Undo/redo and rollback remove visible Turns. Repairing one old tail Turn
     // cannot remove that suffix, including when the history becomes empty.
     // Older hosts omit the optional identity, so use full invalidation there too.
+    clearPromptSuggestion(sessionId);
     context.pendingHistoryFenceSessions.delete(sessionId);
     void context.flowChatStore.loadSessionHistory(sessionId, {
       includeInternal: session.sessionKind === 'subagent',
@@ -1812,6 +1843,7 @@ function handleDialogTurnStarted(context: FlowChatContext, event: any): void {
     return;
   }
 
+  clearPromptSuggestion(sessionId);
   finalizePendingTurnCompletionNow(context, sessionId);
   clearPendingTurnCompletion(context, sessionId, turnId);
 

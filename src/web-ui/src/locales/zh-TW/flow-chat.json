@@ -631,6 +631,7 @@
   "input": {
     "placeholder": "有什麼可以幫您...",
     "placeholderWithContext": "輸入消息，或拖放檔案新增上下文...",
+    "promptSuggestionAccept": "{{key}}",
     "send": "發送",
     "sendShortcut": "發送 (⏎)",
     "stop": "停止",

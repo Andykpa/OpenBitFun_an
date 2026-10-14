@@ -7153,13 +7153,15 @@
         "跟随上次选择或固定默认执行框架",
         "自动生成会话标题",
         "本地工作区加速搜索",
-        "会话使用的标题模型"
+        "会话使用的标题模型",
+        "答复后的候选输入建议"
       ],
       "highlightsEn": [
         "Follow the last selection or fix a default Harness",
         "Automatic session titles",
         "Accelerated local-workspace search",
-        "Model used for session titles"
+        "Model used for session titles",
+        "Next input suggestion after a reply"
       ],
       "items": [
         {
@@ -7207,6 +7209,24 @@
           },
           "evidence": [
             "source:src/web-ui/src/locales/zh-CN/settings/models.json#sessionTitle.model.label"
+          ]
+        },
+        {
+          "id": "next-input-suggestion",
+          "titleZh": "启用或停用 Agent 答复后在输入框中显示的一句话候选输入",
+          "titleEn": "Enable or disable the one-sentence next input suggested in the input box after an Agent reply",
+          "control": {
+            "kind": "direct",
+            "operations": [],
+            "options": [
+              {
+                "id": "prompt-suggestion"
+              }
+            ]
+          },
+          "evidence": [
+            "source:src/web-ui/src/app/scenes/settings/pages/ai/PromptSuggestionSection.tsx#PromptSuggestionSection",
+            "source:src/web-ui/src/locales/zh-CN/settings/models.json#promptSuggestion.title"
           ]
         },
         {
@@ -7272,12 +7292,14 @@
         "让新会话跟随 ChatInput 上一次选择的执行框架",
         "把新会话固定为 Ultimate 执行框架",
         "关闭自动生成会话标题",
+        "关闭答复后的候选输入建议",
         "启用工作区加速搜索"
       ],
       "agentExamplesEn": [
         "Make new sessions follow the last Harness selected in ChatInput",
         "Fix Ultimate as the Harness for new sessions",
         "Turn off automatic session titles",
+        "Turn off next input suggestions after replies",
         "Enable accelerated workspace search"
       ],
       "destination": {
@@ -7292,6 +7314,13 @@
           "titleEn": "Automatic session titles",
           "descriptionZh": "根据会话内容生成易识别的标题。",
           "descriptionEn": "Generate a recognizable title from session content."
+        },
+        {
+          "id": "prompt-suggestion",
+          "titleZh": "候选输入建议",
+          "titleEn": "Next input suggestion",
+          "descriptionZh": "Agent 答复完成后，在输入框中给出一句话的下一步输入建议。",
+          "descriptionEn": "Suggest a one-sentence next message in the input box after the Agent replies."
         },
         {
           "id": "workspace-search",
