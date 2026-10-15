@@ -202,6 +202,12 @@ For peer system-info response compatibility, run
 `cargo test -p openbitfun-desktop --lib system_info_home_contract`.
 For window geometry recovery, legacy state compatibility, and snapshot persistence,
 run `cargo test -p openbitfun-desktop --lib window_state_support::tests`.
+For macOS close-to-hide fullscreen sequencing, run
+`cargo check --locked -p openbitfun-desktop` and
+`node scripts/test-macos-window-close.mjs` on a graphical macOS session.
+The latter compiles the production close lifecycle in isolation and checks real
+AppKit fullscreen entry/exit, duplicate requests, cancellation and reopen; it
+does not launch the complete Desktop frontend or exercise remote scenarios.
 For Windows main-WebView minimize/restore size filtering, run
 `cargo test -p openbitfun-desktop --no-default-features --lib window_webview_geometry::tests`.
 The desktop host owns main-WebView resizing on Windows so minimized client bounds
