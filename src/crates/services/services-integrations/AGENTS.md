@@ -137,6 +137,7 @@ cargo test -p openbitfun-services-integrations --no-default-features --features 
 cargo test -p openbitfun-services-integrations --no-default-features --features remote-ssh-concrete --lib remote_ssh::manager::tests::workspace_
 cargo test -p openbitfun-services-integrations --no-default-features --features remote-ssh-concrete --lib remote_ssh::wsl::tests::
 cargo test --locked -p openbitfun-services-integrations --no-default-features --features remote-ssh-concrete --lib remote_ssh::relay_deploy::tests::
+cargo test --locked -p openbitfun-services-integrations --no-default-features --features remote-connect --lib remote_connect::account::tests
 cargo test --locked -p openbitfun-services-integrations --no-default-features --features remote-connect --lib remote_connect::relay_client::tests::
 cargo test --locked -p openbitfun-services-integrations --no-default-features --features remote-connect --lib remote_connect::host_stream::tests::
 cargo test --locked -p openbitfun-services-integrations --no-default-features --features remote-connect --lib remote_connect::host_stream_subscriber::tests::

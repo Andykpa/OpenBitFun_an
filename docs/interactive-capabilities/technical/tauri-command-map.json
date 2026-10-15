@@ -7298,7 +7298,7 @@
       "visibility": "documented",
       "rustPath": "api::remote_connect_api::remote_connect_stop",
       "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
-      "signature": "fn remote_connect_stop() -> Result<(), String>",
+      "signature": "fn remote_connect_stop(request: Option<StopRemoteConnectRequest>) -> Result<(), String>",
       "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
