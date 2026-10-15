@@ -374,6 +374,9 @@ fn notify_terminal_replay(session_id: &str) {
                     .drain()
                     .collect();
                 let hubs = super::remote_connect_api::host_stream_hubs().await;
+                if hubs.is_empty() {
+                    continue;
+                }
                 for id in ids {
                     let mut cursor = None;
                     if let Some(state) = get_remote_workspace_manager() {

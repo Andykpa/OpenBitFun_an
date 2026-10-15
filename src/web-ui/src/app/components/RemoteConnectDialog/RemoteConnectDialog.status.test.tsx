@@ -392,4 +392,46 @@ describe('Remote Connect shared status through the real dialog and sidebar', () 
     expect(dialog().textContent).not.toContain('remoteConnect.disconnect');
     expect(boundary.stopConnection).toHaveBeenCalledOnce();
   });
+
+  it('only stops a pending LAN connection when the dialog closes', async () => {
+    boundary.backend = status({ relay_connected: true, relay_url: relayA, active_method: 'openbitfun_server', connections: [
+      { method: 'openbitfun_server', relay_connected: true, relay_url: relayA, clients: [{ id: 'phone', name: 'Public phone' }] },
+    ] });
+    const pending = deferred<ConnectionResult>();
+    boundary.startConnection.mockReturnValueOnce(pending.promise);
+    boundary.stopConnection.mockImplementation(async (method: string) => {
+      boundary.backend = { ...boundary.backend!, connections: boundary.backend!.connections!.filter(route => route.method !== method) };
+    });
+    await render('network');
+    await click(element('#remote-connect-network-tab-lan'));
+    await clickText('remoteConnect.showConnectionCode');
+    await closeDialog();
+    await act(async () => {
+      boundary.backend!.connections!.push({ method: 'lan', relay_connected: true, relay_url: 'http://192.168.1.2:9700', clients: [] });
+      pending.resolve(invitation('http://192.168.1.2:9700'));
+    });
+    expect(boundary.stopConnection).toHaveBeenCalledExactlyOnceWith('lan');
+    expect(boundary.backend!.connections).toEqual([
+      expect.objectContaining({ method: 'openbitfun_server', relay_connected: true }),
+    ]);
+    expect(attachedMobile()).not.toBeNull();
+  });
+
+  it('keeps the LAN invitation when the official credential expires', async () => {
+    const lanUrl = 'http://192.168.1.2:9700';
+    boundary.backend = status({ connections: [
+      { method: 'lan', relay_connected: true, relay_url: lanUrl, clients: [] },
+    ] });
+    await render('network');
+    await click(element('#remote-connect-network-tab-lan'));
+    await clickText('remoteConnect.showConnectionCode');
+    await tick();
+    await act(async () => {
+      for (const listener of boundary.listeners.get('account://login-state') ?? []) {
+        listener({ logged_in: false, reason: 'session_expired' });
+      }
+    });
+    expect(dialog().textContent).toContain(invitation(lanUrl).qr_url);
+    expect(boundary.stopConnection).not.toHaveBeenCalled();
+  });
 });

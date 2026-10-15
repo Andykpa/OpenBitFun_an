@@ -281,6 +281,50 @@ async fn dual_relay_rpc_persistence_and_teardown_are_independent() {
     assert_hint(&mut public_hints, 1).await;
     assert_hint(&mut lan_hints, 1).await;
 
+    // An expired public credential is not a shared-identity sign-out. Its
+    // cancellation and persistence cleanup must leave the LAN route usable.
+    let lan_cancellation = RelayRoute::Lan.cancellation().subscribe();
+    assert!(
+        invalidate_local_account_session_if_current(
+            generation,
+            &official_session.token,
+            "fixture token expired",
+        )
+        .await
+    );
+    assert!(!lan_cancellation.has_changed().unwrap());
+    assert!(account_token_expired().await);
+    assert!(session_store::load_session_detailed().unwrap().is_none());
+    assert!(device_routing_owner_is_current(&lan_owner).await);
+    assert_eq!(
+        rpc(
+            &lan,
+            &lan_controller,
+            &id,
+            serde_json::json!({"cmd":"ping"})
+        )
+        .await["resp"],
+        "pong"
+    );
+    fanout_peer_device_event(
+        openbitfun_core::service::remote_connect::host_stream::HOST_STREAM_CHANGED_EVENT.into(),
+        serde_json::json!({"stream_id":"dual", "epoch":1, "cursor":2}),
+    );
+    assert_hint(&mut lan_hints, 2).await;
+    *get_account_context().write().await = Some(AccountContextState {
+        session: official_session.clone(),
+        relay_url: official.url(),
+    });
+    account_connect_devices().await.unwrap();
+    assert!(
+        !invalidate_local_account_session_if_current(
+            generation,
+            &official_session.token,
+            "stale fixture token failure",
+        )
+        .await
+    );
+
     remote_connect_stop(Some(StopRemoteConnectRequest {
         method: "openbitfun_server".into(),
     }))
