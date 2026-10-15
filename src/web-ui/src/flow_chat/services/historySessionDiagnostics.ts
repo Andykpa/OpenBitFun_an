@@ -33,6 +33,7 @@ interface HistorySessionDiagnosticState {
   pendingHydrateData?: HistorySessionDiagnosticData;
   stalledWarned: boolean;
   pagingRefusalWarned: boolean;
+  lastPagingFailureKey?: string;
 }
 
 export interface HistorySessionLoadingStallSnapshot extends HistorySessionDiagnosticData {
@@ -267,6 +268,15 @@ export function recordHistoryPagingEvent(
 ): void {
   const state = getOrCreateDiagnostic(sessionId);
   pushEvent(state, `history_paging_${event}`, data, { logEvent: false });
+  if (event === 'outcome_not_ready') {
+    const key = JSON.stringify([data?.direction, data?.reason, data?.targetOrdinal]);
+    if (state.lastPagingFailureKey !== key) {
+      state.lastPagingFailureKey = key;
+      log.warn('FlowChat history paging did not become ready', { sessionId, diagnosticId: state.diagnosticId, ...(data ?? {}) });
+    }
+  } else if (event === 'outcome_applied' || event === 'outcome_exhausted') {
+    state.lastPagingFailureKey = undefined;
+  }
 }
 
 /**

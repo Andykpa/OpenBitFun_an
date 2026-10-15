@@ -25,6 +25,7 @@ import {
   type ParamsPartialToolEvent
 } from '../EventBatcher';
 import { notificationService } from '../../../shared/notification-system/services/NotificationService';
+import { readBackgroundDelivery, shouldDeliverBackgroundCompletion } from '../../utils/backgroundDelivery';
 import { createLogger } from '@/shared/utils/logger';
 import { handleThreadGoalUpdated } from '../threadGoalEventService';
 import { resolveThreadGoalUserMessageDisplay } from '../../utils/threadGoalDisplay';
@@ -1299,7 +1300,14 @@ function finalizeTurnCompletionState(
   const isPartialRecovery = !!pending?.partialRecoveryReason;
   // Selection/focus cannot prove that the result is visible. The transcript
   // acknowledges this specific completion after it has actually been shown.
-  context.flowChatStore.markSessionUnreadCompletion(sessionId, isPartialRecovery ? 'interrupted' : 'completed', turnId);
+  const completedTurn = context.flowChatStore.getState().sessions.get(sessionId)?.dialogTurns.find(turn => turn.id === turnId);
+  if (shouldDeliverBackgroundCompletion({
+    turnId, success: completedTurn?.success, finishReason: completedTurn?.finishReason,
+    partialRecoveryReason: pending?.partialRecoveryReason,
+    backgroundDelivery: completedTurn?.userMessage.metadata?.backgroundDelivery,
+  })) {
+    context.flowChatStore.markSessionUnreadCompletion(sessionId, isPartialRecovery ? 'interrupted' : 'completed', turnId);
+  }
 
   clearPendingTurnCompletion(context, sessionId, turnId);
 }
@@ -2772,17 +2780,22 @@ export function handleDialogTurnComplete(
   const success = event?.success;
   const finishReason = event?.finishReason ?? event?.finish_reason;
   const hasFinalResponse = event?.hasFinalResponse ?? event?.has_final_response;
+  const backgroundDelivery = readBackgroundDelivery(event?.backgroundDelivery ?? event?.background_delivery, turnId ?? '');
   const durationMs = optionalNumber(event?.durationMs ?? event?.duration_ms);
 
   if (!sessionId || !turnId) {
     log.warn('DialogTurnCompleted missing sessionId or turnId', { event });
     return;
   }
-  interruptedTurnRecoveryGate.clearTerminal(sessionId, turnId);
-
-
   const store = FlowChatStore.getInstance();
   const session = store.getState().sessions.get(sessionId);
+  const existingTurn = session?.dialogTurns.find(turn => turn.id === turnId);
+  const generation = existingTurn?.recovery?.executionGeneration ?? existingTurn?.recoveryEpoch ?? 0;
+  if (backgroundDelivery && (backgroundDelivery.executionGeneration ?? 0) < generation) {
+    log.debug('Ignoring completion from a previous background execution generation', { sessionId, turnId, generation });
+    return;
+  }
+  interruptedTurnRecoveryGate.clearTerminal(sessionId, turnId);
 
   if (success === false) {
     handleDialogTurnFailed(context, {
@@ -2811,6 +2824,9 @@ export function handleDialogTurnComplete(
   const ownsSessionSettlement = eventOwnsLatestSessionTurn(session, sessionId, turnId);
 
   context.flowChatStore.updateDialogTurn(sessionId, turnId, turn => {
+    if (backgroundDelivery) {
+      turn = { ...turn, userMessage: { ...turn.userMessage, metadata: { ...turn.userMessage.metadata, backgroundDelivery } } };
+    }
     if (!ownsSessionSettlement) {
       const completedAt = Date.now();
       return {

@@ -104,6 +104,17 @@ describe('history paging diagnostics', () => {
     resetHistorySessionDiagnosticsForTests();
   });
 
+  it('records failure causes without opt-in tracing and deduplicates until recovery', () => {
+    const failure = { direction: 'after', reason: 'load-not-found', targetOrdinal: 78 };
+    recordHistoryPagingEvent('paging-error', 'outcome_not_ready', failure);
+    recordHistoryPagingEvent('paging-error', 'outcome_not_ready', failure);
+    expect(loggerMock.warn).toHaveBeenCalledTimes(1);
+    expect(loggerMock.warn).toHaveBeenCalledWith('FlowChat history paging did not become ready', expect.objectContaining(failure));
+    recordHistoryPagingEvent('paging-error', 'outcome_applied');
+    recordHistoryPagingEvent('paging-error', 'outcome_not_ready', failure);
+    expect(loggerMock.warn).toHaveBeenCalledTimes(2);
+  });
+
   it('warns once with the paging trail when older Turns are refused', () => {
     recordHistoryPagingEvent('paging-1', 'requested', {
       direction: 'before',

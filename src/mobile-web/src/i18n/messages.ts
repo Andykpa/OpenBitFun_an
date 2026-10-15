@@ -8,6 +8,7 @@ type MessageTree = { readonly [key: string]: MessageLeaf | MessageTree };
 
 export const messages: Record<MobileLanguage, MessageTree> = {
   'en-US': {
+    backgroundDelivery: { quiet: 'Background task completed · No report needed', running: 'Background task running' },
     queue: {
       "title": "Queued messages",
       "about": "About queued messages",
@@ -374,6 +375,7 @@ export const messages: Record<MobileLanguage, MessageTree> = {
     },
   },
   'zh-CN': {
+    backgroundDelivery: { quiet: '后台任务已完成 · 无需汇报', running: '后台任务执行中' },
     queue: {
       "title": "待发送",
       "about": "排队消息说明",
@@ -740,6 +742,7 @@ export const messages: Record<MobileLanguage, MessageTree> = {
     },
   },
   'zh-TW': {
+    backgroundDelivery: { quiet: '背景任務已完成 · 無需回報', running: '背景任務執行中' },
     queue: {
       "title": "待傳送",
       "about": "排隊訊息說明",
