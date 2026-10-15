@@ -121,8 +121,6 @@ const EcosystemCompatibilityScene: React.FC = () => {
   const [contentActionState, setContentActionState] = useState<{ scope: string; actions: ExternalAgentContentActionState }>();
   const [sessionImportBusy, setSessionImportBusy] = useState(false);
   const [sessionRefreshVersion, setSessionRefreshVersion] = useState(0);
-  const [sessionCountState, setSessionCountState] = useState<{ host: string | undefined; counts: Record<string, number> }>();
-  const sessionCounts = sessionCountState?.host === peerDeviceId ? sessionCountState?.counts : undefined;
   const [snapshotState, setSnapshotState] = useState<{ scope: string; value: ExternalSourceCatalogSnapshot | null }>();
   const [clientState, setClientState] = useState<{ scope: string; value: AcpClientInfo[] }>();
   const [supplementalState, setSupplementalState] = useState<{ scope: string; counts: Record<string, number> }>();
@@ -144,12 +142,6 @@ const EcosystemCompatibilityScene: React.FC = () => {
   const [loadIssues, setLoadIssues] = useState<LoadIssue[]>([]);
   const [loading, setLoading] = useState(true);
   const selectedProductId = useEcosystemCompatibilityStore((state) => state.selectedProductId);
-  const onSessionCountChange = useCallback((count: number) => {
-    setSessionCountState((previous) => {
-      if (previous?.host === peerDeviceId && previous?.counts[selectedProductId] === count) return previous;
-      return { host: peerDeviceId, counts: { ...(previous?.host === peerDeviceId ? previous?.counts : {}), [selectedProductId]: count } };
-    });
-  }, [peerDeviceId, selectedProductId]);
   const ownerSurface = useEcosystemCompatibilityStore((state) => state.ownerSurface);
   const selectProduct = useEcosystemCompatibilityStore((state) => state.selectProduct);
   const setOwnerSurface = useEcosystemCompatibilityStore((state) => state.setOwnerSurface);
@@ -341,8 +333,7 @@ const EcosystemCompatibilityScene: React.FC = () => {
 
   const renderProductSummary = (runtime: EcosystemProductRuntime): string => {
     const assetCount = totalDiscoveredAssets(runtime.capabilityCounts)
-      + (supplementalCounts?.[runtime.spec.ecosystemId] ?? 0)
-      + (sessionCounts?.[runtime.spec.id] ?? 0);
+      + (supplementalCounts?.[runtime.spec.ecosystemId] ?? 0);
     if (runtime.spec.development) return t('productSummary.development');
     if (assetCount > 0) {
       return t('productSummary.assets', { count: formatNumber(assetCount) });
@@ -705,7 +696,6 @@ const EcosystemCompatibilityScene: React.FC = () => {
                 {selectedRuntime.spec.sessionImport ? <ExternalAgentSessions
                   key={JSON.stringify([peerDeviceId, selectedRuntime.spec.id])}
                   ecosystemId={selectedRuntime.spec.sessionImport}
-                  onCountChange={onSessionCountChange}
                   onBusyChange={setSessionImportBusy}
                   refreshVersion={sessionRefreshVersion}
                 /> : null}

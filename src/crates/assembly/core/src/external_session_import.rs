@@ -1,14 +1,16 @@
 //! Import and local continuation of external Agent sessions.
 
+pub mod auto_discovery;
+pub(crate) mod deferred;
+mod lifecycle;
+pub use lifecycle::{list_removed_external_sessions, restore_removed_external_session};
+
 use openbitfun_codex_adapter::session::CodexSessionReader;
 use openbitfun_product_domains::external_sources::{
     ExternalSourceOperationError, ExternalSourceOperationErrorCode, ExternalSourceOperationResult,
 };
 use openbitfun_product_domains::session_import::{
-    ExternalSessionCandidate, ExternalSessionCatalogScope, ExternalSessionDocument,
-    ExternalSessionImportApplied, ExternalSessionImportMode, ExternalSessionImportPlan,
-    ExternalSessionImportRequest, ExternalSessionWorkspaceMapping,
-    EXTERNAL_SESSION_IMPORT_SCHEMA_V1,
+    ExternalSessionCandidate, ExternalSessionDocument, ExternalSessionImportMode,
 };
 use openbitfun_runtime_ports::SessionStorePort;
 use openbitfun_services_core::session::{
@@ -19,6 +21,8 @@ use openbitfun_services_core::session::{
 use openbitfun_zcode_adapter::session::ZcodeSessionReader;
 use serde_json::json;
 use sha2::{Digest, Sha256};
+#[cfg(test)]
+use std::time::Duration;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -26,11 +30,15 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, LazyLock, Mutex,
     },
-    time::{Duration, Instant},
+    time::Instant,
 };
+#[cfg(test)]
 use uuid::Uuid;
 
-const MAX_LIST_LIMIT: usize = 50;
+fn codex_reader() -> &'static CodexSessionReader {
+    static READER: LazyLock<CodexSessionReader> = LazyLock::new(CodexSessionReader::default);
+    &READER
+}
 
 #[derive(Clone, Copy)]
 enum ImportSource {
@@ -82,497 +90,13 @@ impl ImportSource {
 
     fn read(self, candidate: &str) -> Result<ExternalSessionDocument, String> {
         match self {
-            Self::Codex => CodexSessionReader::default()
-                .read_candidate(candidate, ExternalSessionImportMode::Full),
+            Self::Codex => {
+                codex_reader().read_candidate(candidate, ExternalSessionImportMode::Full)
+            }
             Self::Zcode => ZcodeSessionReader::default()
                 .read_candidate(candidate, ExternalSessionImportMode::Full),
         }
     }
-}
-
-type ImportOperations = HashMap<String, (Arc<AtomicBool>, Instant)>;
-static IMPORT_OPERATIONS: LazyLock<Mutex<ImportOperations>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-struct ImportOperation {
-    id: String,
-    cancelled: Arc<AtomicBool>,
-    keep_for_apply: bool,
-}
-
-impl ImportOperation {
-    fn start(id: &str) -> ExternalSourceOperationResult<Self> {
-        Uuid::parse_str(id).map_err(|_| {
-            operation(
-                ExternalSourceOperationErrorCode::InvalidRequest,
-                "Invalid import operation ID",
-                false,
-            )
-        })?;
-        let mut operations = IMPORT_OPERATIONS
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        // Reclaim abandoned plans; an executing operation holds its own Arc.
-        operations.retain(|_, (cancelled, created)| {
-            Arc::strong_count(cancelled) > 1 || created.elapsed() < Duration::from_secs(600)
-        });
-        if operations.contains_key(id) {
-            return Err(operation(
-                ExternalSourceOperationErrorCode::Conflict,
-                "Import operation already exists",
-                false,
-            ));
-        }
-        let cancelled = Arc::new(AtomicBool::new(false));
-        operations.insert(id.to_owned(), (cancelled.clone(), Instant::now()));
-        Ok(Self {
-            id: id.to_owned(),
-            cancelled,
-            keep_for_apply: false,
-        })
-    }
-
-    fn resume(id: &str) -> ExternalSourceOperationResult<Self> {
-        let operations = IMPORT_OPERATIONS
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let (cancelled, _) = operations.get(id).ok_or_else(cancelled_import)?;
-        if Arc::strong_count(cancelled) > 1 {
-            return Err(operation(
-                ExternalSourceOperationErrorCode::Conflict,
-                "Import operation is still running",
-                false,
-            ));
-        }
-        Ok(Self {
-            id: id.to_owned(),
-            cancelled: cancelled.clone(),
-            keep_for_apply: false,
-        })
-    }
-
-    fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::Acquire)
-    }
-    fn check(&self) -> ExternalSourceOperationResult<()> {
-        if self.is_cancelled() {
-            Err(cancelled_import())
-        } else {
-            Ok(())
-        }
-    }
-}
-
-impl Drop for ImportOperation {
-    fn drop(&mut self) {
-        if !self.keep_for_apply {
-            let mut operations = IMPORT_OPERATIONS
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            if operations
-                .get(&self.id)
-                .is_some_and(|(token, _)| Arc::ptr_eq(token, &self.cancelled))
-            {
-                operations.remove(&self.id);
-            }
-        }
-    }
-}
-
-fn cancelled_import() -> ExternalSourceOperationError {
-    operation(
-        ExternalSourceOperationErrorCode::Cancelled,
-        "Session import cancelled",
-        false,
-    )
-}
-
-pub fn cancel_external_session_import(operation_id: &str) -> bool {
-    let entry = IMPORT_OPERATIONS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .remove(operation_id);
-    if let Some((cancelled, _)) = entry {
-        cancelled.store(true, Ordering::Release);
-        true
-    } else {
-        false
-    }
-}
-
-pub async fn list_codex_sessions(
-    cursor: usize,
-    limit: usize,
-    query: &str,
-    scope: Option<ExternalSessionCatalogScope>,
-) -> ExternalSourceOperationResult<openbitfun_product_domains::session_import::ExternalSessionCatalog>
-{
-    list_external_sessions("codex", cursor, limit, query, scope).await
-}
-
-pub async fn list_external_sessions(
-    ecosystem_id: &str,
-    cursor: usize,
-    limit: usize,
-    query: &str,
-    scope: Option<ExternalSessionCatalogScope>,
-) -> ExternalSourceOperationResult<openbitfun_product_domains::session_import::ExternalSessionCatalog>
-{
-    let source = ImportSource::from_ecosystem(ecosystem_id)?;
-    let query = query.to_owned();
-    let mut catalog = tokio::task::spawn_blocking(move || match source {
-        ImportSource::Codex => {
-            let reader = CodexSessionReader::default();
-            match scope {
-                Some(scope) => {
-                    reader.discover_workspaces(cursor, limit.min(MAX_LIST_LIMIT), &query, scope)
-                }
-                None => reader.discover(cursor, limit.min(MAX_LIST_LIMIT), &query),
-            }
-        }
-        ImportSource::Zcode => {
-            ZcodeSessionReader::default().discover(cursor, limit.min(MAX_LIST_LIMIT), &query, scope)
-        }
-    })
-    .await
-    .map_err(|error| {
-        operation(
-            ExternalSourceOperationErrorCode::Internal,
-            error.to_string(),
-            true,
-        )
-    })?
-    .map_err(|error| operation(ExternalSourceOperationErrorCode::Unavailable, error, true))?;
-    annotate_catalog(&mut catalog).await?;
-    Ok(catalog)
-}
-
-pub async fn plan_external_session_import(
-    _workspace_id: Option<&str>,
-    candidate_id: &str,
-    _mode: ExternalSessionImportMode,
-    operation_id: Option<&str>,
-) -> ExternalSourceOperationResult<ExternalSessionImportPlan> {
-    let mut import_operation = operation_id.map(ImportOperation::start).transpose()?;
-    let source = ImportSource::from_candidate(candidate_id)?;
-    let candidate_id = candidate_id.to_owned();
-    let document = tokio::task::spawn_blocking(move || source.read(&candidate_id))
-        .await
-        .map_err(|error| {
-            operation(
-                ExternalSourceOperationErrorCode::Internal,
-                error.to_string(),
-                true,
-            )
-        })?
-        .map_err(|error| operation(ExternalSourceOperationErrorCode::NotFound, error, false))?;
-    if let Some(operation) = &import_operation {
-        operation.check()?;
-    }
-    let workspace = resolve_import_workspace(&document.candidate).await?;
-    let plan = build_plan(
-        &workspace.id,
-        &workspace.name,
-        &workspace.root_path,
-        document,
-        ExternalSessionImportMode::Full,
-    );
-    if let Some(operation) = &mut import_operation {
-        operation.check()?;
-        operation.keep_for_apply = true;
-    }
-    Ok(plan)
-}
-
-pub async fn apply_external_session_import(
-    request: ExternalSessionImportRequest,
-) -> ExternalSourceOperationResult<ExternalSessionImportApplied> {
-    let import_operation = request
-        .operation_id
-        .as_deref()
-        .map(ImportOperation::resume)
-        .transpose()?;
-    if let Some(operation) = &import_operation {
-        operation.check()?;
-    }
-    if request.schema_version != EXTERNAL_SESSION_IMPORT_SCHEMA_V1 {
-        return Err(operation(
-            ExternalSourceOperationErrorCode::IncompatibleVersion,
-            "Unsupported external Session import schema",
-            false,
-        ));
-    }
-    let source = ImportSource::from_candidate(&request.candidate_id)?;
-    let candidate_id = request.candidate_id.clone();
-    let document = tokio::task::spawn_blocking(move || source.read(&candidate_id))
-        .await
-        .map_err(|error| {
-            operation(
-                ExternalSourceOperationErrorCode::Internal,
-                error.to_string(),
-                true,
-            )
-        })?
-        .map_err(|error| operation(ExternalSourceOperationErrorCode::NotFound, error, false))?;
-    if let Some(operation) = &import_operation {
-        operation.check()?;
-    }
-    let workspace = resolve_import_workspace(&document.candidate).await?;
-    if workspace.id != request.target_workspace_id {
-        return Err(operation(
-            ExternalSourceOperationErrorCode::InvalidRequest,
-            "The selected workspace does not match the source session workspace",
-            false,
-        ));
-    }
-    let plan = build_plan(
-        &workspace.id,
-        &workspace.name,
-        &workspace.root_path,
-        document.clone(),
-        ExternalSessionImportMode::Full,
-    );
-    if plan.plan_fingerprint != request.plan_fingerprint {
-        return Err(operation(
-            ExternalSourceOperationErrorCode::StaleRevision,
-            "Source session changed; refresh the session list",
-            true,
-        ));
-    }
-
-    let (store, project) = import_storage(&workspace).await?;
-    if let Some(existing) = store
-        .list_metadata_including_internal()
-        .await
-        .map_err(|error| {
-            operation(
-                ExternalSourceOperationErrorCode::Internal,
-                format!("Failed to inspect imported external sessions: {error}"),
-                true,
-            )
-        })?
-        .into_iter()
-        .find(|metadata| {
-            metadata.workspace_id.as_deref() == Some(request.target_workspace_id.as_str())
-                && metadata
-                    .custom_metadata
-                    .as_ref()
-                    .and_then(|value| value.get("importedFrom"))
-                    .and_then(serde_json::Value::as_str)
-                    == Some(document.candidate.ecosystem_id.as_str())
-                && metadata
-                    .custom_metadata
-                    .as_ref()
-                    .and_then(|value| value.get("sourceSessionId"))
-                    .and_then(serde_json::Value::as_str)
-                    == Some(document.candidate.source_session_id.as_str())
-                && metadata
-                    .custom_metadata
-                    .as_ref()
-                    .and_then(|value| value.get("sourceFingerprint"))
-                    .and_then(serde_json::Value::as_str)
-                    == Some(document.candidate.fingerprint.as_str())
-        })
-    {
-        return Ok(ExternalSessionImportApplied {
-            schema_version: EXTERNAL_SESSION_IMPORT_SCHEMA_V1,
-            session_id: existing.session_id,
-            imported_turn_count: existing.turn_count,
-            warning_codes: document
-                .warnings
-                .into_iter()
-                .map(|warning| warning.code)
-                .collect(),
-            already_imported: true,
-        });
-    }
-
-    let session_id = format!(
-        "{}-import-{}",
-        document.candidate.ecosystem_id,
-        Uuid::new_v4()
-    );
-    let session_name = request
-        .session_title
-        .filter(|value| !value.trim().is_empty())
-        .or(document.candidate.title.clone())
-        .unwrap_or_else(|| format!("Imported {} Session", source.name()));
-    let bundle = convert_document(
-        &session_id,
-        &workspace,
-        &project,
-        &request.agent_id,
-        &session_name,
-        &document,
-        request.include_tool_history,
-        request.include_thinking,
-    )?;
-
-    store
-        .write_bundle_atomic_cancellable(&bundle, || {
-            import_operation
-                .as_ref()
-                .is_some_and(ImportOperation::is_cancelled)
-        })
-        .await
-        .map_err(|error| {
-            if matches!(
-                error,
-                openbitfun_services_core::session::OfflineSessionImportError::Cancelled
-            ) {
-                return cancelled_import();
-            }
-            operation(
-                ExternalSourceOperationErrorCode::Internal,
-                format!("Failed to persist imported external session: {error}"),
-                true,
-            )
-        })?;
-
-    Ok(ExternalSessionImportApplied {
-        schema_version: EXTERNAL_SESSION_IMPORT_SCHEMA_V1,
-        session_id,
-        imported_turn_count: bundle.turns.len(),
-        warning_codes: document
-            .warnings
-            .into_iter()
-            .map(|warning| warning.code)
-            .collect(),
-        already_imported: false,
-    })
-}
-
-// Preserve Rust facade names used by existing Codex import consumers.
-pub use apply_external_session_import as apply_codex_session_import;
-pub use cancel_external_session_import as cancel_codex_session_import;
-pub use plan_external_session_import as plan_codex_session_import;
-
-async fn resolve_import_workspace(
-    candidate: &ExternalSessionCandidate,
-) -> ExternalSourceOperationResult<crate::service::workspace::WorkspaceInfo> {
-    let source_path = candidate
-        .cwd
-        .as_deref()
-        .filter(|path| !path.trim().is_empty())
-        .ok_or_else(|| {
-            operation(
-                ExternalSourceOperationErrorCode::InvalidRequest,
-                "Source session does not identify a workspace directory",
-                false,
-            )
-        })?;
-    let service = crate::service::workspace::get_global_workspace_service().ok_or_else(|| {
-        operation(
-            ExternalSourceOperationErrorCode::Unavailable,
-            "Workspace service is unavailable",
-            true,
-        )
-    })?;
-    let source = Path::new(source_path);
-    if !source.is_absolute() || !source.is_dir() {
-        return Err(operation(
-            ExternalSourceOperationErrorCode::InvalidRequest,
-            "The source workspace directory is unavailable on this host",
-            false,
-        ));
-    }
-    let workspaces = service.list_workspace_infos().await;
-    if let Some(workspace) = matching_workspace(&workspaces, source) {
-        return Ok(workspace.clone());
-    }
-    service
-        .register_local_workspace_record(PathBuf::from(source_path))
-        .await
-        .map_err(|error| {
-            operation(
-                ExternalSourceOperationErrorCode::InvalidRequest,
-                format!("The source workspace is unavailable: {error}"),
-                false,
-            )
-        })
-}
-
-async fn annotate_catalog(
-    catalog: &mut openbitfun_product_domains::session_import::ExternalSessionCatalog,
-) -> ExternalSourceOperationResult<()> {
-    let service = crate::service::workspace::get_global_workspace_service().ok_or_else(|| {
-        operation(
-            ExternalSourceOperationErrorCode::Unavailable,
-            "Workspace service is unavailable",
-            true,
-        )
-    })?;
-    let workspaces = service.list_workspace_infos().await;
-    let mut candidates: Vec<_> = catalog
-        .candidates
-        .iter_mut()
-        .chain(
-            catalog
-                .workspaces
-                .iter_mut()
-                .flatten()
-                .flat_map(|group| group.candidates.iter_mut()),
-        )
-        .collect();
-    for candidate in &mut candidates {
-        let Some(source_path) = candidate.cwd.as_deref().filter(|path| !path.is_empty()) else {
-            continue;
-        };
-        let Some(workspace) = matching_workspace(&workspaces, Path::new(source_path)) else {
-            continue;
-        };
-        candidate.target_workspace_id = Some(workspace.id.clone());
-        candidate.target_workspace_name = Some(workspace.name.clone());
-    }
-    let mut imported_by_workspace: HashMap<String, HashMap<String, String>> = HashMap::new();
-    for workspace in workspaces.iter().filter(|workspace| {
-        candidates.iter().any(|candidate| {
-            candidate.target_workspace_id.as_deref() == Some(workspace.id.as_str())
-        })
-    }) {
-        let (store, _) = import_storage(workspace).await?;
-        let metadata = store
-            .list_metadata_including_internal()
-            .await
-            .map_err(|error| {
-                operation(
-                    ExternalSourceOperationErrorCode::Internal,
-                    format!("Failed to inspect imported external sessions: {error}"),
-                    true,
-                )
-            })?;
-        let imported = metadata
-            .into_iter()
-            .filter_map(|metadata| {
-                if metadata.workspace_id.as_deref() != Some(workspace.id.as_str()) {
-                    return None;
-                }
-                let custom = metadata.custom_metadata.as_ref()?;
-                if custom
-                    .get("importedFrom")
-                    .and_then(serde_json::Value::as_str)
-                    != Some(catalog.ecosystem_id.as_str())
-                {
-                    return None;
-                }
-                let source_id = custom
-                    .get("sourceSessionId")
-                    .and_then(serde_json::Value::as_str)?;
-                Some((source_id.to_string(), metadata.session_id))
-            })
-            .collect::<HashMap<_, _>>();
-        imported_by_workspace.insert(workspace.id.clone(), imported);
-    }
-    for candidate in &mut candidates {
-        let Some(workspace_id) = candidate.target_workspace_id.as_deref() else {
-            continue;
-        };
-        candidate.imported_session_id = imported_by_workspace
-            .get(workspace_id)
-            .and_then(|sessions| sessions.get(&candidate.source_session_id))
-            .cloned();
-    }
-    Ok(())
 }
 
 async fn import_storage(
@@ -659,75 +183,6 @@ fn normalized_path(path: &Path) -> String {
     }
 }
 
-fn build_plan(
-    workspace_id: &str,
-    workspace_name: &str,
-    workspace_root: &Path,
-    mut document: ExternalSessionDocument,
-    mode: ExternalSessionImportMode,
-) -> ExternalSessionImportPlan {
-    let mapping = document
-        .candidate
-        .cwd
-        .as_deref()
-        .map(|source| {
-            let source = dunce::canonicalize(source).unwrap_or_else(|_| source.into());
-            let target = dunce::canonicalize(workspace_root)
-                .unwrap_or_else(|_| workspace_root.to_path_buf());
-            if source == target || source.starts_with(target) {
-                ExternalSessionWorkspaceMapping::Exact
-            } else {
-                ExternalSessionWorkspaceMapping::Unsupported
-            }
-        })
-        .unwrap_or(ExternalSessionWorkspaceMapping::MissingSourcePath);
-    document.candidate.target_workspace_id = Some(workspace_id.to_string());
-    document.candidate.target_workspace_name = Some(workspace_name.to_string());
-    let turns = document
-        .turns
-        .iter()
-        .enumerate()
-        .map(|(index, turn)| openbitfun_product_domains::session_import::ExternalSessionTurnPreview {
-            source_turn_id: turn.source_turn_id.clone(),
-            turn_index: index,
-            user_preview: crate::external_session_import::preview(&turn.user_text, 240),
-            assistant_preview: turn
-                .items
-                .iter()
-                .filter_map(|item| match item {
-                    openbitfun_product_domains::session_import::ExternalSessionItem::Text { text } => Some(text.as_str()),
-                    _ => None,
-                })
-                .next()
-                .map(|text| preview(text, 240)),
-            tool_call_count: turn
-                .items
-                .iter()
-                .filter(|item| matches!(item, openbitfun_product_domains::session_import::ExternalSessionItem::Tool { .. }))
-                .count(),
-            source_event_count: turn.source_event_count,
-            status: turn.status,
-            estimated_bytes: serde_json::to_vec(turn).map(|bytes| bytes.len() as u64).unwrap_or(0),
-        })
-        .collect::<Vec<_>>();
-    let mut hasher = Sha256::new();
-    hasher.update(document.candidate.fingerprint.as_bytes());
-    hasher.update(workspace_id.as_bytes());
-    hasher.update(format!("{mode:?}").as_bytes());
-    let plan_fingerprint = format!("sha256:{}", hex::encode(hasher.finalize()));
-    let estimated_storage_bytes = turns.iter().map(|turn| turn.estimated_bytes).sum();
-    ExternalSessionImportPlan {
-        schema_version: EXTERNAL_SESSION_IMPORT_SCHEMA_V1,
-        plan_fingerprint,
-        candidate: document.candidate,
-        target_workspace_id: workspace_id.to_string(),
-        workspace_mapping: mapping,
-        turns,
-        estimated_storage_bytes,
-        warnings: document.warnings,
-    }
-}
-
 fn convert_document(
     session_id: &str,
     workspace: &crate::service::workspace::WorkspaceInfo,
@@ -758,6 +213,7 @@ fn convert_document(
     metadata.custom_metadata = Some(json!({
         "importedFrom": document.candidate.ecosystem_id,
         "sourceSessionId": document.candidate.source_session_id,
+        "sourceSessionTitle": document.candidate.title,
         "sourceFingerprint": document.candidate.fingerprint,
         "sourceFormat": source.format(),
         "sourceRevision": source.revision(),
@@ -961,10 +417,6 @@ fn current_time_ms() -> u64 {
         .as_millis() as u64
 }
 
-fn preview(value: &str, chars: usize) -> String {
-    value.chars().take(chars).collect()
-}
-
 fn operation(
     code: ExternalSourceOperationErrorCode,
     detail: impl Into<String>,
@@ -1091,7 +543,7 @@ mod tests {
     #[ignore = "Reads installed Zcode history and writes only to a temporary native store"]
     async fn inspect_installed_zcode_native_import() {
         let reader = ZcodeSessionReader::default();
-        let catalog = reader.discover(0, 5, "", None).unwrap();
+        let catalog = reader.discover(0, 5, "").unwrap();
         assert!(
             !catalog.candidates.is_empty(),
             "No installed Zcode sessions found"
@@ -1132,38 +584,6 @@ mod tests {
                 saved.metadata.tool_call_count
             );
         }
-    }
-
-    #[test]
-    fn cancelled_plan_cannot_be_applied() {
-        let id = Uuid::new_v4().to_string();
-        let mut plan = ImportOperation::start(&id).unwrap();
-        assert!(cancel_codex_session_import(&id));
-        assert!(plan.check().is_err());
-        plan.keep_for_apply = true;
-        drop(plan);
-        assert!(ImportOperation::resume(&id).is_err());
-    }
-
-    #[test]
-    fn cancellation_reaches_an_active_apply_and_prevents_duplicate_apply() {
-        let id = Uuid::new_v4().to_string();
-        let mut plan = ImportOperation::start(&id).unwrap();
-        plan.keep_for_apply = true;
-        drop(plan);
-        let applying = ImportOperation::resume(&id).unwrap();
-        assert!(ImportOperation::resume(&id).is_err());
-        assert!(cancel_codex_session_import(&id));
-        assert!(applying.is_cancelled());
-        drop(applying);
-        assert!(!cancel_codex_session_import(&id));
-    }
-
-    #[test]
-    fn failed_plan_releases_its_operation() {
-        let id = Uuid::new_v4().to_string();
-        drop(ImportOperation::start(&id).unwrap());
-        assert!(ImportOperation::resume(&id).is_err());
     }
 
     fn workspace(id: &str, root: &Path, kind: WorkspaceKind) -> WorkspaceInfo {

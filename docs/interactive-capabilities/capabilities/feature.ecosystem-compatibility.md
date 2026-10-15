@@ -21,10 +21,10 @@ Inspect external AI content and status, import supported Skills, MCP, Hooks, and
   - Discover OpenCode, Claude Code, Codex, and other external AI sources and content
 - **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按来源启用或停用集成，并选择管理、预览或只读策略
   - Enable or disable each source and choose managed, preview, or read-only policy
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按需导入 Codex 会话并在 OpenBitFun 中继续对话
-  - Import selected Codex sessions on demand and continue them in OpenBitFun
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按需导入 Zcode 会话并在 OpenBitFun 中继续对话
-  - Import selected Zcode sessions on demand and continue them in OpenBitFun
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 发现、移除和重新添加 Codex 来源会话，并在 OpenBitFun 分支中续聊
+  - Discover, remove and restore Codex source sessions, then continue in OpenBitFun branches
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 发现、移除和重新添加 Zcode 来源会话，并在 OpenBitFun 分支中续聊
+  - Discover, remove and restore Zcode source sessions, then continue in OpenBitFun branches
 - **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 展开外部 Prompt/Command 内容并处理与原生命令的冲突
   - Expand external prompt/command content and resolve conflicts with native commands
 - **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 启用外部智能体，处理同名冲突并绑定模型

@@ -9,6 +9,26 @@ use serde::{Deserialize, Serialize};
 pub const EXTERNAL_SESSION_IMPORT_SCHEMA_V1: u32 = 1;
 pub const EXTERNAL_SESSION_IMPORT_ECOSYSTEM_CODEX: &str = "codex";
 
+/// A removed local source reference. Restoring it does not copy or mutate the
+/// external application's history, or any independently continued Session.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemovedExternalSession {
+    pub ecosystem_id: String,
+    pub session_id: String,
+    pub session_name: String,
+    pub workspace_id: String,
+    pub workspace_name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RestoreRemovedExternalSessionRequest {
+    pub ecosystem_id: String,
+    pub target_workspace_id: String,
+    pub session_id: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExternalSessionStatus {
@@ -18,15 +38,6 @@ pub enum ExternalSessionStatus {
     Corrupt,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ExternalSessionWorkspaceMapping {
-    Exact,
-    UserSelected,
-    MissingSourcePath,
-    Unsupported,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExternalSessionCandidate {
@@ -34,6 +45,16 @@ pub struct ExternalSessionCandidate {
     pub ecosystem_id: String,
     pub source_session_id: String,
     pub title: Option<String>,
+    /// Host-only previous prompt-derived title, used to recognize imported
+    /// defaults without overwriting a locally renamed Session. Keep this out
+    /// of the wire shape so older strict catalog readers remain compatible.
+    #[serde(skip)]
+    pub fallback_title: Option<String>,
+    /// True only when the adapter read a saved source name, rather than a
+    /// rollout preview. A temporarily unavailable name store cannot rename
+    /// existing imports back to a prompt excerpt.
+    #[serde(skip)]
+    pub title_is_source_name: bool,
     pub cwd: Option<String>,
     pub created_at: Option<u64>,
     pub updated_at: Option<u64>,
@@ -62,72 +83,9 @@ pub struct ExternalSessionCandidate {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ExternalSessionTurnPreview {
-    pub source_turn_id: String,
-    pub turn_index: usize,
-    pub user_preview: String,
-    pub assistant_preview: Option<String>,
-    pub tool_call_count: usize,
-    pub source_event_count: usize,
-    pub status: ExternalSessionStatus,
-    pub estimated_bytes: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExternalSessionImportWarning {
     pub code: String,
     pub detail: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ExternalSessionImportPlan {
-    pub schema_version: u32,
-    pub plan_fingerprint: String,
-    pub candidate: ExternalSessionCandidate,
-    pub target_workspace_id: String,
-    pub workspace_mapping: ExternalSessionWorkspaceMapping,
-    pub turns: Vec<ExternalSessionTurnPreview>,
-    pub estimated_storage_bytes: u64,
-    pub warnings: Vec<ExternalSessionImportWarning>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ExternalSessionImportRequest {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub operation_id: Option<String>,
-    pub schema_version: u32,
-    pub plan_fingerprint: String,
-    pub candidate_id: String,
-    pub target_workspace_id: String,
-    pub agent_id: String,
-    pub session_title: Option<String>,
-    #[serde(default = "default_true")]
-    pub include_tool_history: bool,
-    #[serde(default)]
-    pub include_thinking: bool,
-    #[serde(default = "default_full_import_mode")]
-    pub mode: ExternalSessionImportMode,
-}
-
-fn default_true() -> bool {
-    true
-}
-
-fn default_full_import_mode() -> ExternalSessionImportMode {
-    ExternalSessionImportMode::Full
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ExternalSessionImportApplied {
-    pub schema_version: u32,
-    pub session_id: String,
-    pub imported_turn_count: usize,
-    pub warning_codes: Vec<String>,
-    pub already_imported: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -138,34 +96,6 @@ pub struct ExternalSessionCatalog {
     pub source_revision: String,
     pub candidates: Vec<ExternalSessionCandidate>,
     pub diagnostics: Vec<ExternalSessionImportWarning>,
-    pub next_cursor: Option<usize>,
-    /// Present only for workspace-scoped discovery. Legacy flat pages retain
-    /// their original wire shape and cursor semantics.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspaces: Option<Vec<ExternalSessionWorkspaceGroup>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(
-    tag = "kind",
-    rename_all = "snake_case",
-    rename_all_fields = "camelCase",
-    deny_unknown_fields
-)]
-pub enum ExternalSessionCatalogScope {
-    Workspaces { preview_limit: usize },
-    Workspace { workspace_key: String },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ExternalSessionWorkspaceGroup {
-    /// Stable source identity, independent of registration in OpenBitFun.
-    pub workspace_key: String,
-    pub cwd: Option<String>,
-    pub total_count: usize,
-    pub candidates: Vec<ExternalSessionCandidate>,
-    /// A session cursor within this workspace, never a global session offset.
     pub next_cursor: Option<usize>,
 }
 
@@ -227,39 +157,7 @@ mod tests {
             "candidates": [], "diagnostics": [], "nextCursor": 50
         });
         let catalog: ExternalSessionCatalog = serde_json::from_value(legacy.clone()).unwrap();
-        assert!(catalog.workspaces.is_none());
         assert_eq!(serde_json::to_value(catalog).unwrap(), legacy);
-    }
-
-    #[test]
-    fn workspace_scope_uses_distinct_typed_cursor_contracts() {
-        let scope: ExternalSessionCatalogScope = serde_json::from_value(serde_json::json!({
-            "kind": "workspaces", "previewLimit": 5
-        }))
-        .unwrap();
-        assert!(matches!(
-            scope,
-            ExternalSessionCatalogScope::Workspaces { preview_limit: 5 }
-        ));
-        let source = serde_json::json!({ "kind": "workspace", "workspaceKey": "source" });
-        let scope: ExternalSessionCatalogScope = serde_json::from_value(source.clone()).unwrap();
-        assert_eq!(serde_json::to_value(scope).unwrap(), source);
-    }
-
-    #[test]
-    fn import_request_defaults_to_including_tool_history() {
-        let request: ExternalSessionImportRequest = serde_json::from_value(serde_json::json!({
-            "schemaVersion": 1,
-            "planFingerprint": "sha256:test",
-            "candidateId": "codex:test",
-            "targetWorkspaceId": "workspace-1",
-            "agentId": "code"
-        }))
-        .expect("request should deserialize");
-        assert!(request.include_tool_history);
-        assert!(!request.include_thinking);
-        assert!(request.operation_id.is_none());
-        assert_eq!(request.mode, ExternalSessionImportMode::Full);
     }
 
     #[test]
@@ -271,24 +169,15 @@ mod tests {
             "modelName": null, "turnCount": null, "fileSizeBytes": 120,
             "formatVersion": null, "status": "complete", "fingerprint": "sha256:test"
         });
-        let candidate: ExternalSessionCandidate = serde_json::from_value(legacy.clone()).unwrap();
+        let mut candidate: ExternalSessionCandidate =
+            serde_json::from_value(legacy.clone()).unwrap();
         assert!(candidate.target_workspace_id.is_none());
         assert!(candidate.target_workspace_name.is_none());
         assert!(candidate.imported_session_id.is_none());
+        assert!(candidate.fallback_title.is_none());
+        assert!(!candidate.title_is_source_name);
+        candidate.fallback_title = Some("Previous prompt preview".into());
+        candidate.title_is_source_name = true;
         assert_eq!(serde_json::to_value(candidate).unwrap(), legacy);
-    }
-
-    #[test]
-    fn explicit_legacy_import_mode_remains_readable() {
-        let legacy = serde_json::json!({
-            "schemaVersion": 1, "planFingerprint": "sha256:test",
-            "candidateId": "codex:test", "targetWorkspaceId": "workspace-1",
-            "agentId": "code", "sessionTitle": null,
-            "includeToolHistory": true, "includeThinking": false,
-            "mode": "latest_compacted"
-        });
-        let request: ExternalSessionImportRequest = serde_json::from_value(legacy.clone()).unwrap();
-        assert_eq!(request.mode, ExternalSessionImportMode::LatestCompacted);
-        assert_eq!(serde_json::to_value(request).unwrap(), legacy);
     }
 }

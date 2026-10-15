@@ -6,9 +6,13 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const SOURCE_REVISION: &str = "codex-rollout-jsonl-v1";
+mod titles;
+use titles::{TitleCache, TitleSnapshot};
+
+pub const SOURCE_REVISION: &str = "codex-rollout-jsonl-v2";
 const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_LINE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_DOCUMENT_BYTES: usize = 128 * 1024 * 1024;
@@ -16,32 +20,50 @@ const HEADER_BYTES: usize = 256 * 1024;
 const MAX_FILES: usize = 100_000;
 const MAX_TURNS: usize = 4096;
 
-struct WorkspaceSources {
-    key: String,
-    cwd: Option<String>,
-    paths: Vec<PathBuf>,
-}
-
 #[derive(Clone)]
 pub struct CodexSessionReader {
     pub codex_home: PathBuf,
+    headers: Arc<Mutex<HashMap<PathBuf, CachedHeader>>>,
+    titles: Arc<Mutex<TitleCache>>,
+    #[cfg(test)]
+    header_reads: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[derive(Clone)]
+struct CachedHeader {
+    modified: Option<SystemTime>,
+    size: u64,
+    candidate: ExternalSessionCandidate,
 }
 impl Default for CodexSessionReader {
     fn default() -> Self {
-        Self {
-            codex_home: std::env::var_os("CODEX_HOME")
+        Self::new(
+            std::env::var_os("CODEX_HOME")
                 .map(PathBuf::from)
                 .or_else(|| dirs::home_dir().map(|home| home.join(".codex")))
                 .unwrap_or_default(),
-        }
+        )
     }
 }
 impl CodexSessionReader {
     pub fn new(codex_home: PathBuf) -> Self {
-        Self { codex_home }
+        Self {
+            codex_home,
+            headers: Arc::default(),
+            titles: Arc::default(),
+            #[cfg(test)]
+            header_reads: Arc::default(),
+        }
     }
     pub fn source_revision(&self) -> &'static str {
         SOURCE_REVISION
+    }
+
+    fn title_snapshot(&self) -> Arc<TitleSnapshot> {
+        self.titles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .snapshot(&self.codex_home)
     }
     fn paths(&self) -> Result<Vec<PathBuf>, String> {
         if !self.codex_home.is_absolute() {
@@ -55,6 +77,11 @@ impl CodexSessionReader {
                 collect(&root, &mut paths, 0, &mut visits)?;
             }
         }
+        let present = paths.iter().collect::<HashSet<_>>();
+        self.headers
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .retain(|path, _| present.contains(path));
         Ok(paths)
     }
     pub fn discover(
@@ -63,18 +90,30 @@ impl CodexSessionReader {
         limit: usize,
         query: &str,
     ) -> Result<ExternalSessionCatalog, String> {
-        let mut paths = self.paths()?;
-        paths.sort_by_cached_key(|p| {
-            std::cmp::Reverse(fs::metadata(p).ok().and_then(|m| m.modified().ok()))
-        });
-        let mut diagnostics = Vec::new();
+        self.discover_page(cursor, limit.clamp(1, 50), query)
+    }
+
+    /// Host-owned automatic discovery traverses the bounded source index once,
+    /// rather than rescanning every rollout header for each UI page.
+    pub fn discover_all(&self) -> Result<ExternalSessionCatalog, String> {
+        self.discover_page(0, usize::MAX, "")
+    }
+
+    fn discover_page(
+        &self,
+        cursor: usize,
+        limit: usize,
+        query: &str,
+    ) -> Result<ExternalSessionCatalog, String> {
+        let titles = self.title_snapshot();
+        let mut diagnostics = titles.diagnostics.clone();
+        let paths = self.logical_session_paths(&titles, &mut diagnostics)?;
         let mut candidates = Vec::new();
         let mut matched = 0usize;
         let mut has_more = false;
-        let limit = limit.clamp(1, 50);
         let query = query.to_lowercase();
         for path in paths {
-            let candidate = match self.inspect_path(&path) {
+            let candidate = match self.inspect_path_with_titles(&path, &titles) {
                 Ok(candidate) => candidate,
                 Err(error) => {
                     if diagnostics.len() < 20 {
@@ -111,57 +150,50 @@ impl CodexSessionReader {
             next_cursor: has_more.then_some(cursor + candidates.len()),
             candidates,
             diagnostics,
-            workspaces: None,
         })
     }
 
-    pub fn discover_workspaces(
+    pub fn read_candidate(
         &self,
-        cursor: usize,
-        limit: usize,
-        query: &str,
-        scope: ExternalSessionCatalogScope,
-    ) -> Result<ExternalSessionCatalog, String> {
-        let mut paths = self.paths()?;
-        paths.sort_by_cached_key(|path| {
-            (
-                std::cmp::Reverse(
-                    fs::metadata(path)
-                        .ok()
-                        .and_then(|meta| meta.modified().ok()),
-                ),
-                path.clone(),
-            )
-        });
-        let mut diagnostics = Vec::new();
-        let mut groups: Vec<WorkspaceSources> = Vec::new();
-        let mut positions = HashMap::new();
-        let query = query.to_lowercase();
-        for path in paths {
-            // Group discovery only needs the source header. Read title previews
-            // for the selected sessions, not the full prefix of every rollout.
-            let cwd = if query.is_empty() {
-                self.inspect_workspace(&path)
-            } else {
-                match self.inspect_path(&path) {
-                    Ok(candidate) => {
-                        if !format!(
-                            "{} {}",
-                            candidate.title.as_deref().unwrap_or(""),
-                            candidate.cwd.as_deref().unwrap_or("")
-                        )
-                        .to_lowercase()
-                        .contains(&query)
-                        {
-                            continue;
-                        }
-                        Ok(candidate.cwd)
-                    }
-                    Err(error) => Err(error),
-                }
-            };
-            let cwd = match cwd {
-                Ok(cwd) => cwd,
+        id: &str,
+        mode: ExternalSessionImportMode,
+    ) -> Result<CodexSessionDocument, String> {
+        let cached = self
+            .headers
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .iter()
+            .find(|(_, header)| header.candidate.candidate_id == id)
+            .map(|(path, _)| path.clone());
+        if let Some(path) =
+            cached.filter(|path| path.starts_with(&self.codex_home) && path.is_file())
+        {
+            return self.read_current_rollout(&path, mode);
+        }
+        let path = self
+            .paths()?
+            .into_iter()
+            .find(|path| candidate_id(path) == id)
+            .ok_or("Codex session was removed or moved; refresh the list")?;
+        // Populate the bounded header cache so a legacy locator can resolve to
+        // the current rollout of the same logical Codex thread.
+        let titles = self.title_snapshot();
+        self.logical_session_paths(&titles, &mut Vec::new())?;
+        self.read_current_rollout(&path, mode)
+    }
+
+    /// Codex can leave several rollout files for one thread after a resume or
+    /// retry. Prefer its current state-database locator; timestamps are only a
+    /// fallback for installations without that optional column/database.
+    fn logical_session_paths(
+        &self,
+        titles: &TitleSnapshot,
+        diagnostics: &mut Vec<ExternalSessionImportWarning>,
+    ) -> Result<Vec<PathBuf>, String> {
+        let mut selected: HashMap<String, (PathBuf, ExternalSessionCandidate)> = HashMap::new();
+        for path in self.paths()? {
+            let candidate = match self.inspect_header(&path) {
+                Ok(candidate) => candidate,
                 Err(error) => {
                     if diagnostics.len() < 20 {
                         diagnostics.push(warning("source_unreadable", &error));
@@ -169,125 +201,126 @@ impl CodexSessionReader {
                     continue;
                 }
             };
-            let key = workspace_key(cwd.as_deref());
-            let position = *positions.entry(key.clone()).or_insert_with(|| {
-                groups.push(WorkspaceSources {
-                    key,
-                    cwd,
-                    paths: Vec::new(),
-                });
-                groups.len() - 1
-            });
-            groups[position].paths.push(path);
+            let rank = |path: &Path, candidate: &ExternalSessionCandidate| {
+                (
+                    titles.is_current_rollout(&candidate.source_session_id, path),
+                    candidate.created_at,
+                    candidate.updated_at,
+                    path.to_path_buf(),
+                )
+            };
+            let replace = selected.get(&candidate.source_session_id).is_none_or(
+                |(previous_path, previous)| rank(&path, &candidate) > rank(previous_path, previous),
+            );
+            if replace {
+                selected.insert(candidate.source_session_id.clone(), (path, candidate));
+            }
         }
-        let limit = limit.clamp(1, 50);
-        let (workspaces, next_cursor) = match scope {
-            ExternalSessionCatalogScope::Workspaces { preview_limit } => {
-                let end = cursor.saturating_add(limit).min(groups.len());
-                let next_cursor = (end < groups.len()).then_some(end);
-                let workspaces = groups
-                    .iter()
-                    .skip(cursor)
-                    .take(limit)
-                    .map(|group| self.workspace_page(group, 0, preview_limit.clamp(1, 50)))
-                    .collect::<Result<Vec<_>, _>>()?;
-                (workspaces, next_cursor)
-            }
-            ExternalSessionCatalogScope::Workspace { workspace_key } => {
-                let group = groups
-                    .iter()
-                    .find(|group| group.key == workspace_key)
-                    .ok_or("Codex workspace sessions were removed or moved; refresh the list")?;
-                (vec![self.workspace_page(group, cursor, limit)?], None)
-            }
-        };
-        Ok(ExternalSessionCatalog {
-            schema_version: 1,
-            ecosystem_id: "codex".into(),
-            source_revision: SOURCE_REVISION.into(),
-            candidates: Vec::new(),
-            diagnostics,
-            next_cursor,
-            workspaces: Some(workspaces),
-        })
+        let mut selected = selected.into_values().collect::<Vec<_>>();
+        selected.sort_by(|(left_path, left), (right_path, right)| {
+            right
+                .updated_at
+                .cmp(&left.updated_at)
+                .then_with(|| left_path.cmp(right_path))
+        });
+        Ok(selected.into_iter().map(|(path, _)| path).collect())
     }
 
-    fn inspect_workspace(&self, path: &Path) -> Result<Option<String>, String> {
-        let mut reader = BufReader::new(File::open(path).map_err(|error| error.to_string())?)
-            .take(HEADER_BYTES as u64);
-        let mut line = Vec::new();
-        while reader
-            .read_until(b'\n', &mut line)
-            .map_err(|error| error.to_string())?
-            > 0
-        {
-            if let Ok(value) = serde_json::from_slice::<Value>(&line) {
-                if value["type"] == "session_meta" {
-                    let meta = value["payload"].get("meta").unwrap_or(&value["payload"]);
-                    if meta["id"]
-                        .as_str()
-                        .or_else(|| meta["session_id"].as_str())
-                        .is_some()
-                    {
-                        return Ok(meta["cwd"].as_str().map(str::to_owned));
-                    }
-                }
-            }
-            line.clear();
-        }
-        Err("Rollout header not found in the bounded prefix".into())
-    }
-
-    fn workspace_page(
+    fn read_current_rollout(
         &self,
-        group: &WorkspaceSources,
-        cursor: usize,
-        limit: usize,
-    ) -> Result<ExternalSessionWorkspaceGroup, String> {
-        let end = cursor.saturating_add(limit).min(group.paths.len());
-        let candidates = group
-            .paths
-            .iter()
-            .skip(cursor)
-            .take(limit)
-            .map(|path| self.inspect_path(path))
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(ExternalSessionWorkspaceGroup {
-            workspace_key: group.key.clone(),
-            cwd: group.cwd.clone(),
-            total_count: group.paths.len(),
-            candidates,
-            next_cursor: (end < group.paths.len()).then_some(end),
-        })
-    }
-    pub fn read_candidate(
-        &self,
-        id: &str,
+        path: &Path,
         mode: ExternalSessionImportMode,
     ) -> Result<CodexSessionDocument, String> {
-        let path = self
-            .paths()?
-            .into_iter()
-            .find(|path| candidate_id(path) == id)
-            .ok_or("Codex session was removed or moved; refresh the list")?;
-        self.read_path(&path, mode)
+        let candidate = self.inspect_header(path)?;
+        let titles = self.title_snapshot();
+        // A resume can publish a new rollout after the last catalog scan. Read
+        // only this thread's indexed file, after checking the source boundary.
+        if let Some(current) = titles.current_rollout(&candidate.source_session_id) {
+            let current = PathBuf::from(current.strip_prefix("\\\\?\\").unwrap_or(current));
+            if let (Ok(resolved), Ok(home)) = (
+                fs::canonicalize(&current),
+                fs::canonicalize(&self.codex_home),
+            ) {
+                if ["sessions", "archived_sessions"]
+                    .iter()
+                    .any(|name| resolved.starts_with(home.join(name)))
+                    && self
+                        .inspect_header(&current)
+                        .is_ok_and(|header| header.source_session_id == candidate.source_session_id)
+                {
+                    return self.read_path(&current, mode);
+                }
+            }
+        }
+        let selected = self
+            .headers
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .iter()
+            .filter(|(path, header)| {
+                header.candidate.source_session_id == candidate.source_session_id && path.is_file()
+            })
+            .max_by_key(|(path, header)| {
+                (
+                    titles.is_current_rollout(&candidate.source_session_id, path),
+                    header.candidate.created_at,
+                    header.candidate.updated_at,
+                    (*path).clone(),
+                )
+            })
+            .map(|(path, _)| path.clone())
+            .unwrap_or_else(|| path.to_path_buf());
+        self.read_path(&selected, mode)
     }
     pub fn inspect_path(&self, path: &Path) -> Result<ExternalSessionCandidate, String> {
+        self.inspect_path_with_titles(path, &self.title_snapshot())
+    }
+
+    fn inspect_path_with_titles(
+        &self,
+        path: &Path,
+        titles: &TitleSnapshot,
+    ) -> Result<ExternalSessionCandidate, String> {
+        let mut candidate = self.inspect_header(path)?;
+        titles.apply(&mut candidate);
+        Ok(candidate)
+    }
+
+    fn inspect_header(&self, path: &Path) -> Result<ExternalSessionCandidate, String> {
         let meta = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
         if !meta.is_file() {
             return Err("Codex rollout is not a regular file".into());
         }
-        let mut bytes = Vec::new();
-        File::open(path)
-            .map_err(|e| e.to_string())?
-            .take(HEADER_BYTES as u64)
-            .read_to_end(&mut bytes)
-            .map_err(|e| e.to_string())?;
+        if let Some(cached) = self
+            .headers
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(path)
+        {
+            if cached.modified == meta.modified().ok() && cached.size == meta.len() {
+                return Ok(cached.candidate.clone());
+            }
+        }
+        #[cfg(test)]
+        self.header_reads
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut reader = BufReader::new(File::open(path).map_err(|error| error.to_string())?)
+            .take(HEADER_BYTES as u64);
+        let mut line = Vec::new();
         let mut session = None;
         let mut title = None;
+        let mut fallback_title = None;
         let mut model = None;
-        for line in bytes.split(|b| *b == b'\n') {
-            let Ok(value) = serde_json::from_slice::<Value>(line) else {
+        loop {
+            line.clear();
+            if reader
+                .read_until(b'\n', &mut line)
+                .map_err(|error| error.to_string())?
+                == 0
+            {
+                break;
+            }
+            let Ok(value) = serde_json::from_slice::<Value>(&line) else {
                 continue;
             };
             match value["type"].as_str().unwrap_or("") {
@@ -305,11 +338,15 @@ impl CodexSessionReader {
                     if p["type"] == "message" && p["role"] == "user" && title.is_none() {
                         let text = content_text(&p["content"]);
                         if !text.is_empty() && !is_injected(&text) {
-                            title = Some(preview(&text, 120));
+                            fallback_title.get_or_insert_with(|| preview(&text, 120));
+                            title = user_title_preview(&text);
                         }
                     }
                 }
                 _ => {}
+            }
+            if session.is_some() && title.is_some() {
+                break;
             }
         }
         let session = session.ok_or("Rollout header not found in the bounded prefix")?;
@@ -323,11 +360,21 @@ impl CodexSessionReader {
             .ok()
             .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
             .map(|d| d.as_millis() as u64);
-        Ok(ExternalSessionCandidate {
+        let candidate = ExternalSessionCandidate {
             candidate_id: candidate_id(path),
             ecosystem_id: "codex".into(),
             source_session_id: source_id,
-            title,
+            title: session["name"]
+                .as_str()
+                .or_else(|| session["title"].as_str())
+                .filter(|title| !title.trim().is_empty())
+                .map(str::to_owned)
+                .or(title),
+            fallback_title,
+            title_is_source_name: session["name"]
+                .as_str()
+                .or_else(|| session["title"].as_str())
+                .is_some_and(|title| !title.trim().is_empty()),
             cwd: session["cwd"].as_str().map(str::to_owned),
             created_at: timestamp(&session["timestamp"]),
             updated_at: updated,
@@ -349,14 +396,27 @@ impl CodexSessionReader {
             target_workspace_id: None,
             target_workspace_name: None,
             imported_session_id: None,
-        })
+        };
+        self.headers
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(
+                path.to_path_buf(),
+                CachedHeader {
+                    modified: meta.modified().ok(),
+                    size: meta.len(),
+                    candidate: candidate.clone(),
+                },
+            );
+        Ok(candidate)
     }
     fn read_path(
         &self,
         path: &Path,
         mode: ExternalSessionImportMode,
     ) -> Result<CodexSessionDocument, String> {
-        let mut candidate = self.inspect_path(path)?;
+        let titles = self.title_snapshot();
+        let mut candidate = self.inspect_path_with_titles(path, &titles)?;
         if candidate.file_size_bytes > MAX_FILE_BYTES {
             return Err("Source exceeds the 256 MiB import limit".into());
         }
@@ -488,6 +548,7 @@ impl CodexSessionReader {
             warnings: warnings
                 .into_iter()
                 .map(|code| warning(code, code))
+                .chain(titles.diagnostics.iter().cloned())
                 .collect(),
         })
     }
@@ -696,22 +757,6 @@ fn collect(
     }
     Ok(())
 }
-fn workspace_key(cwd: Option<&str>) -> String {
-    let path = cwd.unwrap_or("").trim();
-    let windows_path = path.as_bytes().get(1) == Some(&b':') || path.starts_with("\\\\");
-    let normalized = if windows_path {
-        path.replace('\\', "/").trim_end_matches('/').to_lowercase()
-    } else if path == "/" {
-        path.to_owned()
-    } else {
-        path.trim_end_matches('/').to_owned()
-    };
-    format!(
-        "codex-workspace:{}",
-        hex::encode(Sha256::digest(normalized.as_bytes()))
-    )
-}
-
 fn candidate_id(path: &Path) -> String {
     format!(
         "codex:{}",
@@ -758,6 +803,23 @@ fn is_injected(text: &str) -> bool {
                 .trim_end()
                 .ends_with("</external_codex_apps_open_page>"))
 }
+fn user_title_preview(text: &str) -> Option<String> {
+    let mut text = text.trim();
+    // These are Codex UI context envelopes, not the human's session name.
+    for (start, end) in [
+        ("<recommended_plugins>", "</recommended_plugins>"),
+        ("<in-app-browser-context", "</in-app-browser-context>"),
+    ] {
+        if text.starts_with(start) {
+            text = text.split_once(end)?.1.trim();
+        }
+    }
+    if text.starts_with("# Files mentioned by the user:") {
+        text = text.split_once("## My request:")?.1.trim();
+    }
+    (!text.is_empty()).then(|| preview(text, 120))
+}
+
 pub fn preview(text: &str, chars: usize) -> String {
     text.chars().take(chars).collect()
 }
@@ -771,109 +833,403 @@ fn warning(code: &str, detail: &str) -> ExternalSessionImportWarning {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn workspace_fixture() -> tempfile::TempDir {
+
+    fn resumed_rollout(root: &Path, name: &str, timestamp: &str, answer: Option<&str>) -> PathBuf {
+        let path = root.join("sessions").join(format!("rollout-{name}.jsonl"));
+        let mut rows = vec![
+            json!({"type":"session_meta","timestamp":timestamp,"payload":{"id":"one","cwd":"/project","timestamp":timestamp}}),
+            msg("user", "Original question"),
+        ];
+        if let Some(answer) = answer {
+            rows.push(msg("assistant", answer));
+        }
+        fs::write(
+            &path,
+            rows.iter()
+                .map(Value::to_string)
+                .collect::<Vec<_>>()
+                .join("\n")
+                + "\n",
+        )
+        .unwrap();
+        path
+    }
+
+    #[test]
+    fn resumed_threads_are_deduplicated_before_paging_and_legacy_locators_read_the_current_rollout()
+    {
         let dir = tempfile::tempdir().unwrap();
         fs::create_dir(dir.path().join("sessions")).unwrap();
-        for (id, cwd, modified) in [
-            ("a-new", "/a", 60),
-            ("a-middle", "/a", 50),
-            ("a-old", "/a", 10),
-            ("b-new", "/b", 40),
-            ("b-old", "/b", 20),
-            ("a-other", "/a-other", 30),
-        ] {
-            let path = dir.path().join(format!("sessions/rollout-{id}.jsonl"));
-            fs::write(
-                &path,
-                format!(
-                    "{}\n{}\n",
-                    json!({"type":"session_meta","payload":{"id":id,"cwd":cwd}}),
-                    msg("user", id)
-                ),
-            )
-            .unwrap();
-            File::options()
-                .write(true)
-                .open(path)
-                .unwrap()
-                .set_times(
-                    fs::FileTimes::new()
-                        .set_modified(UNIX_EPOCH + std::time::Duration::from_secs(modified)),
-                )
-                .unwrap();
-        }
-        dir
-    }
-
-    #[test]
-    fn workspace_pages_follow_recent_activity_with_independent_preview_limits() {
-        let dir = workspace_fixture();
-        let reader = CodexSessionReader::new(dir.path().into());
-        let first = reader
-            .discover_workspaces(
-                0,
-                2,
-                "",
-                ExternalSessionCatalogScope::Workspaces { preview_limit: 1 },
-            )
-            .unwrap();
-        let groups = first.workspaces.unwrap();
-        assert!(first.candidates.is_empty());
-        assert_eq!(first.next_cursor, Some(2));
-        assert_eq!(
-            groups
-                .iter()
-                .map(|group| group.cwd.as_deref().unwrap())
-                .collect::<Vec<_>>(),
-            vec!["/a", "/b"]
+        let old = resumed_rollout(dir.path(), "old", "2026-10-15T03:08:00Z", None);
+        let current = resumed_rollout(
+            dir.path(),
+            "current",
+            "2026-10-15T03:22:00Z",
+            Some("Complete answer"),
         );
-        assert_eq!(groups[0].total_count, 3);
-        assert_eq!(groups[0].candidates[0].source_session_id, "a-new");
-        assert_eq!(groups[0].next_cursor, Some(1));
-        let next = reader
-            .discover_workspaces(
-                2,
-                2,
-                "",
-                ExternalSessionCatalogScope::Workspaces { preview_limit: 1 },
-            )
-            .unwrap();
-        assert!(next.next_cursor.is_none());
-        let groups = next.workspaces.unwrap();
-        assert_eq!(groups.len(), 1);
-        assert_eq!(groups[0].cwd.as_deref(), Some("/a-other"));
-        assert!(groups[0].next_cursor.is_none());
-    }
-
-    #[test]
-    fn workspace_session_cursor_never_includes_other_workspaces() {
-        let dir = workspace_fixture();
         let reader = CodexSessionReader::new(dir.path().into());
-        let scope = ExternalSessionCatalogScope::Workspace {
-            workspace_key: workspace_key(Some("/a")),
-        };
-        let page = reader.discover_workspaces(1, 1, "", scope.clone()).unwrap();
+        let page = reader.discover(0, 1, "").unwrap();
+        assert_eq!(page.candidates.len(), 1);
         assert!(page.next_cursor.is_none());
-        let group = &page.workspaces.unwrap()[0];
-        assert_eq!(group.candidates[0].source_session_id, "a-middle");
-        assert_eq!(group.next_cursor, Some(2));
-        let last = reader.discover_workspaces(2, 1, "", scope).unwrap();
-        let group = &last.workspaces.unwrap()[0];
-        assert_eq!(group.candidates[0].source_session_id, "a-old");
-        assert!(group.next_cursor.is_none());
+        assert_eq!(page.candidates[0].candidate_id, candidate_id(&current));
+        for reader in [reader, CodexSessionReader::new(dir.path().into())] {
+            let document = reader
+                .read_candidate(&candidate_id(&old), ExternalSessionImportMode::Full)
+                .unwrap();
+            assert_eq!(document.candidate.candidate_id, candidate_id(&current));
+            assert!(
+                matches!(&document.turns[0].items[0], ExternalSessionItem::Text { text } if text == "Complete answer")
+            );
+        }
     }
 
     #[test]
-    fn workspace_source_identity_normalizes_windows_paths_without_folding_posix_case() {
+    fn state_locator_wins_over_retry_timestamps_and_refreshes_after_discovery() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("sessions")).unwrap();
+        let old = resumed_rollout(dir.path(), "old", "2026-10-15T03:22:00Z", None);
+        let reader = CodexSessionReader::new(dir.path().into());
+        reader.discover_all().unwrap();
+        let current = resumed_rollout(
+            dir.path(),
+            "current",
+            "2026-10-15T03:08:00Z",
+            Some("Indexed answer"),
+        );
+        let connection = rusqlite::Connection::open(dir.path().join("state_5.sqlite")).unwrap();
+        connection
+            .execute_batch("CREATE TABLE threads (id TEXT, title TEXT, rollout_path TEXT)")
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO threads VALUES ('one', 'Saved name', ?1)",
+                [current.to_string_lossy().as_ref()],
+            )
+            .unwrap();
+        let document = reader
+            .read_candidate(&candidate_id(&old), ExternalSessionImportMode::Full)
+            .unwrap();
+        assert_eq!(document.candidate.candidate_id, candidate_id(&current));
         assert_eq!(
-            workspace_key(Some("C:\\Work\\Repo\\")),
-            workspace_key(Some("c:/work/repo"))
+            reader.discover_all().unwrap().candidates[0].candidate_id,
+            candidate_id(&current)
         );
-        assert_ne!(
-            workspace_key(Some("/Work/Repo")),
-            workspace_key(Some("/work/repo"))
+    }
+
+    #[test]
+    #[ignore = "Read-only inspection of one installed Codex thread, selected by environment variable"]
+    fn inspect_installed_codex_thread_history() {
+        let id = std::env::var("OPENBITFUN_TEST_CODEX_THREAD")
+            .expect("Set OPENBITFUN_TEST_CODEX_THREAD");
+        let reader = CodexSessionReader::default();
+        let catalog = reader.discover_all().unwrap();
+        let candidates = catalog
+            .candidates
+            .iter()
+            .filter(|candidate| candidate.source_session_id == id)
+            .collect::<Vec<_>>();
+        assert_eq!(candidates.len(), 1);
+        let document = reader
+            .read_candidate(&candidates[0].candidate_id, ExternalSessionImportMode::Full)
+            .unwrap();
+        let text_count = document
+            .turns
+            .iter()
+            .flat_map(|turn| &turn.items)
+            .filter(|item| matches!(item, ExternalSessionItem::Text { .. }))
+            .count();
+        let tool_count = document
+            .turns
+            .iter()
+            .flat_map(|turn| &turn.items)
+            .filter(|item| matches!(item, ExternalSessionItem::Tool { .. }))
+            .count();
+        assert!(!document.turns.is_empty());
+        assert!(text_count > 0);
+        println!("Codex history inspection: {} logical thread, {} turns, {} text items, {} tool items; warning codes: {:?}", candidates.len(), document.turns.len(), text_count, tool_count, document.warnings.iter().map(|warning| &warning.code).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn persisted_names_override_prompt_previews_in_catalogs_and_imports() {
+        let dir = fixture(vec![
+            json!({"type":"session_meta","payload":{"id":"one","cwd":"/project"}}),
+            msg("user", "Original question"),
+            msg("assistant", "Saved answer"),
+        ]);
+        let connection = rusqlite::Connection::open(dir.path().join("state_5.sqlite")).unwrap();
+        connection.execute_batch("CREATE TABLE threads (id TEXT, title TEXT, name TEXT, future_column TEXT);
+            INSERT INTO threads VALUES ('one', 'Original question', 'User named conversation', 'ignored');").unwrap();
+        fs::write(
+            dir.path().join("session_index.jsonl"),
+            "{\"id\":\"one\",\"thread_name\":\"Earlier indexed name\"}\n",
+        )
+        .unwrap();
+        let reader = CodexSessionReader::new(dir.path().into());
+        let catalog = reader.discover(0, 10, "User named").unwrap();
+        assert!(catalog.diagnostics.is_empty());
+        assert_eq!(catalog.candidates.len(), 1);
+        let candidate = &catalog.candidates[0];
+        assert_eq!(candidate.title.as_deref(), Some("User named conversation"));
+        assert_eq!(
+            candidate.fallback_title.as_deref(),
+            Some("Original question")
         );
-        assert_ne!(workspace_key(Some("/")), workspace_key(None));
+        assert!(candidate.title_is_source_name);
+        let document = reader
+            .read_candidate(&candidate.candidate_id, ExternalSessionImportMode::Full)
+            .unwrap();
+        assert_eq!(document.candidate.title, candidate.title);
+        assert_eq!(document.turns[0].user_text, "Original question");
+        assert_eq!(
+            reader.discover_all().unwrap().candidates[0].title,
+            candidate.title
+        );
+    }
+
+    #[test]
+    fn name_index_supports_older_state_schemas_and_refreshes_without_reading_rollouts() {
+        use std::io::Write;
+        let dir = fixture(vec![
+            json!({"type":"session_meta","payload":{"id":"one","cwd":"/project"}}),
+            msg("user", "Original question"),
+        ]);
+        fs::create_dir(dir.path().join("sqlite")).unwrap();
+        let connection =
+            rusqlite::Connection::open(dir.path().join("sqlite/state_4.sqlite")).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE threads (id TEXT, title TEXT);
+            INSERT INTO threads VALUES ('one', 'Old database title');",
+            )
+            .unwrap();
+        let index = dir.path().join("session_index.jsonl");
+        fs::write(
+            &index,
+            "{\"id\":\"one\",\"thread_name\":\"Initial name\"}\n",
+        )
+        .unwrap();
+        let reader = CodexSessionReader::new(dir.path().into());
+        let first = reader.discover_all().unwrap().candidates.remove(0);
+        assert_eq!(first.title.as_deref(), Some("Initial name"));
+        reader.discover_all().unwrap();
+        assert_eq!(reader.titles.lock().unwrap().reads, 1);
+        let mut writer = fs::OpenOptions::new().append(true).open(index).unwrap();
+        writeln!(
+            writer,
+            "{}",
+            json!({"id":"one","thread_name":"Renamed source conversation"})
+        )
+        .unwrap();
+        let renamed = reader.discover_all().unwrap().candidates.remove(0);
+        assert_eq!(
+            renamed.title.as_deref(),
+            Some("Renamed source conversation")
+        );
+        assert_eq!(
+            reader
+                .header_reads
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+        assert_eq!(reader.titles.lock().unwrap().reads, 2);
+    }
+
+    #[test]
+    fn source_rename_in_wal_invalidates_only_the_name_snapshot() {
+        let dir = fixture(vec![
+            json!({"type":"session_meta","payload":{"id":"one","cwd":"/project"}}),
+            msg("user", "Original question"),
+        ]);
+        let database = dir.path().join("state_5.sqlite");
+        let connection = rusqlite::Connection::open(&database).unwrap();
+        connection
+            .execute_batch(
+                "PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0;
+            CREATE TABLE threads (id TEXT, title TEXT, name TEXT);
+            INSERT INTO threads VALUES ('one', 'Original question', 'Saved name');",
+            )
+            .unwrap();
+        let reader = CodexSessionReader::new(dir.path().into());
+        assert_eq!(
+            reader.discover_all().unwrap().candidates[0]
+                .title
+                .as_deref(),
+            Some("Saved name")
+        );
+        let main_database = fs::read(&database).unwrap();
+        connection
+            .execute(
+                "UPDATE threads SET name = ?1 WHERE id = 'one'",
+                ["Renamed while source is open"],
+            )
+            .unwrap();
+        let catalog = reader.discover_all().unwrap();
+        assert_eq!(
+            catalog.candidates[0].title.as_deref(),
+            Some("Renamed while source is open")
+        );
+        assert!(catalog.diagnostics.is_empty());
+        assert_eq!(fs::read(database).unwrap(), main_database);
+        assert_eq!(
+            reader
+                .header_reads
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+    }
+
+    #[test]
+    fn unavailable_optional_title_store_preserves_candidates_and_reports_a_warning() {
+        let dir = fixture(vec![
+            json!({"type":"session_meta","payload":{"id":"one","cwd":"/project"}}),
+            msg("user", "Original question"),
+        ]);
+        fs::write(dir.path().join("state_5.sqlite"), b"Not a SQLite database").unwrap();
+        fs::write(
+            dir.path().join("session_index.jsonl"),
+            "{\"id\":\"one\",\"thread_name\":\"Saved fallback name\"}\n",
+        )
+        .unwrap();
+        let catalog = CodexSessionReader::new(dir.path().into())
+            .discover_all()
+            .unwrap();
+        assert_eq!(
+            catalog.candidates[0].title.as_deref(),
+            Some("Saved fallback name")
+        );
+        assert!(!catalog.candidates[0].title_is_source_name);
+        assert!(catalog
+            .diagnostics
+            .iter()
+            .any(|warning| warning.code == "source_titles_unreadable"));
+    }
+
+    #[test]
+    fn unnamed_rollouts_use_the_human_request_without_context_envelopes() {
+        let context = "<recommended_plugins>Available plugins</recommended_plugins>";
+        let dir = fixture(vec![
+            json!({"type":"session_meta","payload":{"id":"one","cwd":"/project"}}),
+            msg("user", context),
+            msg("user", "# Files mentioned by the user:\n\nphoto.png\n\n## My request:\nExplain this screenshot"),
+        ]);
+        let catalog = CodexSessionReader::new(dir.path().into())
+            .discover_all()
+            .unwrap();
+        assert_eq!(
+            catalog.candidates[0].title.as_deref(),
+            Some("Explain this screenshot")
+        );
+        assert_eq!(
+            catalog.candidates[0].fallback_title.as_deref(),
+            Some(context)
+        );
+        assert!(!catalog.candidates[0].title_is_source_name);
+    }
+
+    #[test]
+    #[ignore = "Reads installed Codex title metadata and rollout headers without printing conversation content"]
+    fn inspect_installed_codex_session_titles() {
+        let reader = CodexSessionReader::default();
+        let catalog = reader.discover_all().unwrap();
+        assert!(!catalog.candidates.is_empty());
+        assert!(
+            catalog.diagnostics.is_empty(),
+            "{} source metadata warnings",
+            catalog.diagnostics.len()
+        );
+        let named = catalog
+            .candidates
+            .iter()
+            .filter(|candidate| candidate.title_is_source_name)
+            .count();
+        assert!(named > 0);
+        println!(
+            "Codex name inspection: {} candidates, {} saved source names, {} title-store reads",
+            catalog.candidates.len(),
+            named,
+            reader.titles.lock().unwrap().reads
+        );
+    }
+
+    #[test]
+    fn automatic_discovery_includes_sessions_after_the_ui_page_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("sessions")).unwrap();
+        for index in 0..57 {
+            fs::write(dir.path().join(format!("sessions/rollout-{index}.jsonl")), format!("{}\n{}\n",
+                json!({"type":"session_meta","payload":{"id":index.to_string(),"cwd":"/project"}}),
+                msg("user", "Saved question"))).unwrap();
+        }
+        let reader = CodexSessionReader::new(dir.path().into());
+        assert_eq!(reader.discover(0, 100, "").unwrap().candidates.len(), 50);
+        let all = reader.discover_all().unwrap();
+        assert_eq!(all.candidates.len(), 57);
+        assert!(all.next_cursor.is_none());
+        assert_eq!(
+            reader
+                .header_reads
+                .load(std::sync::atomic::Ordering::Relaxed),
+            57
+        );
+        reader.discover_all().unwrap();
+        assert_eq!(
+            reader
+                .header_reads
+                .load(std::sync::atomic::Ordering::Relaxed),
+            57,
+            "Refreshing unchanged source files must not read their headers again"
+        );
+    }
+
+    #[test]
+    fn opening_a_discovered_session_does_not_rescan_unrelated_directories() {
+        let dir = fixture(vec![
+            json!({"type":"session_meta","payload":{"id":"one","cwd":"/project"}}),
+            msg("user", "First question"),
+            msg("assistant", "Saved answer"),
+        ]);
+        let reader = CodexSessionReader::new(dir.path().into());
+        let candidate = reader.discover_all().unwrap().candidates.remove(0);
+        // An unrelated excessive directory tree would fail a full rescan.
+        let mut nested = dir.path().join("sessions");
+        for _ in 0..10 {
+            nested = nested.join("nested");
+        }
+        fs::create_dir_all(nested).unwrap();
+        assert!(reader.paths().is_err());
+        let document = reader
+            .read_candidate(&candidate.candidate_id, ExternalSessionImportMode::Full)
+            .unwrap();
+        assert_eq!(document.turns[0].user_text, "First question");
+    }
+
+    #[test]
+    fn changed_source_headers_invalidate_cached_metadata() {
+        let dir = fixture(vec![
+            json!({"type":"session_meta","payload":{"id":"one","cwd":"/project"}}),
+            msg("user", "First question"),
+        ]);
+        let reader = CodexSessionReader::new(dir.path().into());
+        let path = reader.paths().unwrap().remove(0);
+        let before = reader.inspect_path(&path).unwrap();
+        fs::write(
+            &path,
+            format!(
+                "{}\n{}\n",
+                json!({"type":"session_meta","payload":{"id":"one","cwd":"/project"}}),
+                msg("user", "Changed and longer question")
+            ),
+        )
+        .unwrap();
+        let after = reader.inspect_path(&path).unwrap();
+        assert_eq!(after.title.as_deref(), Some("Changed and longer question"));
+        assert_ne!(before.fingerprint, after.fingerprint);
+        assert_eq!(
+            reader
+                .header_reads
+                .load(std::sync::atomic::Ordering::Relaxed),
+            2
+        );
     }
 
     fn fixture(records: Vec<Value>) -> tempfile::TempDir {

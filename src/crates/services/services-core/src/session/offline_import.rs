@@ -11,15 +11,27 @@ use super::{
 };
 use crate::json_store::{JsonFileStore, JsonFileStoreError};
 use openbitfun_core_types::validate_session_id;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tokio::fs;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OfflineSessionBundle {
     pub metadata: SessionMetadata,
     pub turns: Vec<DialogTurnData>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct BundleRepair {
+    schema_version: u32,
+    before: OfflineSessionBundle,
+    after: OfflineSessionBundle,
+}
+
+fn same_record(left: &impl Serialize, right: &impl Serialize) -> bool {
+    matches!((serde_json::to_value(left), serde_json::to_value(right)), (Ok(left), Ok(right)) if left == right)
 }
 
 impl OfflineSessionBundle {
@@ -141,6 +153,7 @@ impl OfflineSessionImportStore {
                 ))
             })?;
 
+        let mut published = false;
         let write_result = async {
             for turn in &bundle.turns {
                 if is_cancelled() {
@@ -164,6 +177,7 @@ impl OfflineSessionImportStore {
                         "failed to publish Session directory: {error}"
                     ))
                 })?;
+            published = true;
             self.metadata_store
                 .save_metadata(&bundle.metadata)
                 .await
@@ -173,7 +187,11 @@ impl OfflineSessionImportStore {
 
         if let Err(error) = write_result {
             let _ = fs::remove_dir_all(&staging_root).await;
-            let _ = fs::remove_dir_all(&final_dir).await;
+            // A competing importer may have published the same stable ID.
+            // Failure before our rename must never remove its completed data.
+            if published {
+                let _ = fs::remove_dir_all(&final_dir).await;
+            }
             let _ = self.metadata_store.rebuild_index().await;
             return Err(error);
         }
@@ -244,6 +262,160 @@ impl OfflineSessionImportStore {
         Ok(Some(bundle))
     }
 
+    /// Repairs an existing import under the caller's Session writer lock. The
+    /// original bundle and complete target are retained before any replacement;
+    /// metadata is committed last. A retry resumes without reading the source.
+    pub async fn repair_bundle(
+        &self,
+        before: &OfflineSessionBundle,
+        after: &OfflineSessionBundle,
+    ) -> Result<(), OfflineSessionImportError> {
+        before.validate()?;
+        after.validate()?;
+        if before.metadata.session_id != after.metadata.session_id
+            || before.turns.iter().any(|turn| {
+                !after
+                    .turns
+                    .iter()
+                    .any(|next| next.turn_index == turn.turn_index && next.turn_id == turn.turn_id)
+            })
+        {
+            return Err(OfflineSessionImportError::InvalidBundle(
+                "A history repair cannot remove or reidentify existing Turns".into(),
+            ));
+        }
+        let id = &before.metadata.session_id;
+        let journal = self.layout.session_dir(id).join(".history-repair.json");
+        if self
+            .json_store
+            .read_optional::<BundleRepair>(&journal)
+            .await?
+            .is_some()
+        {
+            return Err(OfflineSessionImportError::InvalidBundle(
+                "A history repair already exists; resume it before starting another".into(),
+            ));
+        }
+        let current = self.load_bundle(id).await?.ok_or_else(|| {
+            OfflineSessionImportError::InvalidBundle("The Session to repair is missing".into())
+        })?;
+        if !same_record(&current, before) {
+            return Err(OfflineSessionImportError::InvalidBundle(
+                "The Session changed before history repair; preserving its current content".into(),
+            ));
+        }
+        self.json_store
+            .write_atomic_strict(
+                &journal,
+                &BundleRepair {
+                    schema_version: 1,
+                    before: before.clone(),
+                    after: after.clone(),
+                },
+            )
+            .await?;
+        self.resume_bundle_repair(id).await?;
+        Ok(())
+    }
+
+    /// Returns false when no repair journal exists. Never overwrite a Turn or
+    /// metadata edited since the journal was written, including by older hosts.
+    pub async fn resume_bundle_repair(&self, id: &str) -> Result<bool, OfflineSessionImportError> {
+        validate_session_id(id).map_err(OfflineSessionImportError::InvalidBundle)?;
+        let Some(repair) = self
+            .json_store
+            .read_optional::<BundleRepair>(
+                &self.layout.session_dir(id).join(".history-repair.json"),
+            )
+            .await?
+        else {
+            return Ok(false);
+        };
+        repair.before.validate()?;
+        repair.after.validate()?;
+        if repair.schema_version != 1
+            || repair.before.metadata.session_id != id
+            || repair.after.metadata.session_id != id
+            || repair.before.turns.iter().any(|turn| {
+                !repair
+                    .after
+                    .turns
+                    .iter()
+                    .any(|next| next.turn_index == turn.turn_index && next.turn_id == turn.turn_id)
+            })
+        {
+            return Err(OfflineSessionImportError::InvalidBundle(
+                "Unsupported or mismatched history repair journal; original content is retained"
+                    .into(),
+            ));
+        }
+        let current = self
+            .json_store
+            .read_optional::<StoredSessionMetadataFile>(&self.layout.metadata_path(id))
+            .await?
+            .ok_or_else(|| {
+                OfflineSessionImportError::InvalidBundle(
+                    "The Session being repaired is missing".into(),
+                )
+            })?;
+        if current.schema_version > SESSION_STORAGE_SCHEMA_VERSION
+            || (!same_record(&current.metadata, &repair.before.metadata)
+                && !same_record(&current.metadata, &repair.after.metadata))
+        {
+            return Err(OfflineSessionImportError::InvalidBundle(
+                "Session metadata changed during history repair; original content is retained"
+                    .into(),
+            ));
+        }
+        let paths = self
+            .layout
+            .list_indexed_turn_paths(id)
+            .await
+            .map_err(|error| OfflineSessionImportError::InvalidBundle(error.to_string()))?;
+        for (index, path) in &paths {
+            let current = self
+                .json_store
+                .read_optional::<StoredDialogTurnFile>(path)
+                .await?
+                .ok_or_else(|| {
+                    OfflineSessionImportError::InvalidBundle(
+                        "A Turn disappeared during history repair".into(),
+                    )
+                })?;
+            let matches = |bundle: &OfflineSessionBundle| {
+                bundle
+                    .turns
+                    .iter()
+                    .any(|turn| turn.turn_index == *index && same_record(turn, &current.turn))
+            };
+            if current.schema_version > SESSION_STORAGE_SCHEMA_VERSION
+                || (!matches(&repair.before) && !matches(&repair.after))
+            {
+                return Err(OfflineSessionImportError::InvalidBundle("Session history changed during repair; original and current content are retained".into()));
+            }
+        }
+        if repair
+            .before
+            .turns
+            .iter()
+            .any(|turn| !paths.iter().any(|(index, _)| *index == turn.turn_index))
+        {
+            return Err(OfflineSessionImportError::InvalidBundle("An original Turn is missing during history repair; refusing to recreate deleted history".into()));
+        }
+        for turn in &repair.after.turns {
+            self.json_store
+                .write_atomic_strict(
+                    &self.layout.turn_path(id, turn.turn_index),
+                    &StoredDialogTurnFile::new(turn.clone()),
+                )
+                .await?;
+        }
+        self.metadata_store
+            .save_metadata(&repair.after.metadata)
+            .await?;
+        Ok(true)
+    }
+
     pub async fn rebuild_index(&self) -> Result<(), OfflineSessionImportError> {
         self.metadata_store.rebuild_index().await?;
         Ok(())
@@ -303,6 +475,149 @@ fn validate_bundle_shape(bundle: &OfflineSessionBundle) -> Result<(), OfflineSes
 mod tests {
     use super::*;
     use std::fs;
+
+    fn legacy_repair_bundles() -> (OfflineSessionBundle, OfflineSessionBundle) {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../legacy-migration/tests/fixtures/v0.2.19/home/projects/c--fixture-workspace/sessions/session-1");
+        let metadata: StoredSessionMetadataFile =
+            serde_json::from_slice(&fs::read(fixture.join("metadata.json")).unwrap()).unwrap();
+        let turn: StoredDialogTurnFile =
+            serde_json::from_slice(&fs::read(fixture.join("turns/turn-0000.json")).unwrap())
+                .unwrap();
+        let before = OfflineSessionBundle {
+            metadata: metadata.metadata,
+            turns: vec![turn.turn],
+        };
+        let mut after = before.clone();
+        after.turns[0].user_message.content.push_str(" restored");
+        let mut second = after.turns[0].clone();
+        second.turn_index = 1;
+        second.turn_id = "restored-turn-2".into();
+        after.turns.push(second);
+        after.metadata.turn_count = 2;
+        after.metadata.message_count += 1;
+        (before, after)
+    }
+
+    #[tokio::test]
+    async fn history_repair_retains_the_original_and_resumes_partial_writes() {
+        let (before, after) = legacy_repair_bundles();
+        let temp = tempfile::tempdir().unwrap();
+        let store = OfflineSessionImportStore::new(temp.path());
+        store.write_bundle_atomic(&before).await.unwrap();
+        let id = &before.metadata.session_id;
+        let journal_path = store.layout.session_dir(id).join(".history-repair.json");
+        store
+            .json_store
+            .write_atomic_strict(
+                &journal_path,
+                &BundleRepair {
+                    schema_version: 1,
+                    before: before.clone(),
+                    after: after.clone(),
+                },
+            )
+            .await
+            .unwrap();
+        // Simulate interruption after one replacement and one append, before
+        // the metadata commit. Recovery needs no original external source.
+        for turn in &after.turns {
+            store
+                .json_store
+                .write_atomic_strict(
+                    &store.layout.turn_path(id, turn.turn_index),
+                    &StoredDialogTurnFile::new(turn.clone()),
+                )
+                .await
+                .unwrap();
+        }
+        assert!(store.load_bundle(id).await.is_err());
+        let restarted = OfflineSessionImportStore::new(temp.path());
+        assert!(restarted.resume_bundle_repair(id).await.unwrap());
+        assert!(same_record(
+            &restarted.load_bundle(id).await.unwrap().unwrap(),
+            &after
+        ));
+        let journal: BundleRepair = restarted
+            .json_store
+            .read_optional(&journal_path)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(same_record(&journal.before, &before));
+        assert!(restarted.resume_bundle_repair(id).await.unwrap());
+        assert!(same_record(
+            &restarted.load_bundle(id).await.unwrap().unwrap(),
+            &after
+        ));
+    }
+
+    #[tokio::test]
+    async fn history_repair_refuses_changes_made_after_preparation() {
+        for edit_metadata in [false, true] {
+            let (before, after) = legacy_repair_bundles();
+            let temp = tempfile::tempdir().unwrap();
+            let store = OfflineSessionImportStore::new(temp.path());
+            store.write_bundle_atomic(&before).await.unwrap();
+            let id = &before.metadata.session_id;
+            store
+                .json_store
+                .write_atomic_strict(
+                    &store.layout.session_dir(id).join(".history-repair.json"),
+                    &BundleRepair {
+                        schema_version: 1,
+                        before: before.clone(),
+                        after,
+                    },
+                )
+                .await
+                .unwrap();
+            let mut edited = before.clone();
+            if edit_metadata {
+                edited.metadata.session_name = "User edit after interruption".into();
+            } else {
+                edited.turns[0].user_message.content = "User edit after interruption".into();
+            }
+            store.write_bundle(&edited).await.unwrap();
+            assert!(store.resume_bundle_repair(id).await.is_err());
+            assert!(same_record(
+                &store.load_bundle(id).await.unwrap().unwrap(),
+                &edited
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_publication_never_removes_another_importers_session() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let temp = tempfile::tempdir().unwrap();
+        let store = OfflineSessionImportStore::new(temp.path());
+        let bundle = OfflineSessionBundle {
+            metadata: SessionMetadata::new(
+                "same-source".into(),
+                "Imported".into(),
+                "primary".into(),
+                "primary".into(),
+            ),
+            turns: vec![],
+        };
+        let final_dir = temp.path().join("same-source");
+        let checkpoints = AtomicUsize::new(0);
+        let result = store
+            .write_bundle_atomic_cancellable(&bundle, || {
+                // Another process publishes after the existence check, before our rename.
+                if checkpoints.fetch_add(1, Ordering::SeqCst) == 1 {
+                    fs::create_dir_all(&final_dir).unwrap();
+                    fs::write(final_dir.join("other-process-history"), b"preserve me").unwrap();
+                }
+                false
+            })
+            .await;
+        assert!(result.is_err());
+        assert_eq!(
+            fs::read(final_dir.join("other-process-history")).unwrap(),
+            b"preserve me"
+        );
+    }
 
     #[tokio::test]
     async fn cancelled_atomic_import_cleans_staging_without_publishing_or_removing_existing_data() {

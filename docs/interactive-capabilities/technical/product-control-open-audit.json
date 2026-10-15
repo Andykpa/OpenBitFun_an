@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "44d644e295de73631b174368fd2675b8041ba4e915c8fcf50df1deb269f2ecec",
+  "catalogDigest": "1cd850650aa8b8df165b6fe69c90f060c240169f4becf163ecaba3fbe037000b",
   "count": 214,
   "reasonCounts": {
     "externalAuth": 4,
@@ -1655,40 +1655,38 @@
     {
       "capabilityId": "feature.ecosystem-compatibility",
       "itemId": "codex-session-import",
-      "titleZh": "按需导入 Codex 会话并在 OpenBitFun 中继续对话",
-      "titleEn": "Import selected Codex sessions on demand and continue them in OpenBitFun",
+      "titleZh": "发现、移除和重新添加 Codex 来源会话，并在 OpenBitFun 分支中续聊",
+      "titleEn": "Discover, remove and restore Codex source sessions, then continue in OpenBitFun branches",
       "reasonCode": "unstructuredInteraction",
-      "reasonZh": "“按需导入 Codex 会话并在 OpenBitFun 中继续对话”需要用户选择来源会话或工作区，随后可查看导入进度、取消操作并进入已导入会话。完整可读历史归入来源工作区；智能体打开生态兼容入口，后续选择保留在用户可见界面。",
-      "reasonEn": "“Import selected Codex sessions on demand and continue them in OpenBitFun” requires the user to select source sessions or a workspace, then follow progress, cancel, or open an imported session. Full readable history belongs to its source workspace; the Agent opens ecosystem compatibility and leaves selection in the visible interface.",
+      "reasonZh": "“发现、移除和重新添加 Codex 来源会话，并在 OpenBitFun 分支中续聊”由用户在生态兼容页开启发现或选择已移除的来源。打开来源时刷新历史，首次发送创建独立分支。归档、移除和分支删除各自独立，原应用历史保持不变。智能体打开入口，由用户选择具体会话。",
+      "reasonEn": "“Discover, remove and restore Codex source sessions, then continue in OpenBitFun branches” requires the user to enable discovery or select a removed source in ecosystem compatibility. Opening a source refreshes its history and first send creates an independent branch. Archives, source removal and branch deletion stay independent; original history is preserved. The Agent opens the entry for the user to choose a session.",
       "presentationTarget": {
         "kind": "action",
         "actionId": "surface.ecosystemCompatibility.open"
       },
       "evidence": [
-        "command:list_external_session_import_candidates",
-        "command:plan_external_session_import",
-        "command:apply_external_session_import",
-        "command:cancel_external_session_import",
+        "command:list_removed_external_sessions",
+        "command:restore_removed_external_session",
+        "source:src/web-ui/src/app/scenes/ecosystem-compatibility/RemovedExternalSessions.tsx#RemovedExternalSessions",
         "source:src/web-ui/src/app/scenes/ecosystem-compatibility/ExternalAgentSessions.tsx#ExternalAgentSessions"
       ]
     },
     {
       "capabilityId": "feature.ecosystem-compatibility",
       "itemId": "zcode-session-import",
-      "titleZh": "按需导入 Zcode 会话并在 OpenBitFun 中继续对话",
-      "titleEn": "Import selected Zcode sessions on demand and continue them in OpenBitFun",
+      "titleZh": "发现、移除和重新添加 Zcode 来源会话，并在 OpenBitFun 分支中续聊",
+      "titleEn": "Discover, remove and restore Zcode source sessions, then continue in OpenBitFun branches",
       "reasonCode": "unstructuredInteraction",
-      "reasonZh": "“按需导入 Zcode 会话并在 OpenBitFun 中继续对话”需要用户选择来源会话或工作区，随后可查看导入进度、取消操作并进入已导入会话。完整可读历史归入来源工作区；智能体打开生态兼容入口，后续选择保留在用户可见界面。",
-      "reasonEn": "“Import selected Zcode sessions on demand and continue them in OpenBitFun” requires the user to select source sessions or a workspace, then follow progress, cancel, or open an imported session. Full readable history belongs to its source workspace; the Agent opens ecosystem compatibility and leaves selection in the visible interface.",
+      "reasonZh": "“发现、移除和重新添加 Zcode 来源会话，并在 OpenBitFun 分支中续聊”由用户在生态兼容页开启发现或选择已移除的来源。打开来源时刷新历史，首次发送创建独立分支。归档、移除和分支删除各自独立，原应用历史保持不变。智能体打开入口，由用户选择具体会话。",
+      "reasonEn": "“Discover, remove and restore Zcode source sessions, then continue in OpenBitFun branches” requires the user to enable discovery or select a removed source in ecosystem compatibility. Opening a source refreshes its history and first send creates an independent branch. Archives, source removal and branch deletion stay independent; original history is preserved. The Agent opens the entry for the user to choose a session.",
       "presentationTarget": {
         "kind": "action",
         "actionId": "surface.ecosystemCompatibility.open"
       },
       "evidence": [
-        "command:list_external_session_import_candidates",
-        "command:plan_external_session_import",
-        "command:apply_external_session_import",
-        "command:cancel_external_session_import",
+        "command:list_removed_external_sessions",
+        "command:restore_removed_external_session",
+        "source:src/web-ui/src/app/scenes/ecosystem-compatibility/RemovedExternalSessions.tsx#RemovedExternalSessions",
         "source:src/web-ui/src/app/scenes/ecosystem-compatibility/ExternalAgentSessions.tsx#ExternalAgentSessions"
       ]
     },

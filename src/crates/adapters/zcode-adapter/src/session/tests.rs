@@ -94,20 +94,33 @@ impl Fixture {
 fn missing_database_is_empty_without_creating_files() {
     let root = tempfile::tempdir().unwrap();
     let reader = ZcodeSessionReader::new(root.path().to_owned());
-    let catalog = reader
-        .discover(
-            0,
-            5,
-            "",
-            Some(ExternalSessionCatalogScope::Workspaces { preview_limit: 5 }),
-        )
-        .unwrap();
-    assert!(catalog.workspaces.unwrap().is_empty());
+    let catalog = reader.discover_all().unwrap();
+    assert!(catalog.candidates.is_empty());
     assert!(!root.path().join("cli").exists());
 }
 
 #[test]
-fn workspace_pages_and_session_pages_are_independent_and_exclude_nested_tasks() {
+fn automatic_discovery_reads_all_committed_sessions_beyond_the_ui_page() {
+    let fixture = Fixture::new(true);
+    for index in 0..57 {
+        fixture.session(&format!("session-{index}"), "/project", index);
+    }
+    assert_eq!(
+        fixture
+            .reader
+            .discover(0, 100, "")
+            .unwrap()
+            .candidates
+            .len(),
+        50
+    );
+    let all = fixture.reader.discover_all().unwrap();
+    assert_eq!(all.candidates.len(), 57);
+    assert!(all.next_cursor.is_none());
+}
+
+#[test]
+fn discovery_follows_recent_activity_and_excludes_nested_tasks() {
     let fixture = Fixture::new(true);
     for i in 0..8 {
         fixture.session(&format!("a-{i}"), "C:\\Project", 100 + i);
@@ -123,59 +136,14 @@ fn workspace_pages_and_session_pages_are_independent_and_exclude_nested_tasks() 
             [],
         )
         .unwrap();
-    let catalog = fixture
-        .reader
-        .discover(
-            0,
-            2,
-            "",
-            Some(ExternalSessionCatalogScope::Workspaces { preview_limit: 3 }),
-        )
-        .unwrap();
-    let groups = catalog.workspaces.unwrap();
-    assert_eq!(catalog.next_cursor, Some(2));
-    assert_eq!(groups.len(), 2);
-    assert_eq!(groups[0].total_count, 9);
-    assert_eq!(groups[0].candidates.len(), 3);
-    assert_eq!(groups[0].next_cursor, Some(3));
-    assert_eq!(groups[0].candidates[0].source_session_id, "a-new");
-    assert_eq!(groups[1].cwd.as_deref(), Some("/b"));
-    let next = fixture
-        .reader
-        .discover(
-            2,
-            2,
-            "",
-            Some(ExternalSessionCatalogScope::Workspaces { preview_limit: 3 }),
-        )
-        .unwrap();
-    assert!(next.next_cursor.is_none());
-    assert_eq!(
-        next.workspaces.unwrap()[0].cwd.as_deref(),
-        Some("C:/Project-other")
-    );
-    let own = fixture
-        .reader
-        .discover(
-            3,
-            25,
-            "",
-            Some(ExternalSessionCatalogScope::Workspace {
-                workspace_key: groups[0].workspace_key.clone(),
-            }),
-        )
-        .unwrap();
-    let own = &own.workspaces.unwrap()[0];
-    assert_eq!(own.candidates.len(), 6);
-    assert!(own.next_cursor.is_none());
-    assert!(own
+    let catalog = fixture.reader.discover_all().unwrap();
+    assert_eq!(catalog.candidates.len(), 11);
+    assert_eq!(catalog.candidates[0].source_session_id, "a-new");
+    assert_eq!(catalog.candidates[1].source_session_id, "b");
+    assert!(catalog
         .candidates
         .iter()
-        .all(|candidate| candidate.source_session_id.starts_with("a-")));
-    assert_ne!(
-        workspace_key(Some("/Project")),
-        workspace_key(Some("/project"))
-    );
+        .all(|candidate| candidate.source_session_id != "side"));
     assert!(fixture
         .reader
         .read_candidate("zcode:side", ExternalSessionImportMode::Full)
@@ -429,7 +397,7 @@ fn unsupported_schema_and_candidate_paths_do_not_return_empty_success() {
     fixture.writer.execute_batch("DROP TABLE part;").unwrap();
     assert!(fixture
         .reader
-        .discover(0, 5, "", None)
+        .discover(0, 5, "")
         .err()
         .unwrap()
         .contains("Unsupported"));
@@ -439,7 +407,7 @@ fn unsupported_schema_and_candidate_paths_do_not_return_empty_success() {
 #[ignore = "Reads the installed Zcode session database without changing it"]
 fn inspect_installed_zcode() {
     let reader = ZcodeSessionReader::default();
-    let catalog = reader.discover(0, 50, "", None).unwrap();
+    let catalog = reader.discover(0, 50, "").unwrap();
     assert!(
         !catalog.candidates.is_empty(),
         "No installed Zcode sessions found"

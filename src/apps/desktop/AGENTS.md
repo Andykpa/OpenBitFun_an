@@ -171,8 +171,6 @@ For snapshot workspace identity and remote rollback admission, use
 
 For skill discovery response compatibility and timeouts, use
 `cargo test -p openbitfun-desktop --lib api::skill_api::tests`.
-For external session discovery request compatibility and workspace paging, use
-`cargo test -p openbitfun-desktop --no-default-features --lib api::external_session_import_api::tests`.
 For companion pet manifest versions and package metadata, use
 `cargo test -p openbitfun-desktop --lib api::commands::pet_package_tests`.
 For content-search routing and remote fallback protection, use

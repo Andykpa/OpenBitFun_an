@@ -10,6 +10,10 @@
 
 ```bash
 cargo test -p openbitfun-codex-adapter --lib session::tests
+# Optional read-only installed-source verification (prints counts only):
+cargo test -p openbitfun-codex-adapter --lib inspect_installed_codex_session_titles -- --ignored --nocapture
+# Set OPENBITFUN_TEST_CODEX_THREAD to inspect one logical thread's full history:
+cargo test -p openbitfun-codex-adapter --lib inspect_installed_codex_thread_history -- --ignored --nocapture
 ```
 
 ## Pet source verification

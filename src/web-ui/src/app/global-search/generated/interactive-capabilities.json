@@ -4,7 +4,7 @@
   "title": "OpenBitFun Playbook",
   "origin": "https://playbook.openbitfun.com",
   "source": "src/shared/interactive-capabilities/catalog.json",
-  "digest": "44d644e295de73631b174368fd2675b8041ba4e915c8fcf50df1deb269f2ecec",
+  "digest": "1cd850650aa8b8df165b6fe69c90f060c240169f4becf163ecaba3fbe037000b",
   "ownerDigest": "b96bf9292a92548facbd835b8b89c4865bfdd984b356c9001995f552c6a34f51",
   "searchAcceptance": [
     {
@@ -23567,14 +23567,14 @@
         "自动发现只控制列表更新；关闭后保留结果，仍可手动刷新，已接入的功能照常运行",
         "审阅并导入受支持的 Skill、MCP 与 Hook；Command、Tool、子智能体暂无副本导入",
         "已导入表示副本已保存；在对应管理页确认启用与连接",
-        "Codex、Zcode 会话按来源工作区分组；支持逐个或批量导入、进度、取消及继续对话"
+        "Codex、Zcode 会话按工作区自动发现；打开来源时刷新历史，首次发送创建独立分支，可移除和重新添加来源"
       ],
       "highlightsEn": [
         "Browse identified and more apps; discovery coverage and current category results are separate",
         "Automatic discovery controls list updates; pausing retains results and allows manual refresh without changing active integrations",
         "Review and import supported Skills, MCP and Hooks; command, tool and subagent copy import is unavailable",
         "Imported means a copy was saved; confirm activation and connection in the relevant settings",
-        "Codex and Zcode sessions are grouped by source workspace, with single or batch import, progress, cancellation, and local continuation"
+        "Discover Codex and Zcode sessions by workspace, refresh history on open, continue in a new branch on first send, and remove or restore source views"
       ],
       "items": [
         {
@@ -23601,24 +23601,24 @@
         },
         {
           "id": "codex-session-import",
-          "titleZh": "按需导入 Codex 会话并在 OpenBitFun 中继续对话",
-          "titleEn": "Import selected Codex sessions on demand and continue them in OpenBitFun",
+          "titleZh": "发现、移除和重新添加 Codex 来源会话，并在 OpenBitFun 分支中续聊",
+          "titleEn": "Discover, remove and restore Codex source sessions, then continue in OpenBitFun branches",
           "control": {
             "kind": "open",
             "reasonCode": "unstructuredInteraction",
-            "reasonZh": "“按需导入 Codex 会话并在 OpenBitFun 中继续对话”需要用户选择来源会话或工作区，随后可查看导入进度、取消操作并进入已导入会话。完整可读历史归入来源工作区；智能体打开生态兼容入口，后续选择保留在用户可见界面。",
-            "reasonEn": "“Import selected Codex sessions on demand and continue them in OpenBitFun” requires the user to select source sessions or a workspace, then follow progress, cancel, or open an imported session. Full readable history belongs to its source workspace; the Agent opens ecosystem compatibility and leaves selection in the visible interface."
+            "reasonZh": "“发现、移除和重新添加 Codex 来源会话，并在 OpenBitFun 分支中续聊”由用户在生态兼容页开启发现或选择已移除的来源。打开来源时刷新历史，首次发送创建独立分支。归档、移除和分支删除各自独立，原应用历史保持不变。智能体打开入口，由用户选择具体会话。",
+            "reasonEn": "“Discover, remove and restore Codex source sessions, then continue in OpenBitFun branches” requires the user to enable discovery or select a removed source in ecosystem compatibility. Opening a source refreshes its history and first send creates an independent branch. Archives, source removal and branch deletion stay independent; original history is preserved. The Agent opens the entry for the user to choose a session."
           }
         },
         {
           "id": "zcode-session-import",
-          "titleZh": "按需导入 Zcode 会话并在 OpenBitFun 中继续对话",
-          "titleEn": "Import selected Zcode sessions on demand and continue them in OpenBitFun",
+          "titleZh": "发现、移除和重新添加 Zcode 来源会话，并在 OpenBitFun 分支中续聊",
+          "titleEn": "Discover, remove and restore Zcode source sessions, then continue in OpenBitFun branches",
           "control": {
             "kind": "open",
             "reasonCode": "unstructuredInteraction",
-            "reasonZh": "“按需导入 Zcode 会话并在 OpenBitFun 中继续对话”需要用户选择来源会话或工作区，随后可查看导入进度、取消操作并进入已导入会话。完整可读历史归入来源工作区；智能体打开生态兼容入口，后续选择保留在用户可见界面。",
-            "reasonEn": "“Import selected Zcode sessions on demand and continue them in OpenBitFun” requires the user to select source sessions or a workspace, then follow progress, cancel, or open an imported session. Full readable history belongs to its source workspace; the Agent opens ecosystem compatibility and leaves selection in the visible interface."
+            "reasonZh": "“发现、移除和重新添加 Zcode 来源会话，并在 OpenBitFun 分支中续聊”由用户在生态兼容页开启发现或选择已移除的来源。打开来源时刷新历史，首次发送创建独立分支。归档、移除和分支删除各自独立，原应用历史保持不变。智能体打开入口，由用户选择具体会话。",
+            "reasonEn": "“Discover, remove and restore Zcode source sessions, then continue in OpenBitFun branches” requires the user to enable discovery or select a removed source in ecosystem compatibility. Opening a source refreshes its history and first send creates an independent branch. Archives, source removal and branch deletion stay independent; original history is preserved. The Agent opens the entry for the user to choose a session."
           }
         },
         {
@@ -23755,20 +23755,20 @@
         "自动发现只控制列表更新；关闭后保留结果，仍可手动刷新，已接入的功能照常运行",
         "审阅并导入受支持的 Skill、MCP 与 Hook；Command、Tool、子智能体暂无副本导入",
         "已导入表示副本已保存；在对应管理页确认启用与连接",
-        "Codex、Zcode 会话按来源工作区分组；支持逐个或批量导入、进度、取消及继续对话",
+        "Codex、Zcode 会话按工作区自动发现；打开来源时刷新历史，首次发送创建独立分支，可移除和重新添加来源",
         "Browse identified and more apps; discovery coverage and current category results are separate",
         "Automatic discovery controls list updates; pausing retains results and allows manual refresh without changing active integrations",
         "Review and import supported Skills, MCP and Hooks; command, tool and subagent copy import is unavailable",
         "Imported means a copy was saved; confirm activation and connection in the relevant settings",
-        "Codex and Zcode sessions are grouped by source workspace, with single or batch import, progress, cancellation, and local continuation",
+        "Discover Codex and Zcode sessions by workspace, refresh history on open, continue in a new branch on first send, and remove or restore source views",
         "发现 OpenCode、Claude Code、Codex 等外部 AI 来源与可用内容",
         "Discover OpenCode, Claude Code, Codex, and other external AI sources and content",
         "按来源启用或停用集成，并选择管理、预览或只读策略",
         "Enable or disable each source and choose managed, preview, or read-only policy",
-        "按需导入 Codex 会话并在 OpenBitFun 中继续对话",
-        "Import selected Codex sessions on demand and continue them in OpenBitFun",
-        "按需导入 Zcode 会话并在 OpenBitFun 中继续对话",
-        "Import selected Zcode sessions on demand and continue them in OpenBitFun",
+        "发现、移除和重新添加 Codex 来源会话，并在 OpenBitFun 分支中续聊",
+        "Discover, remove and restore Codex source sessions, then continue in OpenBitFun branches",
+        "发现、移除和重新添加 Zcode 来源会话，并在 OpenBitFun 分支中续聊",
+        "Discover, remove and restore Zcode source sessions, then continue in OpenBitFun branches",
         "展开外部 Prompt/Command 内容并处理与原生命令的冲突",
         "Expand external prompt/command content and resolve conflicts with native commands",
         "启用外部智能体，处理同名冲突并绑定模型",

@@ -110,7 +110,20 @@ impl ZcodeSessionReader {
         cursor: usize,
         limit: usize,
         query: &str,
-        scope: Option<ExternalSessionCatalogScope>,
+    ) -> Result<ExternalSessionCatalog, String> {
+        self.discover_page(cursor, limit.clamp(1, 50), query)
+    }
+
+    /// Read one bounded SQLite catalog snapshot for host-owned discovery.
+    pub fn discover_all(&self) -> Result<ExternalSessionCatalog, String> {
+        self.discover_page(0, usize::MAX, "")
+    }
+
+    fn discover_page(
+        &self,
+        cursor: usize,
+        limit: usize,
+        query: &str,
     ) -> Result<ExternalSessionCatalog, String> {
         let mut catalog = ExternalSessionCatalog {
             schema_version: EXTERNAL_SESSION_IMPORT_SCHEMA_V1,
@@ -119,7 +132,6 @@ impl ZcodeSessionReader {
             candidates: Vec::new(),
             diagnostics: Vec::new(),
             next_cursor: None,
-            workspaces: scope.as_ref().map(|_| Vec::new()),
         };
         let Some((connection, _)) = self.open()? else {
             return Ok(catalog);
@@ -152,49 +164,9 @@ impl ZcodeSessionReader {
                 candidates.push(candidate);
             }
         }
-        let limit = limit.clamp(1, 50);
-        let Some(scope) = scope else {
-            let end = cursor.saturating_add(limit).min(candidates.len());
-            catalog.next_cursor = (end < candidates.len()).then_some(end);
-            catalog.candidates = candidates.into_iter().skip(cursor).take(limit).collect();
-            return Ok(catalog);
-        };
-        let mut groups: Vec<ExternalSessionWorkspaceGroup> = Vec::new();
-        let mut positions = HashMap::new();
-        for candidate in candidates {
-            let key = workspace_key(candidate.cwd.as_deref());
-            let index = *positions.entry(key.clone()).or_insert_with(|| {
-                groups.push(ExternalSessionWorkspaceGroup {
-                    workspace_key: key,
-                    cwd: candidate.cwd.clone(),
-                    total_count: 0,
-                    candidates: Vec::new(),
-                    next_cursor: None,
-                });
-                groups.len() - 1
-            });
-            groups[index].total_count += 1;
-            groups[index].candidates.push(candidate);
-        }
-        catalog.workspaces = Some(match scope {
-            ExternalSessionCatalogScope::Workspaces { preview_limit } => {
-                let end = cursor.saturating_add(limit).min(groups.len());
-                catalog.next_cursor = (end < groups.len()).then_some(end);
-                groups
-                    .into_iter()
-                    .skip(cursor)
-                    .take(limit)
-                    .map(|group| workspace_page(group, 0, preview_limit.clamp(1, 50)))
-                    .collect()
-            }
-            ExternalSessionCatalogScope::Workspace { workspace_key } => {
-                let group = groups
-                    .into_iter()
-                    .find(|group| group.workspace_key == workspace_key)
-                    .ok_or("Zcode source workspace was removed or moved; refresh the list")?;
-                vec![workspace_page(group, cursor, limit)]
-            }
-        });
+        let end = cursor.saturating_add(limit).min(candidates.len());
+        catalog.next_cursor = (end < candidates.len()).then_some(end);
+        catalog.candidates = candidates.into_iter().skip(cursor).take(limit).collect();
         Ok(catalog)
     }
 
@@ -462,6 +434,8 @@ fn candidate_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ExternalSessi
         source_session_id: id,
         cwd: row.get(1)?,
         title: row.get(2)?,
+        fallback_title: None,
+        title_is_source_name: true,
         format_version: row.get(3)?,
         created_at: row.get(4)?,
         updated_at,
@@ -531,38 +505,6 @@ fn hidden_message(data: &Value) -> bool {
 
 fn string(value: Option<&Value>) -> Option<String> {
     value.and_then(Value::as_str).map(str::to_owned)
-}
-
-fn workspace_key(cwd: Option<&str>) -> String {
-    let mut path = cwd.unwrap_or("").to_owned();
-    let windows =
-        path.as_bytes().get(1) == Some(&b':') || path.starts_with("\\\\") || path.starts_with("//");
-    if windows {
-        path = path.replace('\\', "/").to_ascii_lowercase();
-    }
-    if path.len() > 1 {
-        path = path.trim_end_matches('/').to_owned();
-    }
-    format!(
-        "zcode-workspace:{}",
-        hex::encode(Sha256::digest(path.as_bytes()))
-    )
-}
-
-fn workspace_page(
-    mut group: ExternalSessionWorkspaceGroup,
-    cursor: usize,
-    limit: usize,
-) -> ExternalSessionWorkspaceGroup {
-    let end = cursor.saturating_add(limit).min(group.total_count);
-    group.next_cursor = (end < group.total_count).then_some(end);
-    group.candidates = group
-        .candidates
-        .into_iter()
-        .skip(cursor)
-        .take(limit)
-        .collect();
-    group
 }
 
 #[cfg(test)]

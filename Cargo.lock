@@ -6193,6 +6193,7 @@ dependencies = [
  "openbitfun-product-domains",
  "openbitfun-services-core",
  "openbitfun-static-hook-support",
+ "rusqlite",
  "serde_json",
  "sha2",
  "tempfile",
