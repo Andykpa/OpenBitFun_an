@@ -1132,9 +1132,9 @@ Results: `{ok, domain, action, data? , error?: {code, message, hints}}`. Check o
                             .is_ok_and(|kind| kind.as_str() == selected.target)
                     {
                         params["target"] = json!(selected.target);
-                        if action != "tab_new" {
-                            params["session_id"] = json!(selected.session_id);
-                        }
+                        // tab_new also needs the selected connection's port
+                        // and mode; it never reuses the selected page itself.
+                        params["session_id"] = json!(selected.session_id);
                     }
                 }
             }
@@ -1516,24 +1516,31 @@ Results: `{ok, domain, action, data? , error?: {code, message, hints}}`. Check o
             browser_target_kind = BrowserTargetKind::BuiltIn;
         }
 
+        let selected_session = if browser_target_kind == BrowserTargetKind::External
+            && (session_id_param.is_some()
+                || (context.session_id.is_none()
+                    && action != "connect"
+                    && params.get("mode").is_none()))
+        {
+            browser_sessions()
+                .get(session_id_param.as_deref())
+                .await
+                .ok()
+        } else {
+            None
+        };
         let port = match params.get("port").and_then(|v| v.as_u64()) {
             Some(p) => p as u16,
-            None if action == "connect" || params.get("mode").is_some() => {
+            None if params.get("mode").is_none() && selected_session.is_some() => {
+                selected_session.as_ref().unwrap().port
+            }
+            None => {
                 if Self::browser_connect_mode_from_params(params) == "headless" {
                     DEFAULT_HEADLESS_CDP_PORT
                 } else {
                     DEFAULT_CDP_PORT
                 }
             }
-            // Port-addressed actions after `connect` (list_pages / tab_query /
-            // tab_new / switch_page) must reuse the connected session's port,
-            // otherwise a headless session's follow-up calls fall back to the
-            // headed browser's port.
-            None => browser_sessions()
-                .get(session_id_param.as_deref())
-                .await
-                .map(|s| s.port)
-                .unwrap_or(DEFAULT_CDP_PORT),
         };
 
         if browser_target_kind == BrowserTargetKind::External
@@ -1546,14 +1553,6 @@ Results: `{ok, domain, action, data? , error?: {code, message, hints}}`. Check o
             ));
         }
 
-        let selected_session = if browser_target_kind == BrowserTargetKind::External {
-            browser_sessions()
-                .get(session_id_param.as_deref())
-                .await
-                .ok()
-        } else {
-            None
-        };
         if browser_target_kind == BrowserTargetKind::External {
             if session_id_param.is_some()
                 && selected_session.is_none()
@@ -1615,6 +1614,26 @@ Results: `{ok, domain, action, data? , error?: {code, message, hints}}`. Check o
                     Self::browser_permission_error(),
                 ));
             }
+        }
+
+        if context.session_id.is_some()
+            && session_id_param.is_none()
+            && !matches!(
+                action,
+                "navigate"
+                    | "open_builtin"
+                    | "connect"
+                    | "switch_page"
+                    | "list_pages"
+                    | "tab_query"
+                    | "list_sessions"
+                    | "tab_new"
+            )
+        {
+            return Ok(err_response("browser", action, ControlHubError::new(
+                ErrorCode::WrongTab,
+                "This conversation has no selected browser page.",
+            ).with_hint("Use navigate for a URL, or connect with an exact session_id to select an existing page; another conversation's page is not an implicit target.")));
         }
 
         match action {

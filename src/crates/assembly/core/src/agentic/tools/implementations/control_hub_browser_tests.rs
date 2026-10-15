@@ -155,6 +155,13 @@ async fn cold_navigation_observes_once_and_keeps_conversations_on_their_pages() 
     assert_eq!(host.opens.lock().unwrap().len(), 1);
     let (other, _) = call("navigate", json!({"url":"https://other.example"}), &b).await;
     assert_ne!(other["data"]["session_id"], first["data"]["session_id"]);
+    let (unselected, _) = call(
+        "get_url",
+        json!({"target":"builtin"}),
+        &context("unselected-browser-task"),
+    )
+    .await;
+    assert_eq!(unselected["error"]["code"], "WRONG_TAB");
     assert!(host
         .opens
         .lock()
@@ -452,6 +459,47 @@ async fn real_browser_workflow() {
     assert_eq!(opened["data"]["loaded"], true, "{opened}");
     assert!(snapshot.contains("Name"));
     let id = opened["data"]["session_id"].as_str().unwrap();
+    let other_port: u16 = std::env::var("OPENBITFUN_OTHER_BROWSER_TEST_PORT")
+        .unwrap()
+        .parse()
+        .unwrap();
+    let other_ctx = context("real-browser-other-workflow");
+    let (other, _) = call(
+        "connect",
+        json!({"target":"external","mode":"headless","port":other_port,"activate":false}),
+        &other_ctx,
+    )
+    .await;
+    assert_eq!(other["ok"], true, "{other}");
+    // A new conversation must not inherit another task's headless endpoint.
+    let (unselected, text) = call(
+        "list_pages",
+        json!({"target":"external"}),
+        &context("real-browser-unselected"),
+    )
+    .await;
+    assert_eq!(unselected["error"]["code"], "NOT_AVAILABLE", "{unselected}");
+    assert!(text.contains("Settings"));
+    // New tabs inherit this conversation's connection, not the global default.
+    let (new_tab, _) = call(
+        "tab_new",
+        json!({"url":"about:blank","activate":false}),
+        &ctx,
+    )
+    .await;
+    assert_eq!(new_tab["ok"], true, "{new_tab}");
+    let new_id = new_tab["data"]["session_id"].as_str().unwrap();
+    assert_eq!(
+        browser_sessions().get(Some(new_id)).await.unwrap().port,
+        port
+    );
+    let other_pages = CdpClient::list_pages(other_port).await.unwrap();
+    assert!(!other_pages.iter().any(|page| page.id == new_id));
+    call("close", json!({}), &ctx).await;
+    // An exact known page carries its port even for an explicit connect call.
+    let (reselected, _) = call("connect", json!({"session_id":id,"activate":false}), &ctx).await;
+    assert_eq!(reselected["ok"], true, "{reselected}");
+    assert_eq!(reselected["data"]["port"], port);
     let elements = opened["data"]["observation"]["elements"]
         .as_array()
         .unwrap();
@@ -521,4 +569,5 @@ async fn real_browser_workflow() {
     let (stale, _) = call("get_url", json!({}), &ctx).await;
     assert_eq!(stale["error"]["code"], "WRONG_TAB");
     release_browser_selection("real-browser-workflow").await;
+    release_browser_selection("real-browser-other-workflow").await;
 }

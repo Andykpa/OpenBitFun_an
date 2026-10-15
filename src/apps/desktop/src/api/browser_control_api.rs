@@ -395,6 +395,14 @@ pub async fn browser_control_launch(
 ) -> Result<BrowserControlLaunchResponse, String> {
     let port = request.port;
     let kind = selected_browser_kind().await?;
+    if CdpClient::authorized_browser_kind(port)
+        .await
+        .is_some_and(|connected| connected != kind)
+    {
+        // Switching the selected browser revokes its previous page bindings,
+        // even if the replacement connection subsequently fails.
+        disconnect_external_browser(port).await;
+    }
     CdpClient::allow_browser_connection(port).await;
 
     if CdpClient::browser_connection_for_kind(port, &kind)
@@ -402,13 +410,6 @@ pub async fn browser_control_launch(
         .is_some()
     {
         return Ok(to_launch_response(&kind, LaunchResult::AlreadyConnected));
-    }
-
-    // The logical port is shared across browser choices. Drop only the lookup
-    // entry when the user switches browsers; any already-attached page session
-    // keeps its transport alive, but new actions cannot accidentally reuse it.
-    if CdpClient::browser_connection(port).await.is_some() {
-        CdpClient::remove_browser_connection(port).await;
     }
 
     let result = BrowserLauncher::launch_with_cdp(&kind, port)
@@ -427,6 +428,12 @@ pub async fn browser_control_enable_default_cdp(
 ) -> Result<BrowserControlLaunchResponse, String> {
     let port = request.port;
     let kind = selected_browser_kind().await?;
+    if CdpClient::authorized_browser_kind(port)
+        .await
+        .is_some_and(|connected| connected != kind)
+    {
+        disconnect_external_browser(port).await;
+    }
     CdpClient::allow_browser_connection(port).await;
 
     if !BrowserLauncher::supports_default_cdp(&kind) {
@@ -448,10 +455,6 @@ pub async fn browser_control_enable_default_cdp(
     {
         return Ok(to_launch_response(&kind, LaunchResult::AlreadyConnected));
     }
-    if CdpClient::browser_connection(port).await.is_some() {
-        CdpClient::remove_browser_connection(port).await;
-    }
-
     let result = BrowserLauncher::enable_default_cdp(&kind, port)
         .await
         .map_err(|e| e.to_string())?;
@@ -465,6 +468,7 @@ pub async fn browser_control_restart_with_cdp(
 ) -> Result<BrowserControlLaunchResponse, String> {
     let port = request.port;
     let kind = selected_browser_kind().await?;
+    disconnect_external_browser(port).await;
     CdpClient::allow_browser_connection(port).await;
 
     let result = BrowserLauncher::restart_with_cdp(&kind, port)

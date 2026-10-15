@@ -29,6 +29,7 @@ const server = createServer((request, response) => {
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 let browser;
+let otherBrowser;
 try {
   browser = await puppeteer.launch({
     ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
@@ -37,6 +38,10 @@ try {
   const existing = (await browser.pages())[0];
   await existing.goto('data:text/html,<title>Unrelated fixture tab</title><p>Preserve me</p>');
   const existingUrl = existing.url();
+  otherBrowser = await puppeteer.launch({
+    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
+    headless: 'new',
+  });
   const testName = 'agentic::tools::implementations::control_hub_tool::browser_workflow_tests::real_browser_workflow';
   const args = ['--ignored', '--exact', testName, '--nocapture'];
   const exitCode = await new Promise((resolve, reject) => {
@@ -49,6 +54,7 @@ try {
         ...process.env,
         OPENBITFUN_BROWSER_TEST_WS: browser.wsEndpoint(),
         OPENBITFUN_BROWSER_TEST_PORT: new URL(browser.wsEndpoint()).port,
+        OPENBITFUN_OTHER_BROWSER_TEST_PORT: new URL(otherBrowser.wsEndpoint()).port,
         OPENBITFUN_BROWSER_TEST_URL: `http://127.0.0.1:${server.address().port}/`,
       },
     });
@@ -60,6 +66,7 @@ try {
   assert.equal(pageRequests, 2, 'one initial navigation and one explicit legacy read; no setup/recovery replays');
   console.log('PASS production ControlHub workflow, unrelated tab preservation, and exact navigation count');
 } finally {
+  await otherBrowser?.close();
   await browser?.close();
   await new Promise(resolve => server.close(resolve));
 }
