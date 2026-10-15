@@ -129,6 +129,7 @@ streamable HTTP stay independent. Representative stable entry points are:
 
 ```bash
 cargo check -p openbitfun-services-integrations --no-default-features
+cargo test -p openbitfun-services-integrations --no-default-features --features browser-control --lib browser_control::cdp::tests::
 cargo test -p openbitfun-services-integrations --no-default-features --features remote-persistence --lib remote_persistence::tests::
 cargo test -p openbitfun-services-integrations --no-default-features --features mcp --test mcp_contracts
 cargo test -p openbitfun-services-integrations --no-default-features --features mcp --test mcp_streamable_http_contracts

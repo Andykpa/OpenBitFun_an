@@ -213,8 +213,13 @@ pub async fn browser_control_get_status(
             _ => true,
         }
     });
+    // A listening debug port is ready, not connected on the user's behalf.
+    // Keep the UI's Connect action available until its grant exists, matching
+    // the Agent's access gate rather than showing a misleading Connected state.
+    let legacy_authorized =
+        CdpClient::authorized_browser_kind(port).await.as_ref() == Some(&configured_kind);
     let available = !browser_connection_suppressed
-        && (user_profile_connection.is_some() || legacy_matches_selection);
+        && (user_profile_connection.is_some() || (legacy_matches_selection && legacy_authorized));
     let browser_ready = available || user_profile_endpoint.is_some() || legacy_matches_selection;
 
     let (version, page_count, actual_kind) = if available {
@@ -373,7 +378,13 @@ async fn complete_launch(
                 setup_url: None,
             })
         }
-        other => Ok(to_launch_response(kind, other)),
+        other => {
+            let response = to_launch_response(kind, other);
+            if response.success {
+                CdpClient::authorize_legacy_browser(logical_port, kind).await;
+            }
+            Ok(response)
+        }
     }
 }
 
