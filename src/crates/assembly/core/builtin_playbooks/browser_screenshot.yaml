@@ -20,7 +20,7 @@ steps:
     params:
       duration_ms: "{{wait_ms}}"
     description: "Apply only an explicitly requested post-load delay"
-    condition: "wait_ms is greater than 0"
+    condition: "wait_ms is not 0"
 
   - domain: browser
     action: screenshot

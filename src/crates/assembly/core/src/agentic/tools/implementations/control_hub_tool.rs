@@ -330,11 +330,17 @@ impl ControlHubTool {
     /// so ControlHub stays fully usable while Computer Use is off — but any
     /// hint that tells the agent to "use ComputerUse" must be gated on this,
     /// otherwise the agent burns turns calling a tool it does not have.
+    #[cfg(feature = "tools-computer-use")]
     async fn computer_use_available(context: &ToolUseContext) -> bool {
         use super::computer_use_tool::ComputerUseTool;
         ComputerUseTool::new()
             .is_available_in_context(Some(context))
             .await
+    }
+
+    #[cfg(not(feature = "tools-computer-use"))]
+    async fn computer_use_available(_context: &ToolUseContext) -> bool {
+        false
     }
 
     /// `connect { mode: "headless" }` cannot launch a headless browser yet —
@@ -3957,6 +3963,7 @@ mod control_hub_tests {
         set_builtin_browser_host, BuiltInBrowserCommand, BuiltInBrowserHost,
         BuiltInBrowserOpenRequest, BuiltInBrowserTarget,
     };
+    #[cfg(feature = "tools-computer-use")]
     use crate::agentic::tools::implementations::computer_use_actions::ComputerUseActions;
 
     struct FakeBuiltInBrowserHost;
@@ -4864,6 +4871,7 @@ mod control_hub_tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "tools-computer-use")]
     async fn system_open_url_rejects_unsupported_scheme() {
         let tool = ComputerUseActions::new();
         let ctx = empty_context();
@@ -4878,6 +4886,7 @@ mod control_hub_tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "tools-computer-use")]
     async fn system_open_file_returns_not_found_for_missing_path() {
         let tool = ComputerUseActions::new();
         let ctx = empty_context();
@@ -4950,6 +4959,7 @@ mod control_hub_tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "tools-computer-use")]
     async fn system_get_os_info_includes_script_types() {
         let tool = ComputerUseActions::new();
         let ctx = empty_context();
@@ -4966,6 +4976,7 @@ mod control_hub_tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "tools-computer-use")]
     async fn system_run_script_rejects_applescript_on_non_mac() {
         // On non-macOS hosts, `applescript` must come back as a structured
         // NOT_AVAILABLE rather than throwing — so the model can branch on
@@ -4989,6 +5000,7 @@ mod control_hub_tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "tools-computer-use")]
     async fn system_run_script_unknown_type_lists_valid_options() {
         let tool = ComputerUseActions::new();
         let ctx = empty_context();
@@ -5010,6 +5022,7 @@ mod control_hub_tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "tools-computer-use")]
     async fn system_run_script_shell_executes_and_captures_stdout() {
         // Real run: confirm the OS-default `shell` script_type resolves to
         // the right interpreter and that we get UTF-8 stdout back. This

@@ -28,6 +28,7 @@ node scripts/test-browser-snapshot.mjs
 node scripts/test-browser-workflow.mjs
 cargo test -p openbitfun-core --no-default-features --features agent-runtime,tools-browser-web,tools-computer-use,git --lib browser_control::
 cargo test -p openbitfun-core --no-default-features --features agent-runtime,tools-browser-web,tools-computer-use,git --lib control_hub_tool::
+cargo test -p openbitfun-core --no-default-features --features agent-runtime,tools-browser-web,tools-miniapp,git --lib playbook_tool::tests::
 cargo test -p openbitfun-core --no-default-features --features agent-runtime,tools-browser-web,tools-computer-use,git --lib computer_use_tool::tests::
 ```
 
