@@ -16,6 +16,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { Button } from '@openbitfun/ui';
 import { Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { requestDeferredContentItem } from '@openbitfun/flow-chat-presentation/deferred-content';
@@ -170,6 +171,8 @@ type HistoryWindowBoundaryIntentResponse =
   | void;
 
 export interface HistoryWindowBoundaryIntentOptions {
+  synchronizeHistory?: boolean;
+  isCurrent?: () => boolean;
   prepareViewportForPresentationCommit?: () => boolean | void | Promise<boolean | void>;
   cancelViewportPresentationCommit?: () => void;
 }
@@ -310,9 +313,13 @@ const FlowChatListFooter = ({
 const FlowChatHistoryPagingSentinel = ({
   state,
   label,
+  onSynchronize,
+  synchronizeLabel,
 }: {
   state: 'idle' | 'loading' | 'error';
   label: string;
+  onSynchronize?: () => void;
+  synchronizeLabel?: string;
 }) => (
   <div
     className="virtual-message-list__history-paging-sentinel"
@@ -329,6 +336,7 @@ const FlowChatHistoryPagingSentinel = ({
       <Icon glyph={Loader2} size="sm" aria-hidden className="virtual-message-list__history-paging-spinner" />
     ) : null}
     <span>{label}</span>
+    {state === 'error' && onSynchronize ? <Button variant="text" size="sm" onClick={onSynchronize}>{synchronizeLabel}</Button> : null}
   </div>
 );
 
@@ -390,6 +398,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   const sourceItems = items ?? canonicalVirtualItems;
   const { exploreGroupStates, pendingPermissionToolCallIds } = useFlowChatVolatileContext();
   const activeSession = useActiveSession();
+  const dispatchJobId = activeSession?.config?.dispatchJobId;
   const activeSessionState = useActiveSessionState();
   const activeSessionId = activeSession?.sessionId ?? null;
   const { items: virtualItems, reader } = useConversationTimeline(sourceItems, activeSessionId ?? undefined, 'main');
@@ -539,7 +548,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
 
   const userMessageItems = useMemo(() => virtualItems
     .map((item, index) => ({ item, index }))
-    .filter(({ item }) => item.type === 'user-message'), [virtualItems]);
+    .filter(({ item }) => item.type === 'user-message' || item.type === 'background-run'), [virtualItems]);
 
   const isStreamingOutput = useMemo(() => {
     if (viewportMode === 'history-reading') return false;
@@ -1639,7 +1648,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     options?: TurnNavigationOptions,
   ): FlowChatTurnNavigationStatus => {
     const targetIndex = virtualItems.findIndex(item => (
-      item.turnId === turnId && item.type === 'user-message'
+      item.turnId === turnId && (item.type === 'user-message' || item.type === 'background-run')
     ));
     if (targetIndex < 0) {
       return 'rejected';
@@ -1987,12 +1996,17 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     resolve();
   }, [clearSearchMatch, exitFollowOutput, inputOverlayInsetPx, setNavigatedTurn, viewportAnchor, sourceItems, reader, virtualizer]);
 
-  const requestHistoryBoundary = useCallback((direction: SessionHistoryWindowDirection) => {
+  const requestHistoryBoundary = useCallback((direction: SessionHistoryWindowDirection, synchronizeHistory = false) => {
+    if (synchronizeHistory) {
+      exitFollowOutput('scroll-to-turn');
+      historyPager.reset();
+      historyPager.readerIntent(direction);
+    }
     const opening = isOpeningViewport();
     const following = isFollowingOutputNow();
     // Opening/follow placements are not reader demand. Keep the initial ask
     // available until their ownership ends, as before.
-    if (opening || following || !onHistoryWindowBoundaryIntent) {
+    if ((!synchronizeHistory && (opening || following)) || !onHistoryWindowBoundaryIntent) {
       return;
     }
     const ticket = historyPager.begin(direction);
@@ -2003,6 +2017,8 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     // cannot dispatch it twice. Rejections and synchronous throws share cleanup.
     void Promise.resolve().then(() => historyPager.isCurrent(ticket)
       ? onHistoryWindowBoundaryIntent(direction, {
+        synchronizeHistory,
+        isCurrent: () => historyPager.isCurrent(ticket),
         prepareViewportForPresentationCommit: () => historyPager.prepareCommit(ticket),
       })
       : 'cancelled' as const).then(normalizeBoundaryResult).catch(() => 'not-ready' as const).then(result => {
@@ -2013,7 +2029,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
         acknowledgeHistoryPage(revision => revision + 1);
       }
     });
-  }, [historyPager, isFollowingOutputNow, isOpeningViewport, onHistoryWindowBoundaryIntent]);
+  }, [exitFollowOutput, historyPager, isFollowingOutputNow, isOpeningViewport, onHistoryWindowBoundaryIntent]);
 
   /**
    * Whether either end of the loaded transcript is on screen, and act on it.
@@ -2215,16 +2231,20 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     historyBoundaryState.before !== 'idle' ? (
       <FlowChatHistoryPagingSentinel
         state={historyBoundaryState.before}
+        onSynchronize={dispatchJobId ? undefined : () => requestHistoryBoundary('before', true)}
+        synchronizeLabel={t('historyState.synchronize')}
         label={historyBoundaryState.before === 'error'
           ? t('historyState.olderHistoryNotReady')
           : t('historyState.preparingOlderHistory')}
       />
     ) : null
-  ), [historyBoundaryState.before, t]);
+  ), [dispatchJobId, historyBoundaryState.before, requestHistoryBoundary, t]);
   const nextHistoryBoundaryStatusNode = useMemo(() => (
     presentationMode === 'history-window' && historyBoundaryState.after !== 'idle' ? (
       <FlowChatHistoryPagingSentinel
         state={historyBoundaryState.after}
+        onSynchronize={dispatchJobId ? undefined : () => requestHistoryBoundary('after', true)}
+        synchronizeLabel={t('historyState.synchronize')}
         /*
          * By state, like the boundary above it. One label for both read as
          * history being prepared forever whenever a page failed, which is the
@@ -2235,7 +2255,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
           : t('historyState.loadingDescription')}
       />
     ) : null
-  ), [historyBoundaryState.after, presentationMode, t]);
+  ), [dispatchJobId, historyBoundaryState.after, presentationMode, requestHistoryBoundary, t]);
 
   if (virtualItems.length === 0) {
     return (

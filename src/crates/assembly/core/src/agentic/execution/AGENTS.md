@@ -98,3 +98,19 @@ and coordinate metadata through the provider wire converters:
 ```bash
 cargo test -p openbitfun-core --no-default-features --features agent-runtime,git,tools-computer-use --lib computer_use_pixels_and_geometry_reach_real_provider_wire
 ```
+
+## Background result delivery
+
+Portable decisions are owned by `openbitfun-agent-runtime::scheduler::result_delivery`;
+this module owns the configured-provider compatibility request and durable
+finalization. It never reruns a task. The generic contract and remote limits are
+documented in `docs/features/background-result-delivery.md`.
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git,remote-connect --lib background_delivery
+```
+
+This filter covers semantic-response validation, legacy job-policy round trips,
+run identity, disk completion/checkpoint/recovery, and Weixin result consumption.
+The `git` feature supports the existing Core unit-test fixtures. It does not
+prove a live model or remote-host execution.

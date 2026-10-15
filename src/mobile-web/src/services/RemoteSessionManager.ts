@@ -245,6 +245,7 @@ export interface ActiveTurnSnapshot {
   tools: RemoteToolStatus[];
   round_index: number;
   items?: ChatMessageItem[];
+  backgroundDelivery?: unknown;
 }
 
 export interface RemoteToolStatus {
