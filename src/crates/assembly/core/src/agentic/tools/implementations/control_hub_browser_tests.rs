@@ -471,6 +471,11 @@ async fn real_browser_workflow() {
     )
     .await;
     assert_eq!(other["ok"], true, "{other}");
+    for action in ["list_pages", "tab_query", "list_sessions"] {
+        let (inventory, _) = call(action, json!({}), &ctx).await;
+        assert_eq!(inventory["ok"], true, "{inventory}");
+        assert_eq!(inventory["data"]["default_session_id"], id, "{inventory}");
+    }
     // A new conversation must not inherit another task's headless endpoint.
     let (unselected, text) = call(
         "list_pages",

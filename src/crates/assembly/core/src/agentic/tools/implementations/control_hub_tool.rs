@@ -594,19 +594,12 @@ Results: `{ok, domain, action, data? , error?: {code, message, hints}}`. Check o
                 // surface a clean error if the bridge is offline.
                 let is_remote = context.is_remote();
                 let likely_terminal_available = !is_remote && context.computer_use_host.is_some();
-                let browser_default = if is_remote {
-                    None
+                let browser_session_ids = if is_remote {
+                    Vec::new()
                 } else {
-                    browser_sessions().default_id().await
+                    browser_sessions().list_for_port(DEFAULT_CDP_PORT).await
                 };
-                let browser_session_count = if is_remote {
-                    0
-                } else {
-                    browser_sessions()
-                        .list_for_port(DEFAULT_CDP_PORT)
-                        .await
-                        .len()
-                };
+                let browser_session_count = browser_session_ids.len();
                 let builtin_host_available = !is_remote && builtin_browser_host_available();
                 let (builtin_targets, discovery_error) = if builtin_host_available {
                     match list_builtin_browser_targets().await {
@@ -628,6 +621,12 @@ Results: `{ok, domain, action, data? , error?: {code, message, hints}}`. Check o
                     } else {
                         None
                     };
+                let browser_default = selection
+                    .as_ref()
+                    .filter(|selection| selection.target == "external")
+                    .map(|selection| selection.session_id.clone())
+                    .or(browser_sessions().default_id().await)
+                    .filter(|id| browser_session_ids.contains(id));
                 let os = std::env::consts::OS;
                 let arch = std::env::consts::ARCH;
 
@@ -1573,7 +1572,7 @@ Results: `{ok, domain, action, data? , error?: {code, message, hints}}`. Check o
                 )
             {
                 return Ok(err_response("browser", action, ControlHubError::new(ErrorCode::WrongTab,
-                    "The selected browser page is no longer connected. Select an existing page explicitly or navigate without the stale session_id to create another.")));
+                    "The selected browser page is no longer connected. Use connect with an existing page id, or tab_new with explicit target and connection parameters to create another.")));
             }
             if let Some(session) = &selected_session {
                 if session_id_param.is_some() && session.port != port {
@@ -1946,11 +1945,16 @@ Results: `{ok, domain, action, data? , error?: {code, message, hints}}`. Check o
                         .iter()
                         .map(Self::builtin_target_json)
                         .collect::<Vec<_>>();
+                    let default_id = page_inventory_default_id(
+                        &pages,
+                        session_id_param.as_deref(),
+                        default_builtin_browser_target_id(),
+                    );
                     return Ok(vec![ToolResult::ok(
                         json!({
                             "target": "builtin",
                             "pages": pages,
-                            "default_session_id": default_builtin_browser_target_id(),
+                            "default_session_id": default_id,
                         }),
                         Some(format!(
                             "{} built-in browser page(s) found (id | title | url):\n{}",
@@ -1960,7 +1964,10 @@ Results: `{ok, domain, action, data? , error?: {code, message, hints}}`. Check o
                     )]);
                 }
                 let pages = Self::browser_pages(port).await?;
-                let default_id = browser_sessions().default_id().await;
+                let default_id = session_id_param
+                    .clone()
+                    .or(browser_sessions().default_id().await)
+                    .filter(|id| pages.iter().any(|page| page.id == *id));
                 let summary: Vec<Value> = pages
                     .iter()
                     .map(|p| {
@@ -2048,6 +2055,8 @@ Results: `{ok, domain, action, data? , error?: {code, message, hints}}`. Check o
                         browser_sessions().default_id().await,
                     )
                 };
+                let default_id =
+                    page_inventory_default_id(&pages, session_id_param.as_deref(), default_id);
                 let total = pages.len();
                 let filtered: Vec<Value> = pages
                     .into_iter()
@@ -2332,7 +2341,10 @@ Results: `{ok, domain, action, data? , error?: {code, message, hints}}`. Check o
                         .iter()
                         .map(|target| target.id.clone())
                         .collect::<Vec<_>>();
-                    let default = default_builtin_browser_target_id();
+                    let default = session_id_param
+                        .clone()
+                        .or(default_builtin_browser_target_id())
+                        .filter(|id| ids.contains(id));
                     return Ok(vec![ToolResult::ok(
                         json!({
                             "target": "builtin",
@@ -2351,7 +2363,10 @@ Results: `{ok, domain, action, data? , error?: {code, message, hints}}`. Check o
                     "list_sessions" => {
                         let registry = browser_sessions();
                         let ids = registry.list_for_port(port).await;
-                        let default = registry.default_id().await.filter(|id| ids.contains(id));
+                        let default = session_id_param
+                            .clone()
+                            .or(registry.default_id().await)
+                            .filter(|id| ids.contains(id));
                         Ok(vec![ToolResult::ok(
                             json!({
                                 "target": "external",
@@ -2547,7 +2562,7 @@ Results: `{ok, domain, action, data? , error?: {code, message, hints}}`. Check o
                                 action,
                                 ControlHubError::new(code, error.to_string()).with_hints([
                                     "Call browser.list_pages with target='builtin' to inspect current built-in pages",
-                                    "Use browser.navigate with target='builtin' and a URL when no page is open",
+                                    "Use browser.tab_new with target='builtin' and a URL to replace a closed page selection",
                                 ]),
                             ));
                         }
@@ -3664,6 +3679,18 @@ fn browser_observation_summary(result: &Value) -> String {
     } else {
         clip_for_assistant(&result.to_string())
     }
+}
+
+fn page_inventory_default_id(
+    pages: &[Value],
+    selected: Option<&str>,
+    fallback: Option<String>,
+) -> Option<String> {
+    selected.map(str::to_string).or(fallback).filter(|id| {
+        pages
+            .iter()
+            .any(|page| page["id"].as_str() == Some(id.as_str()))
+    })
 }
 
 fn page_table(pages: &[Value]) -> String {
