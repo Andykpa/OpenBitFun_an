@@ -373,9 +373,7 @@ fn notify_terminal_replay(session_id: &str) {
                     .unwrap_or_else(|e| e.into_inner())
                     .drain()
                     .collect();
-                let Some(hub) = super::remote_connect_api::host_stream_hub().await else {
-                    continue;
-                };
+                let hubs = super::remote_connect_api::host_stream_hubs().await;
                 for id in ids {
                     let mut cursor = None;
                     if let Some(state) = get_remote_workspace_manager() {
@@ -388,15 +386,17 @@ fn notify_terminal_replay(session_id: &str) {
                             cursor = api.session_manager().replay_cursor(&id).await;
                         }
                     }
-                    if let Err(error) = hub
-                        .append(
-                            format!("terminal-{id}"),
-                            "terminal-output".into(),
-                            serde_json::json!({"terminal_id":id,"cursor":cursor}),
-                        )
-                        .await
-                    {
-                        warn!("Failed to publish terminal stream notification: {}", error);
+                    for hub in &hubs {
+                        if let Err(error) = hub
+                            .append(
+                                format!("terminal-{id}"),
+                                "terminal-output".into(),
+                                serde_json::json!({"terminal_id":id,"cursor":cursor}),
+                            )
+                            .await
+                        {
+                            warn!("Failed to publish terminal stream notification: {}", error);
+                        }
                     }
                 }
             }
@@ -411,7 +411,7 @@ fn notify_terminal_replay(session_id: &str) {
 }
 
 async fn register_terminal_stream(id: &str) -> Result<(), String> {
-    if let Some(hub) = super::remote_connect_api::host_stream_hub().await {
+    for hub in super::remote_connect_api::host_stream_hubs().await {
         hub.append(
             format!("terminal-{id}"),
             "terminal-created".into(),

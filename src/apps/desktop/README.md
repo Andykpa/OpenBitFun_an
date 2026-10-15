@@ -3,6 +3,24 @@
 For development commands, see [AGENTS.md](AGENTS.md) and the repository
 [contribution guide](../../../CONTRIBUTING.md).
 
+## Remote Connect
+
+Sign in once with the shared GitHub account. The official Relay and **Same
+network** (the embedded LAN Relay) can run at the same time. Each tab shows its
+own connection and connected browsers; **Disconnect** affects that tab only.
+Closing a connection code keeps an established connection running.
+
+**My devices**, Peer Device Mode, account synchronization and detached dispatch
+use the official Relay. Starting or stopping the LAN Relay does not switch their
+account or endpoint. LAN invitations advertise the selected network interface;
+select it again and create a new invitation after changing networks.
+
+The official device session is restored on restart. The embedded LAN connection
+is temporary and starts when requested. Builds that previously saved a temporary
+LAN session in the account slot attempt to restore the official Relay from the
+shared identity; failed sign-in leaves the previous credential on disk. Signing
+out closes both connections.
+
 ## Session storage directories
 
 The workspace and session action menus include **Open session storage directory**.

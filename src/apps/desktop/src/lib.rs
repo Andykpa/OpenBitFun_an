@@ -2336,56 +2336,56 @@ async fn deliver_event_to_webview(
         attach_session_event_cursor(&mut projected.payload, cursor);
     }
 
-    if let (Some(hub), Some(session_id)) = (
-        api::remote_connect_api::host_stream_hub().await,
-        projected
+    for hub in api::remote_connect_api::host_stream_hubs().await {
+        if let Some(session_id) = projected
             .payload
             .get("sessionId")
             .or_else(|| projected.payload.get("session_id"))
-            .and_then(serde_json::Value::as_str),
-    ) {
-        let name = projected.event_name.as_str();
-        let policy =
+            .and_then(serde_json::Value::as_str)
+        {
+            let name = projected.event_name.as_str();
+            let policy =
             openbitfun_core::service::remote_connect::session_records::session_event_publication(
                 name,
                 &projected.payload,
             );
-        if policy.synchronize_records {
-            if let Err(error) = async {
-                if let Some(turn) = projected
-                    .payload
-                    .get("turnId")
-                    .or_else(|| projected.payload.get("settledTurnId"))
-                    .and_then(serde_json::Value::as_str)
+            if policy.synchronize_records {
+                if let Err(error) = async {
+                    if let Some(turn) = projected
+                        .payload
+                        .get("turnId")
+                        .or_else(|| projected.payload.get("settledTurnId"))
+                        .and_then(serde_json::Value::as_str)
+                    {
+                        openbitfun_core::service::remote_connect::synchronize_session_record_turn(
+                            &hub, session_id, turn,
+                        )
+                        .await
+                    } else if name == "agentic://session-history-changed" {
+                        openbitfun_core::service::remote_connect::synchronize_session_records(
+                            &hub, session_id,
+                        )
+                        .await
+                    } else {
+                        Ok(())
+                    }
+                }
+                .await
                 {
-                    openbitfun_core::service::remote_connect::synchronize_session_record_turn(
-                        &hub, session_id, turn,
-                    )
-                    .await
-                } else if name == "agentic://session-history-changed" {
-                    openbitfun_core::service::remote_connect::synchronize_session_records(
-                        &hub, session_id,
-                    )
-                    .await
-                } else {
-                    Ok(())
+                    log::error!("Unable to synchronize host session records: {error}");
                 }
             }
-            .await
-            {
-                log::error!("Unable to synchronize host session records: {error}");
-            }
-        }
-        if policy.persist_control {
-            if let Err(error) = hub
-                .append(
-                    session_id.to_owned(),
-                    projected.event_name.clone(),
-                    projected.payload.clone(),
-                )
-                .await
-            {
-                log::error!("Unable to publish session control event: {error}");
+            if policy.persist_control {
+                if let Err(error) = hub
+                    .append(
+                        session_id.to_owned(),
+                        projected.event_name.clone(),
+                        projected.payload.clone(),
+                    )
+                    .await
+                {
+                    log::error!("Unable to publish session control event: {error}");
+                }
             }
         }
     }
