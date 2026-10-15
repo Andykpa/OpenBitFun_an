@@ -22,6 +22,31 @@ its tag automatically. Release creation and editing use GitHub CLI without
 `--target`: sending `target_commitish` for workflow-changing commits can require
 `workflows:write`, even for an existing tag. Asset upload precedes publication.
 
+## Recovering one macOS package
+
+For an existing immutable tag, dispatch `Desktop Package` from the current
+`main` workflow with `target_platform=macos-arm64` or `macos-x64`. Keep
+`release_channel` equal to the original build and enable `upload_to_release`
+to require release signing and produce updater signatures. This target option
+uploads only the selected platform's Actions artifact; it never publishes a
+GitHub Release, rebuilds Linux binaries, pushes the Relay image, or changes an
+update feed. `all`, the default, retains the complete release gate.
+
+Recovery runs have a separate concurrency group per Mac target, so they can
+finish alongside an existing full matrix without cancelling it. Build source
+still resolves to the original tag SHA. Signature verification uses the pinned
+workflow revision, allowing a verification fix to apply without moving that tag.
+After recovery, dispatch the same workflow with `target_platform=all`, the
+original tag/channel, `upload_to_release=true`, and `artifact_run_ids` containing
+the original and recovery run IDs separated by commas. This skips all builders
+and runs the normal full release publisher. It requires exactly one artifact
+for each of the five Desktop platforms, both Linux CLI/Relay architectures, and
+the Relay image descriptor. Every source must be a protected-main Desktop
+Package run with a successful Prepare job and successful artifact producer.
+Missing, duplicate, expired, or unverified producers stop finalization before
+publication. Do not combine `artifact_run_ids` with a single-platform target or
+`relay_image_only`.
+
 ## Mobile Android releases
 
 Mobile Android packages are released independently from Desktop packages. Use a
