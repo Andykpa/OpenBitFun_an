@@ -993,6 +993,12 @@ fn remote_chat_history_turn_from_core_turn(
         .collect();
 
     RemoteChatHistoryTurn {
+        background_delivery:
+            openbitfun_core_types::background_delivery::BackgroundDelivery::from_metadata(
+                turn.user_message.metadata.as_ref(),
+                &turn.turn_id,
+            )
+            .filter(|delivery| delivery.execution_generation == turn.recovery_epoch.unwrap_or(0)),
         turn_id: turn.turn_id.clone(),
         turn_index: turn.turn_index,
         user_message_id: turn.user_message.id.clone(),

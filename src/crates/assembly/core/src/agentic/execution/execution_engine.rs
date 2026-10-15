@@ -4330,10 +4330,34 @@ impl ExecutionEngine {
             //   (write the answer), and continue.
             // - Model emitted nothing at all     -> partial recovery / truncation.
             //   Retrying without new context will not help, so end the turn.
+            let quiet_model_end = if context
+                .context
+                .contains_key(super::background_delivery::BACKGROUND_DELIVERY_CONTEXT_KEY)
+                && !round_result.has_more_rounds
+                && !round_result.had_assistant_text
+                && !round_result.had_thinking_content
+                && round_result.partial_recovery_reason.is_none()
+            {
+                let delivery = self
+                    .session_manager
+                    .background_delivery_for_turn(&context.session_id, &context.dialog_turn_id)
+                    .await
+                    .ok()
+                    .flatten();
+                openbitfun_agent_runtime::scheduler::result_delivery::accepts_quiet_model_end(
+                    delivery.as_ref(),
+                    false,
+                    false,
+                    false,
+                    false,
+                )
+            } else {
+                false
+            };
             if injection_applied {
                 // fall through to next round so the model can respond to the steering
             } else if !round_result.has_more_rounds {
-                if round_result.had_assistant_text {
+                if round_result.had_assistant_text || quiet_model_end {
                     if let Some(ref reason) = round_result.partial_recovery_reason {
                         if Self::should_continue_after_partial_response(reason) {
                             partial_continuation_attempts += 1;
@@ -4446,6 +4470,9 @@ impl ExecutionEngine {
                             // Continue into the next round so the agent can act
                             // on the hook feedback.
                         } else {
+                            if quiet_model_end {
+                                finalization_reason = Some("background_quiet");
+                            }
                             break;
                         }
                     }
@@ -4687,6 +4714,7 @@ impl ExecutionEngine {
         // so the UI can explain the termination cause inline even when the turn
         // ended without a final assistant reply.
         let success = has_final_response
+            || effective_finish_reason == "background_quiet"
             || matches!(
                 effective_finish_reason,
                 "max_rounds" | "repeated_tool_failures" | "user_steering"
@@ -4721,6 +4749,40 @@ impl ExecutionEngine {
             }
         }
 
+        let background_delivery = if let Some(initial) = context
+            .context
+            .get(super::background_delivery::BACKGROUND_DELIVERY_CONTEXT_KEY)
+            .and_then(|value| {
+                serde_json::from_str::<
+                        openbitfun_core_types::background_delivery::BackgroundDelivery,
+                    >(value)
+                    .ok()
+            })
+            .filter(|delivery| delivery.run_id == context.dialog_turn_id)
+        {
+            let final_message = messages
+                .iter()
+                .rev()
+                .find(|message| message.role == MessageRole::Assistant)
+                .cloned()
+                .unwrap_or_else(|| Message::assistant(String::new()));
+            Some(
+                super::background_delivery::finalize_background_delivery(
+                    self.session_manager.as_ref(),
+                    &context.session_id,
+                    &context.dialog_turn_id,
+                    initial,
+                    success && last_partial_recovery_reason.is_none(),
+                    effective_finish_reason,
+                    &final_message,
+                    &messages,
+                )
+                .await,
+            )
+        } else {
+            None
+        };
+
         if context.emit_lifecycle_events {
             debug!("Preparing to send DialogTurnCompleted event");
 
@@ -4737,6 +4799,7 @@ impl ExecutionEngine {
                         success: Some(success),
                         finish_reason: Some(effective_finish_reason.to_string()),
                         has_final_response: Some(has_final_response),
+                        background_delivery: background_delivery.clone(),
                     },
                     None,
                 )

@@ -214,6 +214,8 @@ pub enum AgenticEvent {
         /// Whether the turn produced a user-visible final response.
         #[serde(skip_serializing_if = "Option::is_none")]
         has_final_response: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        background_delivery: Option<openbitfun_core_types::background_delivery::BackgroundDelivery>,
     },
 
     DialogTurnCancelled {
