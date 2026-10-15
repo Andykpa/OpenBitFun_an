@@ -398,6 +398,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
   const sourceItems = items ?? canonicalVirtualItems;
   const { exploreGroupStates, pendingPermissionToolCallIds } = useFlowChatVolatileContext();
   const activeSession = useActiveSession();
+  const dispatchJobId = activeSession?.config?.dispatchJobId;
   const activeSessionState = useActiveSessionState();
   const activeSessionId = activeSession?.sessionId ?? null;
   const { items: virtualItems, reader } = useConversationTimeline(sourceItems, activeSessionId ?? undefined, 'main');
@@ -2230,19 +2231,19 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
     historyBoundaryState.before !== 'idle' ? (
       <FlowChatHistoryPagingSentinel
         state={historyBoundaryState.before}
-        onSynchronize={activeSession?.config.dispatchJobId ? undefined : () => requestHistoryBoundary('before', true)}
+        onSynchronize={dispatchJobId ? undefined : () => requestHistoryBoundary('before', true)}
         synchronizeLabel={t('historyState.synchronize')}
         label={historyBoundaryState.before === 'error'
           ? t('historyState.olderHistoryNotReady')
           : t('historyState.preparingOlderHistory')}
       />
     ) : null
-  ), [activeSession?.config.dispatchJobId, historyBoundaryState.before, requestHistoryBoundary, t]);
+  ), [dispatchJobId, historyBoundaryState.before, requestHistoryBoundary, t]);
   const nextHistoryBoundaryStatusNode = useMemo(() => (
     presentationMode === 'history-window' && historyBoundaryState.after !== 'idle' ? (
       <FlowChatHistoryPagingSentinel
         state={historyBoundaryState.after}
-        onSynchronize={activeSession?.config.dispatchJobId ? undefined : () => requestHistoryBoundary('after', true)}
+        onSynchronize={dispatchJobId ? undefined : () => requestHistoryBoundary('after', true)}
         synchronizeLabel={t('historyState.synchronize')}
         /*
          * By state, like the boundary above it. One label for both read as
@@ -2254,7 +2255,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
           : t('historyState.loadingDescription')}
       />
     ) : null
-  ), [activeSession?.config.dispatchJobId, historyBoundaryState.after, presentationMode, requestHistoryBoundary, t]);
+  ), [dispatchJobId, historyBoundaryState.after, presentationMode, requestHistoryBoundary, t]);
 
   if (virtualItems.length === 0) {
     return (
