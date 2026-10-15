@@ -30,6 +30,19 @@ const server = createServer((request, response) => {
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 let browser;
 let otherBrowser;
+async function closeFixtureBrowser(instance) {
+  if (!instance) return;
+  const child = instance.process();
+  try {
+    await instance.close();
+  } finally {
+    // Chrome crash/update helpers can inherit stderr after the browser exits.
+    // Release only our pipes; those unrelated helpers do not keep this test alive.
+    child?.stdin?.destroy();
+    child?.stdout?.destroy();
+    child?.stderr?.destroy();
+  }
+}
 try {
   browser = await puppeteer.launch({
     ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
@@ -66,7 +79,10 @@ try {
   assert.equal(pageRequests, 2, 'one initial navigation and one explicit legacy read; no setup/recovery replays');
   console.log('PASS production ControlHub workflow, unrelated tab preservation, and exact navigation count');
 } finally {
-  await otherBrowser?.close();
-  await browser?.close();
-  await new Promise(resolve => server.close(resolve));
+  try {
+    await Promise.all([closeFixtureBrowser(otherBrowser), closeFixtureBrowser(browser)]);
+  } finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
 }
