@@ -206,9 +206,10 @@ Before a draft session exists, only the remembered default is available.
 The session model and remembered default use the existing host configuration and
 session APIs, including the active peer surface. The picker remembers its
 save-scope preference locally per device and session; it does not store model
-credentials or a second copy of the host's default. Smart and battery modes remain
-disabled until runtime routing is available; choosing a primary model must not be
-presented as automatic routing.
+credentials or a second copy of the host's default. Smart mode opens a clearly
+marked preview of the primary/fast model pair and billing hints. Previewing it
+does not change the current model, session or remembered default; actual routing
+remains unavailable. Battery mode remains disabled until supported by the runtime.
 
 **Billing details**, in the picker and Settings → Models → Default models, lets
 you annotate each configured model channel with its billing method, currency,

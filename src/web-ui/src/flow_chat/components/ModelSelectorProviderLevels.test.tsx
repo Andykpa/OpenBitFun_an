@@ -541,18 +541,44 @@ describe('ModelSelector provider levels', () => {
     )?.textContent).toContain('reasoningSelector.levels.high');
   });
 
-  it.each(['smart', 'pool'] as const)('keeps unsupported %s routing disabled without changing the session or defaults', async (mode) => {
+  it('keeps unsupported battery routing disabled without changing the session or defaults', async () => {
     flowChatStoreMocks.sessions.set('session-a', { config: { modelName: 'umbra-main', reasoningPreset: 'high' } });
     await renderSelector(CATALOG_MODELS, 'umbra-main', 'session-a');
     await openSettingsMenu();
     expect(modeChoices()?.querySelectorAll('button')).toHaveLength(3);
-    expect(modeOption(mode)?.disabled).toBe(true);
-    await act(async () => modeOption(mode)!.click());
+    expect(modeOption('pool')?.disabled).toBe(true);
+    await act(async () => modeOption('pool')!.click());
     expect(configManager.setConfig).not.toHaveBeenCalled();
     expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
     expect(flowChatStoreMocks.sessions.get('session-a')?.config.reasoningPreset).toBe('high');
     expect(useConfirmDialogStore.getState().isOpen).toBe(false);
     expect(notificationStore.getState().notificationHistory).toHaveLength(0);
+  });
+
+  it('opens the smart mode preview without enabling routing or changing the remembered model', async () => {
+    flowChatStoreMocks.sessions.set('session-a', { config: { modelName: 'umbra-main', reasoningPreset: 'high' } });
+    await renderSelector(CATALOG_MODELS, 'umbra-main', 'session-a');
+    await openSettingsMenu();
+
+    expect(modeOption('smart')?.disabled).toBe(false);
+    await act(async () => modeOption('smart')!.click());
+    expect(document.body.querySelector('[data-testid="model-selection-smart-preview"]')).not.toBeNull();
+    expect(document.body.querySelector('[data-testid="model-selection-smart-primary"]')?.textContent).toContain('acme-fast-native');
+    expect(document.body.querySelector('[data-testid="model-selection-smart-fast"]')?.textContent).toContain('umbra-main-native');
+    expect(document.body.textContent).toContain('modelSelector.modes.previewNotice');
+    expect(document.body.querySelector('[data-testid="model-selection-scope"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="model-billing-summary"]')).not.toBeNull();
+    expect(document.body.querySelector('[data-testid="model-selection-primary"]')).toBeNull();
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+    expect(configManager.updateConfig).not.toHaveBeenCalled();
+    expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
+    expect(flowChatStoreMocks.sessions.get('session-a')?.config).toEqual({ modelName: 'umbra-main', reasoningPreset: 'high' });
+
+    await act(async () => modeOption('manual')!.click());
+    expect(document.body.querySelector('[data-testid="model-selection-smart-preview"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="model-selection-primary"]')).not.toBeNull();
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+    expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
   });
 
   it('selects the advertised levels inline and keeps Auto separate from Off without closing the card', async () => {

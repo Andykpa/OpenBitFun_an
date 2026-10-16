@@ -20,12 +20,14 @@ interface Props {
 export function NativeModelSelectionPanel(props: Props) {
   const { t } = useI18n('flow-chat');
   const [scopeOpen, setScopeOpen] = useState(false);
+  const [view, setView] = useState<'manual' | 'smart'>('manual');
+  const smartPreview = view === 'smart';
   const scopeRef = useRef<HTMLButtonElement>(null);
   const chooseScope = (scope: ModelSelectionScope) => { setScopeOpen(false); props.onScopeChange(scope); };
   return <div className="native-model-selection" data-testid="chat-model-selector-settings" data-openbitfun-component="model-selector" data-openbitfun-part="nativePanel">
     <div className="native-model-selection__header">
       <strong>{t('modelSelector.modelSelection')}</strong>
-      {props.canRemember ? <>
+      {smartPreview ? <small>{t('modelSelector.modes.preview')}</small> : props.canRemember ? <>
         <Button ref={scopeRef} size="xs" variant="text" data-testid="model-selection-scope" aria-haspopup="menu" aria-expanded={scopeOpen}
           disabled={props.disabled} onClick={() => setScopeOpen(!scopeOpen)}>
           {props.scope === 'remember' ? t('modelSelector.scope.remember') : t('modelSelector.scope.session')}
@@ -38,13 +40,29 @@ export function NativeModelSelectionPanel(props: Props) {
       </> : <small>{t('modelSelector.scope.session')}</small>}
     </div>
     <div data-openbitfun-component="model-selector" data-openbitfun-part="modeChoices"><SegmentedControl data-testid="chat-model-selector-mode-choices" aria-label={t('modelSelector.modes.selection')}
-      interaction="buttons" distribution="fill" labelBehavior="static" value="manual" options={[
+      interaction="buttons" distribution="fill" labelBehavior="static" value={view} disabled={props.disabled}
+      onValueChange={value => { if (value === 'manual' || value === 'smart') { setScopeOpen(false); setView(value); } }} options={[
         { value: 'manual', label: t('modelSelector.modes.manual') },
-        { value: 'smart', label: t('modelSelector.modes.smart'), disabled: true },
+        { value: 'smart', label: t('modelSelector.modes.smart') },
         { value: 'pool', label: t('modelSelector.modes.pool'), disabled: true },
       ]} /></div>
-    <p className="native-model-selection__hint">{t('modelSelector.modes.unavailable')}</p>
-    <MenuList>
+    <p className="native-model-selection__hint">{t(smartPreview ? 'modelSelector.modes.smartDescription' : 'modelSelector.modes.unavailable')}</p>
+    {smartPreview ? <>
+      <MenuList data-testid="model-selection-smart-preview">
+        <MenuItem data-testid="model-selection-smart-primary" disabled={props.disabled} onClick={props.onSettings}
+          metadata={props.primary?.model_name ?? t('modelSelector.modelNotConfigured')}>
+          {t('modelSelector.primaryModel')}
+        </MenuItem>
+        <MenuItem data-testid="model-selection-smart-fast" disabled={props.disabled} onClick={props.onSettings}
+          metadata={props.fast?.model_name ?? t('modelSelector.modelNotConfigured')}>
+          {t('modelSelector.fastModel')}
+        </MenuItem>
+      </MenuList>
+      <p className="native-model-selection__hint">{t('modelSelector.modes.smartStrategy')}</p>
+      <p className="native-model-selection__hint" role="status">
+        {t('modelSelector.modes.previewNotice', { model: props.modelLabel })}
+      </p>
+    </> : <><MenuList>
       <MenuItem ref={props.modelRef} data-testid="chat-model-selector-settings-model" disabled={props.disabled} onClick={props.onBrowse}
         data-model-menu-target="models" onKeyDown={event => { if (event.key === 'ArrowRight') { event.preventDefault(); event.stopPropagation(); props.onBrowse(); } }}>
         <OverflowText className="openbitfun-model-selector__model-name">{props.modelLabel}</OverflowText>
@@ -62,10 +80,10 @@ export function NativeModelSelectionPanel(props: Props) {
         {t('modelSelector.fastModel')}
       </MenuItem>
     </MenuList>
-    {props.children}
-    <ModelBillingSummary primary={props.primary} fast={props.fast} selected={props.selected} disabled={props.disabled} onSaved={props.onSaved} />
+    {props.children}</>}
+    <ModelBillingSummary primary={props.primary} fast={props.fast} selected={smartPreview ? undefined : props.selected} disabled={props.disabled} onSaved={props.onSaved} />
     <div className="native-model-selection__footer">
-      <small>{props.scope === 'remember' ? t('modelSelector.scope.rememberHint') : t('modelSelector.scope.sessionHint')}</small>
+      <small>{smartPreview ? t('modelSelector.modes.previewHint') : props.scope === 'remember' ? t('modelSelector.scope.rememberHint') : t('modelSelector.scope.sessionHint')}</small>
       <Button size="xs" variant="text" onClick={props.onSettings}>{t('modelSelector.openModelSettings')}</Button>
     </div>
   </div>;

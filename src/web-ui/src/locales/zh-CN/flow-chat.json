@@ -3318,7 +3318,12 @@
       "comingSoon": "尚未开放",
       "developmentNotice": "当前模式尚未开放，暂时直接使用主力模型。",
       "primaryRequired": "请先配置主力模型",
-      "unavailable": "此版本暂未接入智能路由和电池模式，请手动选择模型。"
+      "unavailable": "手动指定模型；智能模式可预览，电池模式尚未开放。",
+      "preview": "界面预览",
+      "smartDescription": "根据每一步的任务复杂度，在主力和快速模型之间自动选择。",
+      "smartStrategy": "简单步骤优先快速模型，复杂步骤使用主力模型。",
+      "previewNotice": "自动路由尚未启用。当前会话继续使用：{{model}}。",
+      "previewHint": "预览不会更改当前会话或记住的默认选择。"
     },
     "model": "模型",
     "modelExplanation": "模型说明",

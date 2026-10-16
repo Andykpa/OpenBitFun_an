@@ -3318,7 +3318,12 @@
       "comingSoon": "Not available yet",
       "developmentNotice": "This mode is not available yet. It currently uses your primary model directly.",
       "primaryRequired": "Configure a primary model first",
-      "unavailable": "Smart and battery modes are not available on this host yet. Choose a model manually."
+      "unavailable": "Choose a model manually. Smart mode is available to preview; battery mode is not yet available.",
+      "preview": "UI preview",
+      "smartDescription": "Choose between the primary and fast models based on the complexity of each step.",
+      "smartStrategy": "Simple steps use the fast model; complex steps use the primary model.",
+      "previewNotice": "Automatic routing is not enabled. This chat continues to use: {{model}}.",
+      "previewHint": "Previewing does not change this chat or your remembered default."
     },
     "model": "Model",
     "modelExplanation": "Model explanation",
