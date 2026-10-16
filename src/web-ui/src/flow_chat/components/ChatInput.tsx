@@ -35,6 +35,7 @@ import { SessionExecutionEvent, SessionExecutionState } from '../state-machine/t
 import { ModelSelector, type ModelSelectorAvailability } from './ModelSelector';
 import { FlowChatStore } from '../store/FlowChatStore';
 import { useAcpPlan } from '../hooks/useAcpPlan';
+import { usePromptSuggestionsEnabled } from '../hooks/usePromptSuggestionsEnabled';
 import { filterSlashCommands, useAcpSlashCommands } from '../hooks/useAcpSlashCommands';
 import { acpSessionRef, acpSlashCommandText } from '../utils/acpSession';
 import { AcpPlanPanel } from './AcpPlanPanel';
@@ -830,7 +831,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       : undefined
   ));
   const latestSuggestionTurn = effectiveTargetSession?.dialogTurns.at(-1);
+  const promptSuggestionsEnabled = usePromptSuggestionsEnabled();
   const promptSuggestion = visiblePromptSuggestion(storedPromptSuggestion, {
+    enabled: promptSuggestionsEnabled,
     editorEmpty: showPlaceholder,
     value: inputState.value,
     canCompose: targetCanCompose,
