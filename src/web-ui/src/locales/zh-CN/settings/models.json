@@ -752,6 +752,10 @@
     "estimate": "主力 {{primary}} · 快速 {{fast}}",
     "workload": "单次请求示例：输入 {{input}} + 输出 {{output}} token，缓存命中为 0。缓存 token 属于输入的一部分；不含缓存写入、路由等额外费用，并非账单。",
     "noPolicy": "此处仅提供计费提示，不执行预算限制，也不授权额外付费回退。",
-    "unsupported": "此计费信息格式暂不支持，原始记录已保留。请升级应用后再编辑。"
+    "unsupported": "此计费信息格式暂不支持，原始记录已保留。请升级应用后再编辑。",
+    "compactHigher": "快速模型更贵 · 估算",
+    "compactCurrency": "币种不同",
+    "compactComparable": "查看费用估算",
+    "compactUnknown": "价格待确认"
   }
 }

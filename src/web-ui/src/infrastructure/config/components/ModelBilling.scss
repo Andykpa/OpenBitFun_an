@@ -2,6 +2,15 @@
   padding-block: var(--openbitfun-space-3);
   border-top: 1px solid var(--openbitfun-color-border-subtle);
 
+  &[data-compact='true'] { padding-block: var(--openbitfun-space-2) 0; }
+  &__compact-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--openbitfun-space-2); }
+  &__compact-status {
+    color: var(--openbitfun-color-content-secondary);
+    font-size: var(--openbitfun-type-body-sm-font-size);
+    line-height: var(--openbitfun-type-body-sm-line-height);
+  }
+  &[data-comparison='fastHigher'] &__compact-status { color: var(--openbitfun-color-status-warning-content); }
+
   &__heading, &__row {
     display: flex;
     align-items: center;

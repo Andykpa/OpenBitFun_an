@@ -3323,7 +3323,11 @@
       "smartDescription": "Choose between the primary and fast models based on the complexity of each step.",
       "smartStrategy": "Simple steps use the fast model; complex steps use the primary model.",
       "previewNotice": "Automatic routing is not enabled. This chat continues to use: {{model}}.",
-      "previewHint": "Previewing does not change this chat or your remembered default."
+      "previewHint": "Previewing does not change this chat or your remembered default.",
+      "previewBadge": "Preview",
+      "smartSummary": "Primary for complex tasks. Fast for lighter steps.",
+      "manualSummary": "Choose the model for this conversation.",
+      "previewStatus": "Preview only · Routing unavailable"
     },
     "model": "Model",
     "modelExplanation": "Model explanation",
@@ -3374,7 +3378,9 @@
       "rememberHint": "For this session and future new sessions",
       "sessionHint": "Temporary choice; new-session defaults stay unchanged",
       "saveFailed": "Could not change the save preference. Your current session model is unchanged."
-    }
+    },
+    "close": "Close model selection",
+    "manageModels": "Manage models"
   },
   "reasoningEffort": {
     "title": "Reasoning Effort",

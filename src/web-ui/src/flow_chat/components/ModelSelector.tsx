@@ -2110,6 +2110,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                 onBrowse={openCurrentProviderModels}
                 onProviders={() => openPanelFromClick('providers')}
                 onSettings={handleOpenModelSettings}
+                onClose={() => { setDropdownOpen(false); triggerRef.current?.focus({ preventScroll: true }); }}
                 onSaved={() => { void loadConfigData(); }}
               >
                 {hasReasoningSettings && <div data-reasoning-mode={automaticReasoning ? 'auto' : 'manual'}><ReasoningIntensityControl

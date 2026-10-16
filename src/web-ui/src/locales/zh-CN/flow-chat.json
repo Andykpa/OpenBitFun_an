@@ -3323,7 +3323,11 @@
       "smartDescription": "根据每一步的任务复杂度，在主力和快速模型之间自动选择。",
       "smartStrategy": "简单步骤优先快速模型，复杂步骤使用主力模型。",
       "previewNotice": "自动路由尚未启用。当前会话继续使用：{{model}}。",
-      "previewHint": "预览不会更改当前会话或记住的默认选择。"
+      "previewHint": "预览不会更改当前会话或记住的默认选择。",
+      "previewBadge": "预览",
+      "smartSummary": "复杂任务用主力，轻量步骤用快速。",
+      "manualSummary": "选择本次对话使用的模型。",
+      "previewStatus": "仅预览，自动路由未启用"
     },
     "model": "模型",
     "modelExplanation": "模型说明",
@@ -3374,7 +3378,9 @@
       "rememberHint": "用于当前会话和之后的新会话",
       "sessionHint": "临时切换，不改变新会话的默认选择",
       "saveFailed": "适用范围保存失败，当前会话的模型保持不变。"
-    }
+    },
+    "close": "关闭模型选择",
+    "manageModels": "管理模型"
   },
   "reasoningEffort": {
     "title": "推理深度",

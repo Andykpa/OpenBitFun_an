@@ -565,7 +565,7 @@ describe('ModelSelector provider levels', () => {
     expect(document.body.querySelector('[data-testid="model-selection-smart-preview"]')).not.toBeNull();
     expect(document.body.querySelector('[data-testid="model-selection-smart-primary"]')?.textContent).toContain('acme-fast-native');
     expect(document.body.querySelector('[data-testid="model-selection-smart-fast"]')?.textContent).toContain('umbra-main-native');
-    expect(document.body.textContent).toContain('modelSelector.modes.previewNotice');
+    expect(document.body.textContent).toContain('modelSelector.modes.previewStatus');
     expect(document.body.querySelector('[data-testid="model-selection-scope"]')).toBeNull();
     expect(document.body.querySelector('[data-testid="model-billing-summary"]')).not.toBeNull();
     expect(document.body.querySelector('[data-testid="model-selection-primary"]')).toBeNull();
@@ -775,12 +775,21 @@ describe('ModelSelector provider levels', () => {
   it('opens billing over the picker and returns without changing a model', async () => {
     await renderSelector(); await openSettingsMenu();
     const button = (label: string) => Array.from(document.body.querySelectorAll<HTMLButtonElement>('button')).find(b => b.textContent === label)!;
-    await act(async () => button('billing.details').click());
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-testid="model-billing-toggle"]')!.click());
     await act(async () => button('billing.edit').click());
     expect(document.body.querySelector('[data-testid="model-billing-editor"]')).not.toBeNull();
     await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
     expect(document.body.querySelector('[data-testid="model-billing-editor"]')).toBeNull();
     expect(container.querySelector('[data-testid="chat-model-selector-btn"]')?.getAttribute('aria-expanded')).toBe('true');
+    expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
+  });
+
+  it('closes the model panel and restores focus to its composer trigger', async () => {
+    await renderSelector(); await openSettingsMenu();
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[aria-label="modelSelector.close"]')!.click());
+    const trigger = container.querySelector<HTMLButtonElement>('[data-testid="chat-model-selector-btn"]')!;
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(trigger);
     expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
   });
 

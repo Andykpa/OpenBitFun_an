@@ -752,6 +752,10 @@
     "estimate": "主力 {{primary}} · 快速 {{fast}}",
     "workload": "單次請求範例：輸入 {{input}} + 輸出 {{output}} token，快取命中為 0。快取 token 屬於輸入的一部分；不含快取寫入、路由等額外費用，並非帳單。",
     "noPolicy": "此處僅提供計費提示，不執行預算限制，也不授權額外付費備援。",
-    "unsupported": "此計費資訊格式暫不支援，原始記錄已保留。請升級應用程式後再編輯。"
+    "unsupported": "此計費資訊格式暫不支援，原始記錄已保留。請升級應用程式後再編輯。",
+    "compactHigher": "快速模型較貴 · 估算",
+    "compactCurrency": "幣別不同",
+    "compactComparable": "查看費用估算",
+    "compactUnknown": "價格待確認"
   }
 }

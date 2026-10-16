@@ -752,6 +752,10 @@
     "estimate": "Primary {{primary}} · Fast {{fast}}",
     "workload": "Example per request: {{input}} input + {{output}} output tokens, with no cache hits. Cached tokens are part of input. Excludes cache writes, routing and other fees; this is not a bill.",
     "noPolicy": "These details are advisory. They do not enforce a budget or authorize paid fallback.",
-    "unsupported": "This saved billing format is not supported. The original record is preserved; update the app before editing it."
+    "unsupported": "This saved billing format is not supported. The original record is preserved; update the app before editing it.",
+    "compactHigher": "Fast costs more · Estimate",
+    "compactCurrency": "Different currencies",
+    "compactComparable": "View cost estimates",
+    "compactUnknown": "Pricing unconfirmed"
   }
 }
