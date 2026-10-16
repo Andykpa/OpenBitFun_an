@@ -3912,6 +3912,22 @@ describe('FlowChatStore historical session hydration state', () => {
     expect(flowChatStore.getState().sessions.get('history-1')?.remoteSshHost).toBeUndefined();
   });
 
+  it('deduplicates catalog pages only within the same query and leaves the legacy request separate', async () => {
+    const workspaceId = fixtureWorkspaceId('D:/workspace/OpenBitFun');
+    const query = { workspaceId, ordering: 'updated' as 'created' | 'updated', source: 'all' };
+    apiMocks.listSessionsPage.mockImplementation(async request => ({ sessions: [], totalTopLevelCount: 655,
+      loadedTopLevelCount: 5, nextCursor: '5', hasMore: true, catalogQuery: request.query }));
+    const load = (value = query) => flowChatStore.loadSessionMetadataPage(workspaceId, 5, undefined, 'catalog', { query: value });
+    await load();
+    await load();
+    await load({ ...query, source: 'codex' });
+    await load({ ...query, ordering: 'created' });
+    await flowChatStore.loadSessionMetadataPage(workspaceId, 5, undefined, 'legacy');
+    expect(apiMocks.listSessionsPage).toHaveBeenCalledTimes(4);
+    expect(apiMocks.listSessionsPage).toHaveBeenNthCalledWith(1, { workspaceId, limit: 5, cursor: undefined, query });
+    expect(apiMocks.listSessions).not.toHaveBeenCalled();
+  });
+
   it('refreshes recent metadata after a discovery setting changes while keeping ordinary page deduplication', async () => {
     const workspaceId = fixtureWorkspaceId('D:/workspace/OpenBitFun');
     const savedPage = {

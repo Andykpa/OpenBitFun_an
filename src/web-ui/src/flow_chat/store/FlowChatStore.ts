@@ -77,7 +77,7 @@ import {
   type SessionInfo as AgentSessionInfo,
   type SessionViewRestoreTiming,
 } from '@/infrastructure/api/service-api/AgentAPI';
-import type { SessionMetadataPage } from '@/infrastructure/api/service-api/SessionAPI';
+import type { SessionCatalogQuery, SessionMetadataPage } from '@/infrastructure/api/service-api/SessionAPI';
 import {
   deriveLastFinishedAtFromMetadata,
   deriveSessionRelationshipFromMetadata,
@@ -7556,12 +7556,12 @@ export class FlowChatStore {
     limit: number,
     cursor?: string,
     traceSource = 'unknown',
-    options?: { fresh?: boolean },
+    options?: { fresh?: boolean; query?: SessionCatalogQuery },
   ): Promise<SessionMetadataPage> {
     const { remoteConnectionId, remoteSshHost } = this.workspaceForId(workspaceId);
     const requestKey = this.getMetadataPageRequestKey(
       workspaceId, limit, cursor,
-    );
+    ) + JSON.stringify(options?.query ?? null);
     const existingRequest = this.metadataPageRequests.get(requestKey);
     const remote = isRemoteTraceContext(remoteConnectionId, remoteSshHost);
     if (existingRequest && !options?.fresh) {
@@ -7588,7 +7588,7 @@ export class FlowChatStore {
     }
 
     const loadPromise = this.loadSessionMetadataPageUncached(
-      workspaceId, limit, cursor, traceSource,
+      workspaceId, limit, cursor, traceSource, options?.query,
     );
 
     const request: MetadataPageRequest = { promise: loadPromise };
@@ -7621,7 +7621,8 @@ export class FlowChatStore {
     workspaceId: string,
     limit: number,
     cursor?: string,
-    traceSource = 'unknown'
+    traceSource = 'unknown',
+    query?: SessionCatalogQuery,
   ): Promise<SessionMetadataPage> {
     const { workspacePath, remoteConnectionId, remoteSshHost } = this.workspaceForId(workspaceId);
     const activityScope = getActiveSurfaceScope();
@@ -7666,6 +7667,7 @@ export class FlowChatStore {
         });
         const pagePromise = sessionAPI.listSessionsPage({
           workspaceId, limit, cursor,
+          ...(query ? { query } : {}),
         });
         modelConfigPromise = this.loadSessionMetadataModelConfig();
         page = await pagePromise;

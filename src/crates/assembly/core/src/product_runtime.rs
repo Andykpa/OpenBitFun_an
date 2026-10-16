@@ -1271,6 +1271,17 @@ impl CoreAgentRuntimeCompatibility {
         cursor: Option<&str>,
         limit: usize,
     ) -> OpenBitFunResult<SessionMetadataPage> {
+        self.list_persisted_session_catalog_page(workspace_path, cursor, limit, None)
+            .await
+    }
+
+    async fn list_persisted_session_catalog_page(
+        &self,
+        workspace_path: &Path,
+        cursor: Option<&str>,
+        limit: usize,
+        query: Option<&openbitfun_services_core::session::page::SessionCatalogQuery>,
+    ) -> OpenBitFunResult<SessionMetadataPage> {
         #[cfg(feature = "external-sources")]
         let warnings = crate::external_session_import::auto_discovery::discover_for_storage_path(
             workspace_path,
@@ -1279,7 +1290,7 @@ impl CoreAgentRuntimeCompatibility {
         #[allow(unused_mut)]
         let mut page = self
             .persistence
-            .list_session_metadata_page(workspace_path, cursor, limit)
+            .list_session_metadata_page_with_query(workspace_path, cursor, limit, query)
             .await?;
         #[cfg(feature = "external-sources")]
         {
@@ -1300,6 +1311,26 @@ impl CoreAgentRuntimeCompatibility {
         limit: usize,
         session_ids: Option<&[String]>,
     ) -> OpenBitFunResult<SessionMetadataPage> {
+        self.list_persisted_sessions_page_with_activity_and_query(
+            runtime,
+            workspace_path,
+            cursor,
+            limit,
+            session_ids,
+            None,
+        )
+        .await
+    }
+
+    pub async fn list_persisted_sessions_page_with_activity_and_query(
+        &self,
+        runtime: &AgentRuntime,
+        workspace_path: &Path,
+        cursor: Option<&str>,
+        limit: usize,
+        session_ids: Option<&[String]>,
+        query: Option<&openbitfun_services_core::session::page::SessionCatalogQuery>,
+    ) -> OpenBitFunResult<SessionMetadataPage> {
         use futures::StreamExt;
         use openbitfun_agent_runtime::session_state::SessionState;
         use openbitfun_services_core::session::page::{
@@ -1319,7 +1350,7 @@ impl CoreAgentRuntimeCompatibility {
         let mut page = if session_ids.is_some() {
             empty_session_metadata_page()
         } else {
-            self.list_persisted_sessions_page(workspace_path, cursor, limit)
+            self.list_persisted_session_catalog_page(workspace_path, cursor, limit, query)
                 .await?
         };
         let selected = match session_ids {

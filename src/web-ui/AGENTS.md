@@ -147,6 +147,10 @@ pnpm --dir src/web-ui run test:run src/flow_chat/components/ExternalHistoryNotic
 These local store/DOM fixtures cover source-version pinning, device switches and
 explicit Peer gating; they do not validate native WebView or remote-host behavior.
 
+For workspace catalog pagination, source filters, count/expansion behavior and
+old-host fallback, run `pnpm --dir src/web-ui run test:run src/app/components/NavPanel/sections/sessions src/app/components/NavPanel/workspaceSessionView.test.ts src/flow_chat/store/FlowChatStore.test.ts src/infrastructure/api/service-api/SessionAPI.test.ts`.
+These fixtures verify bounded page requests and transport payloads, not live remote connections.
+
 For application update discovery, skip persistence, notification timing, and
 download/install transitions, run the focused behavior tests (these do not
 establish visual fidelity):

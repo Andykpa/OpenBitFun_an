@@ -249,12 +249,16 @@ they do not exercise live SSH, relay, peer, or dispatch connections.
 
 For disk-backed history paging and legacy sessions without a catalog:
 `cargo test --locked -p openbitfun-core --no-default-features --features remote-connect,git --lib history_page_`.
+
 Also run the `staged_revert_catalog_projection` and `load_relay_session_turns_`
 filters for the same target when changing visibility. Paging must not parse
 unrelated turn bodies or rewrite history. To compare real-file first-page work
 against full materialization locally, use the same target with
 `history_page_benchmark -- --ignored --nocapture`; it checks content equivalence
 and reports timings without asserting a machine-dependent latency in CI.
+
+For workspace metadata catalog paging, cache reuse and cross-process invalidation:
+`cargo test --locked -p openbitfun-core --no-default-features --features external-sources,git,product-search --lib -- catalog_snapshot_ catalog_query_pages_`.
 
 For host-stream history reads and abandoned execution after a runtime restart:
 `cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib load_relay_session_turns_`.

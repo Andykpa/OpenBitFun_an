@@ -1,0 +1,65 @@
+import { describe, expect, it } from 'vitest';
+import type { Session } from '@/flow_chat/types/flow-chat';
+import { DEFAULT_WORKSPACE_SESSION_FILTERS, DEFAULT_WORKSPACE_SESSION_VIEW } from '../../workspaceSessionView';
+import { countPersistedWorkspaceCatalogSessions, workspaceSessionCatalogQuery, workspaceSessionCatalogTotal, sessionCatalogQueryKey } from './workspaceSessionCatalogQuery';
+
+const session = (id: string, overrides: Partial<Session> = {}): Session => ({
+  sessionId: id, workspaceId: 'main', createdAt: 10, lastFinishedAt: 20, config: {}, ...overrides,
+} as Session);
+const recency = (value: Session) => value.lastFinishedAt ?? value.createdAt;
+
+describe('workspace catalog query selection', () => {
+  it('keeps scoped totals while reflecting local creates, drafts and removals before refresh', () => {
+    const baseline = { paged: true, total: 655, knownCount: 5 };
+    expect(workspaceSessionCatalogTotal(5, baseline)).toBe(655);
+    expect(workspaceSessionCatalogTotal(6, baseline)).toBe(656);
+    expect(workspaceSessionCatalogTotal(4, baseline)).toBe(654);
+    expect(workspaceSessionCatalogTotal(10, { ...baseline, knownCount: 10 })).toBe(655);
+    expect(workspaceSessionCatalogTotal(6, { paged: false, total: 655 })).toBe(6);
+  });
+  it('counts persisted parents separately from local drafts, children and other workspaces', () => {
+    const rows = [session('native'), session('codex', { importedSource: 'codex' }),
+      session('draft', { draft: { workspaceId: 'main', phase: 'editing', turnId: 'future-turn' } }),
+      session('review', { parentSessionId: 'native', sessionKind: 'review' }),
+      session('archived', { persistedStatus: 'archived' }), session('other', { workspaceId: 'other' })];
+    expect(countPersistedWorkspaceCatalogSessions(rows, 'main', 'all')).toBe(2);
+    expect(countPersistedWorkspaceCatalogSessions(rows, 'main', 'codex')).toBe(1);
+    expect(countPersistedWorkspaceCatalogSessions(rows.filter(value => value.sessionId !== 'codex'), 'main', 'all')).toBe(1);
+  });
+  it('uses bounded paging for the default view and every source selector', () => {
+    for (const source of ['all', 'openbitfun', 'codex', 'zcode']) {
+      expect(workspaceSessionCatalogQuery('main', DEFAULT_WORKSPACE_SESSION_VIEW.ordering, 'all',
+        DEFAULT_WORKSPACE_SESSION_FILTERS, source, [], recency)).toEqual({ workspaceId: 'main', ordering: 'updated', source });
+    }
+  });
+
+  it('retains the complete legacy projection for name, status, unread, attention and every richer filter', () => {
+    for (const ordering of ['name', 'status'] as const) {
+      expect(workspaceSessionCatalogQuery('main', ordering, 'all', DEFAULT_WORKSPACE_SESSION_FILTERS, 'all', [], recency)).toBeUndefined();
+    }
+    for (const show of ['unread', 'attention'] as const) {
+      expect(workspaceSessionCatalogQuery('main', 'updated', show, DEFAULT_WORKSPACE_SESSION_FILTERS, 'codex', [], recency)).toBeUndefined();
+    }
+    const filters = [
+      { hiddenStatuses: ['running'] }, { hiddenEnvironments: ['remote'] },
+      { hiddenSources: ['external'] }, { hiddenWorktrees: ['worktree'] }, { hideArchived: false },
+    ] as const;
+    for (const filter of filters) {
+      expect(workspaceSessionCatalogQuery('main', 'updated', 'all',
+        { ...DEFAULT_WORKSPACE_SESSION_FILTERS, ...filter } as typeof DEFAULT_WORKSPACE_SESSION_FILTERS,
+        'all', [], recency)).toBeUndefined();
+    }
+  });
+
+  it('preserves observed run ordering only within the owning workspace, including isolated worktrees', () => {
+    const sessions = [session('historical'), session('running'), session('peer', { workspaceId: 'other' }),
+      session('isolated', { workspaceId: 'worktree', projectWorkspaceId: 'main', config: { executionTarget: {
+        kind: 'managedWorktree', rootPath: '/project/.worktrees/one',
+      } } }), session('linked', { workspaceId: 'worktree', projectWorkspaceId: 'main' })];
+    const getTimestamp = (value: Session) => value.sessionId === 'historical' ? recency(value) : 100;
+    const query = workspaceSessionCatalogQuery('main', 'updated', 'all', DEFAULT_WORKSPACE_SESSION_FILTERS, 'all', sessions, getTimestamp);
+    expect(query?.sortTimestamps).toEqual({ running: 100, isolated: 100 });
+    expect(workspaceSessionCatalogQuery('main', 'created', 'all', DEFAULT_WORKSPACE_SESSION_FILTERS, 'all', sessions, getTimestamp)?.sortTimestamps).toBeUndefined();
+    expect(sessionCatalogQueryKey(query)).toBe(sessionCatalogQueryKey({ ...query!, sortTimestamps: { isolated: 100, running: 100 } }));
+  });
+});

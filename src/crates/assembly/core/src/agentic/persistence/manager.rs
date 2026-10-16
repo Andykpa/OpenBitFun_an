@@ -4,6 +4,7 @@
 
 #[cfg(feature = "external-sources")]
 mod external_history;
+mod session_catalog;
 
 use crate::agentic::core::{
     sanitize_persisted_session_state, CompressionState, Message, MessageContent,
@@ -49,7 +50,7 @@ use openbitfun_services_core::session_search::SessionSearchSqliteIndex;
 use openbitfun_services_core::{
     json_store::{JsonFileStore, JsonFileStoreError},
     session::{
-        build_session_metadata as build_persisted_session_metadata, empty_session_metadata_page,
+        build_session_metadata as build_persisted_session_metadata,
         refresh_session_metadata_from_turns, try_refresh_session_metadata_for_saved_turn,
         DialogTurnKind, SessionLastTurn, SessionMemoryMode, SessionMetadataBuildFacts,
         SessionMetadataStore, SessionMetadataStoreError, SessionStorageLayout, SessionWriteLock,
@@ -568,6 +569,7 @@ struct ParsedTranscriptTurnSelector {
 pub struct PersistenceManager {
     path_manager: Arc<PathManager>,
     runtime_service: Arc<WorkspaceRuntimeService>,
+    catalog_cache: Mutex<session_catalog::CatalogCache>,
     #[cfg(test)]
     fail_next_session_state_write: std::sync::Mutex<Option<String>>,
     #[cfg(test)]
@@ -585,6 +587,7 @@ impl PersistenceManager {
         Ok(Self {
             runtime_service: Arc::new(WorkspaceRuntimeService::new(path_manager.clone())),
             path_manager,
+            catalog_cache: Mutex::new(session_catalog::CatalogCache::default()),
             #[cfg(test)]
             fail_next_session_state_write: std::sync::Mutex::new(None),
             #[cfg(test)]
@@ -1489,13 +1492,54 @@ impl PersistenceManager {
         cursor: Option<&str>,
         limit: usize,
     ) -> OpenBitFunResult<SessionMetadataPage> {
+        self.list_session_metadata_page_with_query(workspace_path, cursor, limit, None)
+            .await
+    }
+
+    pub async fn list_session_metadata_page_with_query(
+        &self,
+        workspace_path: &Path,
+        cursor: Option<&str>,
+        limit: usize,
+        query: Option<&openbitfun_services_core::session::page::SessionCatalogQuery>,
+    ) -> OpenBitFunResult<SessionMetadataPage> {
+        use openbitfun_services_core::session::page::build_session_metadata_page_with_query;
         if !workspace_path.exists() {
-            return Ok(empty_session_metadata_page());
+            return Ok(build_session_metadata_page_with_query(
+                Vec::new(),
+                cursor,
+                limit,
+                query,
+            ));
         }
 
         if self.existing_project_sessions_dir(workspace_path).is_none() {
-            return Ok(empty_session_metadata_page());
+            return Ok(build_session_metadata_page_with_query(
+                Vec::new(),
+                cursor,
+                limit,
+                query,
+            ));
         }
+
+        if let Some(query) = query {
+            return self
+                .list_cached_session_catalog_page(workspace_path, cursor, limit, query)
+                .await;
+        }
+
+        self.list_uncached_session_metadata_page(workspace_path, cursor, limit, None)
+            .await
+    }
+
+    async fn list_uncached_session_metadata_page(
+        &self,
+        workspace_path: &Path,
+        cursor: Option<&str>,
+        limit: usize,
+        query: Option<&openbitfun_services_core::session::page::SessionCatalogQuery>,
+    ) -> OpenBitFunResult<SessionMetadataPage> {
+        use openbitfun_services_core::session::page::build_session_metadata_page_with_query;
 
         #[cfg(feature = "external-sources")]
         {
@@ -1509,23 +1553,20 @@ impl PersistenceManager {
                     .map_err(Self::session_metadata_store_error)?;
                 if let Err(error) = references {
                     warn!("External session references could not be paged: {error}");
-                    let mut page = openbitfun_services_core::session::build_session_metadata_page(
-                        native, cursor, limit,
-                    );
+                    let mut page =
+                        build_session_metadata_page_with_query(native, cursor, limit, query);
                     page.discovery_warnings.push("External session index could not be read; existing native sessions remain available".into());
                     return Ok(page);
                 }
                 let metadata =
                     crate::external_session_import::deferred::merge_metadata(&root, native).await?;
-                return Ok(
-                    openbitfun_services_core::session::build_session_metadata_page(
-                        metadata, cursor, limit,
-                    ),
-                );
+                return Ok(build_session_metadata_page_with_query(
+                    metadata, cursor, limit, query,
+                ));
             }
         }
         self.session_metadata_store(workspace_path)
-            .list_metadata_page(cursor, limit)
+            .list_metadata_page_with_query(cursor, limit, query)
             .await
             .map_err(Self::session_metadata_store_error)
     }
@@ -8281,6 +8322,155 @@ mod tests {
             second_page_session_ids,
             vec!["parent-6", "parent-5", "parent-4", "parent-3", "parent-2"]
         );
+    }
+
+    #[test]
+    #[ignore = "invoked by the catalog cross-process writer test"]
+    fn catalog_cross_process_writer_child() {
+        let root = std::env::var_os("OPENBITFUN_CATALOG_WRITER_ROOT").expect("writer root");
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let store = openbitfun_services_core::session::SessionMetadataStore::new(
+                    PathBuf::from(root),
+                );
+                let mut metadata = store.load_metadata("catalog-11").await.unwrap().unwrap();
+                metadata.session_name = "Renamed by another process".into();
+                store.save_metadata(&metadata).await.unwrap();
+            });
+    }
+
+    #[tokio::test]
+    async fn catalog_snapshot_reuses_pages_and_invalidates_after_another_process_writes() {
+        use openbitfun_services_core::session::page::{
+            SessionCatalogOrdering, SessionCatalogQuery,
+        };
+        let workspace = TestWorkspace::new();
+        let manager = PersistenceManager::new(workspace.path_manager()).unwrap();
+        for index in 0..12 {
+            let mut metadata = SessionMetadata::new(
+                format!("catalog-{index}"),
+                format!("Entry {index}"),
+                "agent".into(),
+                "model".into(),
+            );
+            metadata.workspace_id = Some("main".into());
+            metadata.created_at = index;
+            manager
+                .save_session_metadata(workspace.path(), &metadata)
+                .await
+                .unwrap();
+        }
+        let query = SessionCatalogQuery {
+            workspace_id: "main".into(),
+            ordering: SessionCatalogOrdering::Created,
+            source: "all".into(),
+            sort_timestamps: Default::default(),
+        };
+        let first = manager
+            .list_session_metadata_page_with_query(workspace.path(), None, 5, Some(&query))
+            .await
+            .unwrap();
+        let second = manager
+            .list_session_metadata_page_with_query(
+                workspace.path(),
+                first.next_cursor.as_deref(),
+                5,
+                Some(&query),
+            )
+            .await
+            .unwrap();
+        assert_eq!(second.sessions[0].session_id, "catalog-6");
+        assert_eq!(second.catalog_revision, first.catalog_revision);
+        assert_eq!(manager.session_catalog_build_count_for_test().await, 1);
+
+        let executable = std::env::current_exe().unwrap();
+        let mut child = openbitfun_services_core::process_manager::create_command(
+            executable.to_string_lossy().as_ref(),
+        );
+        let output = child
+            .args([
+                "--exact",
+                "agentic::persistence::manager::tests::catalog_cross_process_writer_child",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env(
+                "OPENBITFUN_CATALOG_WRITER_ROOT",
+                manager.project_sessions_dir(workspace.path()),
+            )
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let refreshed = manager
+            .list_session_metadata_page_with_query(
+                workspace.path(),
+                second.next_cursor.as_deref(),
+                5,
+                Some(&query),
+            )
+            .await
+            .unwrap();
+        assert!(refreshed.catalog_reset);
+        assert_eq!(
+            refreshed.sessions[0].session_name,
+            "Renamed by another process"
+        );
+        assert_ne!(refreshed.catalog_revision, first.catalog_revision);
+        assert_eq!(manager.session_catalog_build_count_for_test().await, 2);
+        let next = manager
+            .list_session_metadata_page_with_query(
+                workspace.path(),
+                refreshed.next_cursor.as_deref(),
+                5,
+                Some(&query),
+            )
+            .await
+            .unwrap();
+        assert!(!next.catalog_reset);
+        assert_eq!(next.sessions[0].session_id, "catalog-6");
+        assert_eq!(manager.session_catalog_build_count_for_test().await, 2);
+
+        let mut changed_query = query.clone();
+        changed_query.source = "codex".into();
+        let filtered = manager
+            .list_session_metadata_page_with_query(
+                workspace.path(),
+                next.next_cursor.as_deref(),
+                5,
+                Some(&changed_query),
+            )
+            .await
+            .unwrap();
+        assert!(filtered.catalog_reset);
+        assert_eq!(filtered.total_top_level_count, 0);
+        let replay = manager
+            .list_session_metadata_page_with_query(workspace.path(), None, 5, Some(&query))
+            .await
+            .unwrap();
+        assert_eq!(replay.catalog_revision, refreshed.catalog_revision);
+        assert_eq!(manager.session_catalog_build_count_for_test().await, 3);
+
+        // A deleted selected entry still triggers the existing index repair.
+        std::fs::remove_file(
+            manager
+                .session_layout(workspace.path())
+                .metadata_path("catalog-11"),
+        )
+        .unwrap();
+        let repaired = manager
+            .list_session_metadata_page_with_query(workspace.path(), None, 5, Some(&query))
+            .await
+            .unwrap();
+        assert_eq!(repaired.total_top_level_count, 11);
+        assert_eq!(repaired.sessions[0].session_id, "catalog-10");
+        assert_eq!(manager.session_catalog_build_count_for_test().await, 4);
     }
 
     #[tokio::test]
