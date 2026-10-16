@@ -1,12 +1,16 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useI18n } from '@/infrastructure/i18n';
 import { useWorkspaceContext } from '@/infrastructure/contexts/WorkspaceContext';
+import { useSceneStore } from '@/app/stores/sceneStore';
+import { useContentResourceStore } from '@/app/workbench/contentResourceStore';
+import { getActiveSurfaceId, onSurfaceActivated } from '@/infrastructure/peer-device/deviceSurface';
 import { notificationService } from '@/shared/notification-system';
 import WorkspaceItem from './WorkspaceItem';
 import SessionsSection, { type WorkspaceSessionScope } from '../sessions/SessionsSection';
 import { useWorkspaceSessionViewStore } from '../../workspaceSessionView';
 import {
   isWorkspaceBackedSessionGroupActive,
+  isWorkspaceBackedSessionGroupSelected,
   projectWorkspaceBackedSessionGroups,
   type SessionNavigationScope,
 } from '../../sessionNavigationProjection';
@@ -43,6 +47,11 @@ const WorkspaceListSection: React.FC<WorkspaceListSectionProps> = ({ variant }) 
     position: WorkspaceDragPosition;
   } | null>(null);
   const grouping = useWorkspaceSessionViewStore(state => state.grouping);
+  const activeTab = useSceneStore(state => state.openTabs.find(tab => tab.id === state.activeTabId));
+  const contentScope = useContentResourceStore(state => (
+    activeTab?.contentId ? state.resources[activeTab.contentId]?.scope : undefined
+  ));
+  const surfaceId = useSyncExternalStore(onSurfaceActivated, getActiveSurfaceId, getActiveSurfaceId);
 
   // Refs for values that must be read inside event handlers without stale closures
   const draggedWorkspaceIdRef = useRef<string | null>(null);
@@ -71,12 +80,15 @@ const WorkspaceListSection: React.FC<WorkspaceListSectionProps> = ({ variant }) 
       : t('nav.workspaces.emptySessionGroups');
   const workspaceScopes = useMemo<WorkspaceSessionScope[]>(() => (
     variant !== 'assistants'
-      ? workspaces.map(workspace => ({
+      ? sessionGroups.filter(group => group.kind === 'project').map(({ workspace }) => ({
           workspaceId: workspace.id,
           workspaceName: workspace.name,
         }))
       : []
-  ), [variant, workspaces]);
+  ), [variant, sessionGroups]);
+  const visibleGroups = grouping === 'all' && variant !== 'assistants'
+    ? sessionGroups.filter(group => group.kind === 'assistant')
+    : sessionGroups;
 
   const workspaceSignature = sessionGroups.map(group => group.groupId).join(':');
 
@@ -233,16 +245,7 @@ const WorkspaceListSection: React.FC<WorkspaceListSectionProps> = ({ variant }) 
       data-testid="nav-workspace-list"
       data-workspace-list={variant}
     >
-      {variant !== 'assistants' && grouping === 'all' && workspaces.length > 0 ? (
-        <div className="openbitfun-nav-panel__workspace-all-sessions" data-testid="nav-workspace-all-sessions">
-          <SessionsSection
-            workspaceScopes={workspaceScopes}
-            isVisible
-            layout="flat"
-            useWorkspaceViewPreferences
-          />
-        </div>
-      ) : workspaces.length === 0 ? (
+      {workspaces.length === 0 ? (
         <div
           data-openbitfun-component="workspace-list-section"
           data-openbitfun-part="empty"
@@ -253,13 +256,17 @@ const WorkspaceListSection: React.FC<WorkspaceListSectionProps> = ({ variant }) 
           {emptyLabel}
         </div>
       ) : (
-        sessionGroups.map(group => {
+        visibleGroups.map(group => {
           const workspace = group.workspace;
+          const isActive = isWorkspaceBackedSessionGroupActive(workspace, activeWorkspace);
+          const isSelected = isWorkspaceBackedSessionGroupSelected(workspace, {
+            activeTab, contentScope, surfaceId, activeWorkspaceId,
+          });
           return (
             <div
               data-openbitfun-component="workspace-list-section"
               data-openbitfun-part="item"
-              data-openbitfun-state={workspace.id === activeWorkspaceId ? 'selected' : undefined}
+              data-openbitfun-state={isSelected ? 'selected' : undefined}
               key={workspace.id}
               ref={(element) => {
                 if (element) workspaceRowRefs.current.set(workspace.id, element);
@@ -282,7 +289,8 @@ const WorkspaceListSection: React.FC<WorkspaceListSectionProps> = ({ variant }) 
             >
               <WorkspaceItem
                 workspace={workspace}
-                isActive={isWorkspaceBackedSessionGroupActive(workspace, activeWorkspace)}
+                isActive={isActive}
+                isSelected={isSelected}
                 isSingle={workspaces.length === 1}
                 draggable={workspaces.length > 1}
                 isDragging={draggedWorkspaceId === workspace.id}
@@ -295,6 +303,16 @@ const WorkspaceListSection: React.FC<WorkspaceListSectionProps> = ({ variant }) 
             </div>
           );
         })
+      )}
+      {grouping === 'all' && workspaceScopes.length > 0 && (
+        <div className="openbitfun-nav-panel__workspace-all-sessions" data-testid="nav-workspace-all-sessions">
+          <SessionsSection
+            workspaceScopes={workspaceScopes}
+            isVisible
+            layout="flat"
+            useWorkspaceViewPreferences
+          />
+        </div>
       )}
     </div>
   );
