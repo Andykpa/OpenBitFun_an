@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "digest": "fnv1a64:b89f0fab51cf3cff",
+  "digest": "fnv1a64:1d617d6e336f2a60",
   "retiredCommandPrefixes": [
     {
       "prefix": "lsp_",
@@ -4893,6 +4893,18 @@
       }
     },
     {
+      "id": "miniapp_presentation",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
+      }
+    },
+    {
       "id": "miniapp_recompile",
       "surface": "tauri_command",
       "remoteWorkspace": "LegacyUnaudited",
@@ -4938,6 +4950,18 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
+      }
+    },
+    {
+      "id": "miniapp_shell_call",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
       }
     },
     {
