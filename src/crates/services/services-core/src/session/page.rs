@@ -541,6 +541,28 @@ mod tests {
     }
 
     #[test]
+    fn catalog_observed_recency_prevents_host_updates_from_displacing_unseen_rows() {
+        let mut observed = entry("already-observed", "main", 1);
+        observed.last_finished_at = Some(1_000);
+        let entries = vec![observed, entry("unseen-newer", "main", 20)];
+        let mut query = query("all");
+        let without_observation =
+            build_session_metadata_page_with_query(entries.clone(), None, 1, Some(&query));
+        assert_eq!(
+            without_observation.sessions[0].session_id,
+            "already-observed"
+        );
+
+        // The view captured 10 before another host completed this session.
+        // Its frozen ordering needs the unseen row, despite the newer disk value.
+        query.sort_timestamps.insert("already-observed".into(), 10);
+        let pinned = build_session_metadata_page_with_query(entries, None, 1, Some(&query));
+        assert_eq!(pinned.sessions[0].session_id, "unseen-newer");
+        assert_eq!(pinned.total_top_level_count, 2);
+        assert!(pinned.has_more);
+    }
+
+    #[test]
     fn catalog_source_counts_keep_children_with_the_selected_parent() {
         let mut parent = entry("codex", "main", 1);
         parent.custom_metadata = Some(serde_json::json!({"importedFrom": "codex"}));

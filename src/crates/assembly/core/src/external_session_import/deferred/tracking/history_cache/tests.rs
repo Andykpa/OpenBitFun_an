@@ -1,9 +1,11 @@
 use super::super::tests::{create_source, publish};
 use super::*;
+use crate::agentic::persistence::SessionBranchRequest;
 use crate::external_session_import::auto_discovery::tests::{candidate, document};
 use crate::external_session_import::deferred::tests::fixture;
 use crate::service::session::SessionTurnWindowResponse;
 use openbitfun_runtime_ports::SessionTurnWindowRequest;
+use openbitfun_services_core::session::SessionBranchBoundary;
 
 async fn evict(root: &Path) {
     let mut cache = HISTORIES.lock().await;
@@ -285,9 +287,9 @@ async fn history_cache_projects_live_metadata_and_preserves_pinned_versions_afte
     let id = &entry.metadata.session_id;
     publish(&root, &workspace, &entry, long_document(&workspace, 8)).await;
     let viewed = snapshot_shared(&root, id, false).await.unwrap().unwrap();
-    let old_turn = viewed.turns()[2].turn_id.clone();
+    let old_turn = viewed.turns()[5].turn_id.clone();
     let old_revision = viewed.catalog().revision.clone();
-    let old_text = viewed.turns()[2].user_message.content.clone();
+    let old_text = viewed.turns()[5].user_message.content.clone();
     let old_path = snapshot_path(&root, id, content_version(&viewed.metadata).unwrap()).unwrap();
     let old_bytes = std::fs::read(&old_path).unwrap();
     publish(&root, &workspace, &entry, long_document(&workspace, 3)).await;
@@ -330,7 +332,7 @@ async fn history_cache_projects_live_metadata_and_preserves_pinned_versions_afte
             workspace_path: workspace.root_path.clone(),
             session_id: id.clone(),
             include_internal: false,
-            target_storage_turn_index: 2,
+            target_storage_turn_index: 5,
             expected_turn_id: Some(old_turn.clone()),
             expected_catalog_revision: Some(old_revision),
             before: 0,
@@ -348,13 +350,45 @@ async fn history_cache_projects_live_metadata_and_preserves_pinned_versions_afte
     };
     assert_eq!(total_turn_count, 8);
     assert_eq!(turns[0].user_message.content, old_text);
+    // Fork a point absent from the latest source after another cold reload.
+    // Exercise native publication as well as selection of the frozen body.
+    evict(&root).await;
     let source = manager
         .external_history_branch_source(&workspace.root_path, id, Some(&old_turn))
         .await
         .unwrap()
         .unwrap();
     assert_eq!(source.turns.len(), 8);
-    assert_eq!(source.turns[2].user_message.content, old_text);
+    assert_eq!(source.turns[5].user_message.content, old_text);
+    let branch = manager
+        .branch_transient_session(
+            &workspace.root_path,
+            &SessionBranchRequest {
+                source_session_id: id.clone(),
+                source_turn_id: old_turn.clone(),
+                boundary: SessionBranchBoundary::ThroughTurn,
+            },
+            source,
+        )
+        .await
+        .unwrap();
+    let native = OfflineSessionImportStore::new(&root)
+        .load_bundle(&branch.session_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(native.turns.len(), 6);
+    assert_eq!(native.turns[5].user_message.content, old_text);
+    assert!(!is_followed(&native.metadata));
+    assert_ne!(native.metadata.status, SessionStatus::Archived);
+    assert_eq!(
+        native.metadata.custom_metadata.as_ref().unwrap()["externalBranchOf"]["contentVersion"],
+        content_version(&viewed.metadata).unwrap()
+    );
+    manager
+        .assert_native_history_mutation(&workspace.root_path, &branch.session_id)
+        .await
+        .unwrap();
     assert_eq!(std::fs::read(&old_path).unwrap(), old_bytes);
     super::super::super::dismiss(&root, id).await.unwrap();
     assert!(snapshot_shared(&root, id, false).await.unwrap().is_none());
@@ -362,6 +396,23 @@ async fn history_cache_projects_live_metadata_and_preserves_pinned_versions_afte
         .await
         .unwrap()
         .is_none());
+    let mut edited = native.turns[5].clone();
+    edited.user_message.content = "Independent native edit".into();
+    manager
+        .save_dialog_turn(&workspace.root_path, &edited)
+        .await
+        .unwrap();
+    assert_eq!(
+        manager
+            .load_dialog_turn(&workspace.root_path, &branch.session_id, edited.turn_index)
+            .await
+            .unwrap()
+            .unwrap()
+            .user_message
+            .content,
+        "Independent native edit"
+    );
+    assert_eq!(std::fs::read(&old_path).unwrap(), old_bytes);
 }
 
 #[tokio::test]

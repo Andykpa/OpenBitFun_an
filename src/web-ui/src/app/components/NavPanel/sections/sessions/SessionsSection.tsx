@@ -61,7 +61,7 @@ import { useSessionComposerStore } from '@/flow_chat/store/sessionComposerStore'
 import { getActiveSurfaceId, getActiveSurfaceScope, isSurfaceChangedError, surfaceScopedKey } from '@/infrastructure/peer-device/deviceSurface';
 import { getWorkspaceSessionHierarchy } from './sessionNavHierarchy';
 import { useWorkspaceSessionCatalog } from './useWorkspaceSessionCatalog';
-import { countPersistedWorkspaceCatalogSessions, workspaceSessionCatalogQuery, workspaceSessionCatalogTotal } from './workspaceSessionCatalogQuery';
+import { captureWorkspaceSessionCatalogQuery, countPersistedWorkspaceCatalogSessions, workspaceSessionCatalogQuery, workspaceSessionCatalogTotal } from './workspaceSessionCatalogQuery';
 import { useWorkspaceSessionDiscovery } from './useWorkspaceSessionDiscovery';
 import { useSessionNavExpansion } from './useSessionNavExpansion';
 import { isSessionNavRowActive } from './sessionNavSelection';
@@ -321,9 +321,15 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
     return JSON.stringify(workspaceSessionCatalogQuery(workspaceId, sessionOrdering, sessionShow,
       sessionFilters, sourceAgent, flowChatState.sessions.values(), sessionNavStatusService.getSortTimestamp) ?? null);
   }, [workspaceId, sessionOrdering, sessionShow, sessionFilters, sourceAgent, flowChatState.sessions, orderingRevision]);
-  // Streaming changes Session objects without changing the catalog query.
-  // Keep the startup scheduler and page reader stable across those updates.
-  const catalogQuery = useMemo(() => (JSON.parse(catalogQueryJson) ?? undefined) as SessionCatalogQuery | undefined, [catalogQueryJson]);
+  const captureCatalogQuery = useCallback((query: SessionCatalogQuery) => captureWorkspaceSessionCatalogQuery(
+    query, flowChatStore.getState().sessions.values(), sessionNavStatusService.getSortTimestamp,
+  ), []);
+  // Capture the view's observed order only when beginning a catalog. Hydration
+  // and streaming must not restart it; a refresh or device switch must rebind it.
+  const catalogQuery = useMemo(() => {
+    const query = (JSON.parse(catalogQueryJson) ?? undefined) as SessionCatalogQuery | undefined;
+    return query ? captureCatalogQuery(query) : undefined;
+  }, [captureCatalogQuery, catalogQueryJson, catalogRefreshVersion, initialMetadataKey]);
   const getKnownCatalogCount = useCallback(() => countPersistedWorkspaceCatalogSessions(
     flowChatStore.getState().sessions.values(), workspaceId, sourceAgent,
   ), [workspaceId, sourceAgent]);
@@ -333,6 +339,7 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
     refreshVersion: catalogRefreshVersion,
     onPage: observeDiscovery,
     query: catalogQuery,
+    captureQuery: captureCatalogQuery,
     targetCount: expandLevel === 2 ? level2DisplayCount : expandLevel === 1 ? SESSIONS_LEVEL_1 : SESSIONS_LEVEL_0,
     firstPage: metadataPageState.loadedScope === initialMetadataKey ? metadataPageState.firstPage : undefined,
     getKnownCount: getKnownCatalogCount,

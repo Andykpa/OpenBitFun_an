@@ -19,11 +19,11 @@ const deferred = () => {
   const promise = new Promise<SessionMetadataPage>((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 };
-type Props = { workspaceId?: string; enabled?: boolean; refreshVersion?: number; agent?: string; query?: SessionCatalogQuery; targetCount?: number; firstPage?: SessionMetadataPage; getKnownCount?: () => number };
+type Props = { workspaceId?: string; enabled?: boolean; refreshVersion?: number; agent?: string; query?: SessionCatalogQuery; targetCount?: number; firstPage?: SessionMetadataPage; getKnownCount?: () => number; captureQuery?: (query: SessionCatalogQuery) => SessionCatalogQuery };
 let current: ReturnType<typeof useWorkspaceSessionCatalog>;
 const renders: Array<{ workspaceId: string; complete: boolean }> = [];
-function Harness({ workspaceId = 'main', enabled = true, refreshVersion = 0, agent = 'all', query, targetCount, firstPage, getKnownCount }: Props) {
-  current = useWorkspaceSessionCatalog({ workspaceId, enabled, refreshVersion, onPage: mocks.onPage, query, targetCount, firstPage, getKnownCount });
+function Harness({ workspaceId = 'main', enabled = true, refreshVersion = 0, agent = 'all', query, targetCount, firstPage, getKnownCount, captureQuery }: Props) {
+  current = useWorkspaceSessionCatalog({ workspaceId, enabled, refreshVersion, onPage: mocks.onPage, query, targetCount, firstPage, getKnownCount, captureQuery });
   renders.push({ workspaceId, complete: current.complete });
   return <output data-agent={agent}>{current.complete ? 'complete' : current.failed ? 'failed' : 'pending'}</output>;
 }
@@ -142,6 +142,29 @@ describe('workspace metadata catalog', () => {
     expect(current).toMatchObject({ complete: true, loaded: 10, revision: 'v2', nextCursor: 'v2-10', hasMore: true });
   });
 
+  it('captures newly observed order after a host revision change and retains it for later pages', async () => {
+    const captured = { ...query, sortTimestamps: { observed: 20 } };
+    const captureQuery = vi.fn(() => captured);
+    mocks.loadPage.mockResolvedValueOnce({ ...queriedPage(5, 'v1-5'), catalogRevision: 'v1' });
+    await render({ query, captureQuery });
+    expect(captureQuery).not.toHaveBeenCalled();
+
+    mocks.loadPage.mockResolvedValueOnce({ ...queriedPage(5, 'v2-5'), catalogRevision: 'v2', catalogReset: true })
+      .mockResolvedValueOnce({ ...queriedPage(10, 'pinned-10', captured), catalogRevision: 'pinned-v2' });
+    await render({ query, captureQuery, targetCount: 10 });
+    expect(captureQuery).toHaveBeenCalledExactlyOnceWith(query);
+    expect(mocks.loadPage).toHaveBeenLastCalledWith('main', 10, undefined,
+      'sessions_nav_catalog', { fresh: false, query: captured });
+    expect(current).toMatchObject({ complete: true, loaded: 10, revision: 'pinned-v2', nextCursor: 'pinned-10' });
+
+    mocks.loadPage.mockResolvedValueOnce({ ...queriedPage(5, 'pinned-15', captured), catalogRevision: 'pinned-v2' });
+    await render({ query, captureQuery, targetCount: 15 });
+    expect(mocks.loadPage).toHaveBeenLastCalledWith('main', 5, 'pinned-10',
+      'sessions_nav_catalog', { fresh: false, query: captured });
+    expect(mocks.loadPage).toHaveBeenCalledTimes(4);
+    expect(current).toMatchObject({ complete: true, loaded: 15, revision: 'pinned-v2' });
+  });
+
   it('clears a cancelled expansion when the user collapses back to already-loaded rows', async () => {
     mocks.loadPage.mockResolvedValueOnce(queriedPage(5, '5'));
     await render({ query });
@@ -214,6 +237,23 @@ describe('workspace metadata catalog', () => {
     await render({ query });
     expect(current).toMatchObject({ complete: true, paged: false });
     expect(mocks.loadPage).toHaveBeenCalledTimes(2);
+  });
+
+  it('restarts legacy traversal when a host withdraws query support during expansion', async () => {
+    mocks.loadPage.mockResolvedValueOnce(queriedPage(5, 'scoped-5'));
+    await render({ query });
+    mocks.loadPage.mockResolvedValueOnce({ ...page('legacy-5'), loadedTopLevelCount: 5 })
+      .mockResolvedValueOnce(page('200')).mockResolvedValueOnce(page());
+    await render({ query, targetCount: 10 });
+    expect(mocks.loadPage).toHaveBeenNthCalledWith(2, 'main', 5, 'scoped-5',
+      'sessions_nav_catalog', { fresh: false, query });
+    expect(mocks.loadPage).toHaveBeenNthCalledWith(3, 'main', 200, undefined,
+      'sessions_nav_catalog', { fresh: false });
+    expect(mocks.loadPage).toHaveBeenLastCalledWith('main', 200, '200',
+      'sessions_nav_catalog', { fresh: false });
+    expect(current).toMatchObject({ complete: true, paged: false, total: undefined });
+    await render({ query, targetCount: 200 });
+    expect(mocks.loadPage).toHaveBeenCalledTimes(4);
   });
 
   it('restarts source filters and discovery refreshes at the first page without draining them', async () => {

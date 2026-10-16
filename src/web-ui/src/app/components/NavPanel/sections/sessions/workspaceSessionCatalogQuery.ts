@@ -23,7 +23,8 @@ export function workspaceSessionCatalogTotal(visibleCount: number, catalog: { pa
     ? (catalog.total ?? 0) + visibleCount - (catalog.knownCount ?? visibleCount) : 0);
 }
 
-/** Only select host paging for views whose complete semantics are supported. */
+/** Select supported views and the ordering changes that restart their reader.
+ * Newly hydrated rows alone must not invalidate an in-progress catalog. */
 export function workspaceSessionCatalogQuery(
   workspaceId: string | undefined,
   ordering: WorkspaceSessionOrdering,
@@ -48,6 +49,23 @@ export function workspaceSessionCatalogQuery(
   return { workspaceId, ordering, source,
     ...(Object.keys(sortTimestamps).length ? { sortTimestamps } : {}),
   };
+}
+
+/** Bind every observed timestamp before reading a new host catalog. Matching
+ * local metadata is not evidence that another host still has that timestamp. */
+export function captureWorkspaceSessionCatalogQuery(
+  query: SessionCatalogQuery,
+  sessions: Iterable<Session>,
+  getSortTimestamp: (session: Session) => number,
+): SessionCatalogQuery {
+  if (query.ordering !== 'updated') return query;
+  const sortTimestamps = { ...query.sortTimestamps };
+  for (const session of sessions) {
+    if (sessionBelongsToWorkspaceNavRow(session, query.workspaceId)) {
+      sortTimestamps[session.sessionId] = getSortTimestamp(session);
+    }
+  }
+  return Object.keys(sortTimestamps).length ? { ...query, sortTimestamps } : query;
 }
 
 export function sessionCatalogQueryKey(query?: SessionCatalogQuery): string {

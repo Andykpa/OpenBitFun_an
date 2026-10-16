@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Session } from '@/flow_chat/types/flow-chat';
 import { DEFAULT_WORKSPACE_SESSION_FILTERS, DEFAULT_WORKSPACE_SESSION_VIEW } from '../../workspaceSessionView';
-import { countPersistedWorkspaceCatalogSessions, workspaceSessionCatalogQuery, workspaceSessionCatalogTotal, sessionCatalogQueryKey } from './workspaceSessionCatalogQuery';
+import { captureWorkspaceSessionCatalogQuery, countPersistedWorkspaceCatalogSessions, workspaceSessionCatalogQuery, workspaceSessionCatalogTotal, sessionCatalogQueryKey } from './workspaceSessionCatalogQuery';
 
 const session = (id: string, overrides: Partial<Session> = {}): Session => ({
   sessionId: id, workspaceId: 'main', createdAt: 10, lastFinishedAt: 20, config: {}, ...overrides,
@@ -9,6 +9,24 @@ const session = (id: string, overrides: Partial<Session> = {}): Session => ({
 const recency = (value: Session) => value.lastFinishedAt ?? value.createdAt;
 
 describe('workspace catalog query selection', () => {
+  it('pins an already-observed timestamp even while it still matches local metadata', () => {
+    const observed = session('observed', { lastFinishedAt: 10 });
+    const viewQuery = workspaceSessionCatalogQuery('main', 'updated', 'all',
+      DEFAULT_WORKSPACE_SESSION_FILTERS, 'all', [observed], recency);
+    const query = captureWorkspaceSessionCatalogQuery(viewQuery!, [observed], recency);
+    // The host can have finished another turn since this local record loaded.
+    // Its new timestamp must not choose a different page than the frozen view.
+    expect(query?.sortTimestamps).toEqual({ observed: 10 });
+    expect(viewQuery?.sortTimestamps).toBeUndefined();
+
+    const hydrated = session('newly-loaded', { lastFinishedAt: 9 });
+    const afterHydration = workspaceSessionCatalogQuery('main', 'updated', 'all',
+      DEFAULT_WORKSPACE_SESSION_FILTERS, 'all', [observed, hydrated], recency);
+    expect(sessionCatalogQueryKey(afterHydration)).toBe(sessionCatalogQueryKey(viewQuery));
+    expect(captureWorkspaceSessionCatalogQuery(query, [observed, hydrated], recency).sortTimestamps)
+      .toEqual({ observed: 10, 'newly-loaded': 9 });
+  });
+
   it('keeps scoped totals while reflecting local creates, drafts and removals before refresh', () => {
     const baseline = { paged: true, total: 655, knownCount: 5 };
     expect(workspaceSessionCatalogTotal(5, baseline)).toBe(655);
@@ -59,6 +77,8 @@ describe('workspace catalog query selection', () => {
     const getTimestamp = (value: Session) => value.sessionId === 'historical' ? recency(value) : 100;
     const query = workspaceSessionCatalogQuery('main', 'updated', 'all', DEFAULT_WORKSPACE_SESSION_FILTERS, 'all', sessions, getTimestamp);
     expect(query?.sortTimestamps).toEqual({ running: 100, isolated: 100 });
+    expect(captureWorkspaceSessionCatalogQuery(query!, sessions, getTimestamp).sortTimestamps)
+      .toEqual({ historical: 20, running: 100, isolated: 100 });
     expect(workspaceSessionCatalogQuery('main', 'created', 'all', DEFAULT_WORKSPACE_SESSION_FILTERS, 'all', sessions, getTimestamp)?.sortTimestamps).toBeUndefined();
     expect(sessionCatalogQueryKey(query)).toBe(sessionCatalogQueryKey({ ...query!, sortTimestamps: { isolated: 100, running: 100 } }));
   });
