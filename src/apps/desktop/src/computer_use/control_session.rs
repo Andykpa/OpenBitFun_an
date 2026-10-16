@@ -165,6 +165,7 @@ fn projected(r: &Resource) -> ControlSnapshot {
     s.capabilities.extend(
         [
             "window-capture",
+            "window-target-v1",
             "background-ax-semantic-input",
             "background-directed-keyboard",
             "background-directed-scroll",
@@ -177,6 +178,7 @@ fn projected(r: &Resource) -> ControlSnapshot {
     s.capabilities.extend(
         [
             "window-capture",
+            "window-target-v1",
             "background-uia-semantic-input",
             "background-window-messages",
             "foreground-seat-input",

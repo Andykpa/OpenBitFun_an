@@ -149,6 +149,17 @@ they do not require a user to select the next app. Background AT-SPI startup
 does not open a portal picker. Linux portal capture and foreground seat input
 still require compositor-owned consent.
 
+`list_windows` is read-only discovery independent of the active capture and AX
+tree. macOS returns WindowServer top-level windows including off-screen entries;
+Windows returns visible, non-minimized titled top-level windows. Titles and owner
+PIDs reveal multi-window and helper-process UIs that an application list cannot.
+Hosts advertising `window-target-v1` accept `app: {pid, window_id}` to select an
+exact native window. Both IDs must be positive, and native capture validates the
+window's ownership before binding it. Omitted window IDs retain an existing
+binding. Older hosts and Linux reject exact-window requests explicitly; Linux
+keeps its existing AT-SPI and portal selection contracts. No remote-workspace
+request falls back to the controller's desktop.
+
 The optional manual-sharing API uses `awaiting_share`, opaque process-bound
 choices, observe-first capture and a separate revocable input grant. Its scope
 does not apply to normal Agent tasks. Existing remembered preferences and manual
@@ -364,6 +375,13 @@ or screen-capture-permission failures, marked `capture_preparation_error`,
 create no binding and attach no prior target's pixels. Lock, stop, ownership,
 generation, revocation and unknown errors cannot use that fallback.
 
+An exact-window preparation failure cannot fall back to another window's AX
+tree, including a previously bound window of the same PID. App-only preparation
+failures suggest native window discovery instead of asserting that the task is
+absent. `describe_screen` keeps its text-only default and honors explicit
+`include_image: true` for vision-capable models, with the selected image's
+reference and geometry in the result. Text-only models receive no image bytes.
+
 A text-only screenshot request performs a real text observation. Tool results
 preserve structured identities, AX/OCR facts, errors and geometry in the model's
 actual result channel; a short summary is not a replacement. Image attachments
@@ -403,8 +421,8 @@ operation or prove all transient or later application behavior.
 ### macOS
 
 Retain the selected content window across observations. A sharing-indicator
-window appearing earlier in WindowServer order must not replace it. Conflicting
-explicit window selection fails; validate a replacement before releasing a live
+window appearing earlier in WindowServer order must not replace it. An explicit
+window ID can select another window, including within the same PID; validate a replacement before releasing a live
 capture. AX focused-window observation resolves the actual bound window, not an
 unrelated Sharing dialog. Missing exact identity is an error.
 
