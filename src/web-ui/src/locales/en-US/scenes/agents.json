@@ -42,8 +42,8 @@
       },
       "Creative": {
         "name": "$t(shared:agents.Creative)",
-        "purpose": "Create apps, shape your experience",
-        "description": "Focuses on apps and interfaces, turning ideas into usable features by creating MiniApps and customizing OpenBitFun in natural language."
+        "purpose": "Create content and apps, shape your experience",
+        "description": "Turns ideas into finished work in natural language: motion videos, slide decks, prototypes, and web pages crafted with creative skills loaded on demand, plus MiniApps and a customized OpenBitFun."
       }
     }
   },
@@ -385,6 +385,6 @@
     "Standard": "Clear guidance and a complete toolkit support coding as well as everyday work such as handling information and creating content.",
     "Ultimate": "Multiple agents work in parallel, with independent review for complex projects and large-scale changes.",
     "Minimal": "Minimal prompting and a focused tool set give next-generation flagship models room to excel at coding and other tasks.",
-    "Creative": "Create MiniApps and customize the interface in natural language, shaping OpenBitFun around the way you work."
+    "Creative": "Create videos, decks, prototypes, and web pages with creative skills, or build MiniApps and customize the interface in natural language."
   }
 }
