@@ -690,7 +690,6 @@ describe('ModelSelector provider levels', () => {
     expect(slider()).toBeNull();
     expect(document.body.querySelector('[data-reasoning-mode="auto"] [data-testid="chat-model-selector-settings-reasoning"]')?.textContent)
       .toBe('reasoningSelector.thinking · reasoningSelector.auto');
-    expect(document.body.querySelector('[data-testid="chat-model-selector-intensity-control"]')?.getAttribute('data-intensity')).toBe('1');
 
     await openReasoning();
     expect(document.body.querySelectorAll('[data-testid="chat-model-selector-reasoning-options"] [aria-pressed="true"]')).toHaveLength(1);
@@ -701,7 +700,6 @@ describe('ModelSelector provider levels', () => {
     expect(container.querySelector('[data-testid="chat-model-selector-btn"]')?.getAttribute('aria-expanded')).toBe('true');
     expect(slider()).toBeNull();
     expect(optionsPanel()).toBeNull();
-    expect(document.body.querySelector('[data-testid="chat-model-selector-intensity-control"]')?.getAttribute('data-intensity')).toBe('3');
     const manualRow = document.body.querySelector('[data-reasoning-mode="manual"]')!;
     expect(manualRow.querySelector('[data-testid="chat-model-selector-settings-reasoning"]')?.textContent)
       .toBe('reasoningSelector.thinking · reasoningSelector.levels.high');
@@ -714,7 +712,8 @@ describe('ModelSelector provider levels', () => {
     });
     expect(getRecentReasoningPreset('acme-fast')).toBe('off');
     expect(slider()).toBeNull();
-    expect(document.body.querySelector('[data-testid="chat-model-selector-intensity-control"]')?.getAttribute('data-intensity')).toBe('1');
+    expect(document.body.querySelector('[data-testid="chat-model-selector-settings-reasoning"]')?.textContent)
+      .toBe('reasoningSelector.thinking · reasoningSelector.levels.off');
     expect(container.querySelector('[data-testid="chat-model-selector-btn"]')?.getAttribute('aria-expanded')).toBe('true');
     expect(document.activeElement).toBe(document.body.querySelector('[data-testid="chat-model-selector-settings-reasoning"]'));
 

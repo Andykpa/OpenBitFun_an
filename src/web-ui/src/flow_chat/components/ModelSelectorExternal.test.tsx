@@ -781,7 +781,8 @@ describe('ModelSelector external transport reuse', () => {
     expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
     expect(configManager.setConfig).not.toHaveBeenCalled();
     await renderTarget({ ...selection, selectedReasoningPreset: 'medium' });
-    expect(document.body.querySelector('[data-testid="chat-model-selector-intensity-control"]')?.getAttribute('data-intensity')).toBe('1');
+    expect(document.body.querySelector('[data-testid="chat-model-selector-settings-reasoning"]')?.textContent)
+      .toBe('reasoningSelector.thinking · reasoningSelector.levels.medium');
     expect(container.querySelector('[data-testid="chat-model-selector-btn"]')?.getAttribute('aria-expanded')).toBe('true');
   });
 

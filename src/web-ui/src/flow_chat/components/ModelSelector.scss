@@ -673,9 +673,6 @@ $model-mode-dust-sizes: ();
     min-block-size: 0;
 
     .openbitfun-reasoning-control {
-      // Anchor the sky to the card while the inline choices follow the model.
-      position: static;
-      isolation: auto;
       overflow: visible;
     }
 
@@ -690,10 +687,6 @@ $model-mode-dust-sizes: ();
       .openbitfun-reasoning-control__trigger {
         min-block-size: 0;
       }
-    }
-
-    .openbitfun-reasoning-control__backdrop {
-      z-index: 0;
     }
   }
 
