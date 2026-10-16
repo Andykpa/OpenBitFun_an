@@ -394,6 +394,11 @@ Optional read-only Zcode-to-temporary-native-store verification uses the same
 target with `inspect_installed_zcode_native_import -- --ignored --nocapture`.
 It reads the installed source and writes only inside a temporary test directory.
 
+For immutable external-history cache/window reads, byte-budget eviction, v1
+snapshot compatibility and viewed-version isolation, use the same target with
+`history_cache_`. The fixtures count real-file snapshot reads, derived catalog
+builds and copied turns; they do not measure native WebView or remote latency.
+
 The same target also supports `inspect_installed_codex_history_repair -- --ignored --nocapture`.
 Set `OPENBITFUN_TEST_NATIVE_SESSIONS_ROOT` and `OPENBITFUN_TEST_NATIVE_SESSION_ID`
 to an existing answerless Codex import. It reads the installed native copy and

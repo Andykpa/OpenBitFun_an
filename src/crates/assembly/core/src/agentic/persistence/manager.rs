@@ -4,6 +4,8 @@
 
 #[cfg(feature = "external-sources")]
 mod external_history;
+#[cfg(feature = "external-sources")]
+pub(crate) use external_history::external_history_catalog;
 mod session_catalog;
 
 use crate::agentic::core::{
@@ -3440,15 +3442,7 @@ impl PersistenceManager {
         ))
         .await?
         {
-            return Ok(build_turn_catalog(
-                session_id,
-                bundle
-                    .turns
-                    .iter()
-                    .enumerate()
-                    .map(|(ordinal, turn)| turn_catalog_entry(turn, ordinal))
-                    .collect(),
-            ));
+            return Ok(bundle.catalog().clone());
         }
         #[cfg(feature = "external-sources")]
         self.ensure_external_session_materialized(workspace_path, session_id)
@@ -4113,9 +4107,8 @@ impl PersistenceManager {
             Box::pin(self.external_history_snapshot(workspace_path, session_id, false)).await?
         {
             return Ok(bundle
-                .turns
-                .into_iter()
-                .find(|turn| turn.turn_index == turn_index));
+                .turn_position(turn_index)
+                .and_then(|position| bundle.copy_turns(position..position + 1).pop()));
         }
         #[cfg(feature = "external-sources")]
         self.ensure_external_session_materialized(workspace_path, session_id)
@@ -4218,7 +4211,7 @@ impl PersistenceManager {
         if let Some(bundle) =
             Box::pin(self.external_history_snapshot(workspace_path, session_id, false)).await?
         {
-            return Ok(bundle.turns);
+            return Ok(bundle.into_bundle().turns);
         }
         #[cfg(feature = "external-sources")]
         self.ensure_external_session_materialized(workspace_path, session_id)
@@ -4416,8 +4409,12 @@ impl PersistenceManager {
         if let Some(bundle) =
             Box::pin(self.external_history_snapshot(workspace_path, session_id, false)).await?
         {
-            let start = bundle.turns.len().saturating_sub(count);
-            return Ok(bundle.turns.into_iter().skip(start).collect());
+            let start = bundle.turns().len().saturating_sub(count);
+            return Ok(if start == 0 {
+                bundle.into_bundle().turns
+            } else {
+                bundle.copy_turns(start..bundle.turns().len())
+            });
         }
         #[cfg(feature = "external-sources")]
         self.ensure_external_session_materialized(workspace_path, session_id)

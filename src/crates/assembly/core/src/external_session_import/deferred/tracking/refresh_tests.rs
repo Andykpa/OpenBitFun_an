@@ -24,7 +24,7 @@ async fn open_document(
 }
 
 #[tokio::test]
-async fn unchanged_opens_read_one_snapshot_and_do_not_convert_write_or_notify() {
+async fn unchanged_opens_reuse_snapshot_and_do_not_convert_write_or_notify() {
     let (_temp, workspace, root, _manager) = fixture();
     let entry = create_source(&root, &workspace).await;
     let mut document = document(candidate("codex", "source-1", &workspace.root_path));
@@ -83,7 +83,6 @@ async fn unchanged_opens_read_one_snapshot_and_do_not_convert_write_or_notify() 
         probe.take(),
         Counts {
             source_reads: 5,
-            snapshot_reads: 5,
             ..Counts::default()
         }
     );
@@ -120,7 +119,6 @@ async fn empty_and_undated_versions_are_stable_on_reopen() {
             probe.take(),
             Counts {
                 source_reads: 1,
-                snapshot_reads: 1,
                 ..Counts::default()
             }
         );
@@ -191,7 +189,6 @@ async fn unchanged_content_still_updates_source_title_and_availability() {
         probe.take(),
         Counts {
             source_reads: 1,
-            snapshot_reads: 1,
             index_writes: 1,
             catalog_notifications: 1,
             ..Counts::default()
@@ -220,7 +217,6 @@ async fn unchanged_content_still_updates_source_title_and_availability() {
             probe.take(),
             Counts {
                 source_reads: 1,
-                snapshot_reads: 1,
                 index_writes: expected_writes,
                 catalog_notifications: expected_writes,
                 ..Counts::default()
@@ -239,7 +235,6 @@ async fn unchanged_content_still_updates_source_title_and_availability() {
         probe.take(),
         Counts {
             source_reads: 1,
-            snapshot_reads: 1,
             index_writes: 1,
             catalog_notifications: 1,
             ..Counts::default()
@@ -334,13 +329,7 @@ async fn concurrent_local_changes_and_removal_win_during_an_unchanged_refresh() 
             assert_eq!(current.metadata.status, SessionStatus::Archived);
             assert_eq!(current.metadata.tags, vec!["keep-local-tag"]);
         }
-        assert_eq!(
-            probe.take(),
-            Counts {
-                snapshot_reads: 1,
-                ..Counts::default()
-            }
-        );
+        assert_eq!(probe.take(), Counts::default());
     }
 }
 
@@ -387,7 +376,6 @@ async fn legacy_reopens_skip_unchanged_index_writes_but_still_detect_native_edit
         probe.take(),
         Counts {
             source_reads: 1,
-            snapshot_reads: 1,
             conversions: 1,
             ..Counts::default()
         }
@@ -419,6 +407,10 @@ async fn a_newer_published_version_wins_before_the_refresh_result_is_delivered()
         .unwrap()
         .unwrap();
     let mut next = original;
+    let first = snapshot_at_turn_shared(&root, &entry.metadata.session_id, &first.turns[0].turn_id)
+        .await
+        .unwrap()
+        .unwrap();
     next.turns[0].user_text = "Newer refresh".into();
     publish(&root, &workspace, &entry, next).await;
     let probe = Probe::new(&root);
@@ -427,11 +419,5 @@ async fn a_newer_published_version_wins_before_the_refresh_result_is_delivered()
         .unwrap()
         .unwrap();
     assert_eq!(current.turns[0].user_message.content, "Newer refresh");
-    assert_eq!(
-        probe.take(),
-        Counts {
-            snapshot_reads: 1,
-            ..Counts::default()
-        }
-    );
+    assert_eq!(probe.take(), Counts::default());
 }
