@@ -202,10 +202,14 @@ pub(super) async fn validate_native(
             let Some(current) = index.entries.get_mut(&entry.metadata.session_id) else {
                 return ((), false);
             };
-            current
+            let custom = current
                 .metadata
                 .custom_metadata
-                .get_or_insert_with(|| json!({}))[HASH] = json!(hash);
+                .get_or_insert_with(|| json!({}));
+            if custom[HASH] == hash {
+                return ((), false);
+            }
+            custom[HASH] = json!(hash);
             ((), true)
         })
         .await?;

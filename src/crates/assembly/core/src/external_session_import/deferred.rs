@@ -2,6 +2,8 @@
 //! reads a source snapshot; navigation never copies transcript bodies.
 
 mod legacy;
+#[cfg(test)]
+mod test_io;
 pub(crate) mod tracking;
 pub(crate) use legacy::has_native_view;
 
@@ -154,7 +156,11 @@ async fn update_index<T>(
             .await
             .map_err(index_error)?;
         CACHE.lock().await.remove(&path);
+        #[cfg(test)]
+        test_io::record(root, |counts| counts.index_writes += 1);
         SessionMetadataStore::notify_catalog_changed();
+        #[cfg(test)]
+        test_io::record(root, |counts| counts.catalog_notifications += 1);
     }
     Ok(result)
 }
@@ -816,7 +822,8 @@ async fn materialize_reference(
         return Box::pin(tracking::refresh_reference(
             root, entry, workspace, project, workspaces, read,
         ))
-        .await;
+        .await
+        .map(|_| ());
     }
     let store = OfflineSessionImportStore::new(root);
     let before = store
