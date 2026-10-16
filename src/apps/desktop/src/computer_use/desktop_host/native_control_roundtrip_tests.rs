@@ -260,12 +260,76 @@ pub(crate) async fn run() {
         apps.to_string().contains(&pid.to_string()),
         "fixture missing from real application discovery"
     );
-    let observation = call(
+    let before_discovery = host.control_snapshot();
+    let windows = call(&tool, &context, json!({"action":"list_windows"})).await;
+    assert_eq!(
+        host.control_snapshot().generation,
+        before_discovery.generation
+    );
+    assert_eq!(host.control_snapshot().target, before_discovery.target);
+    let window = windows["windows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|window| window["pid"] == pid && window["title"] == "Computer Use Roundtrip Fixture")
+        .expect("small task window must be discoverable independently of AX and default capture");
+    let window_id = window["window_id"].as_u64().unwrap();
+    let main = call(
         &tool,
         &context,
         json!({"action":"get_app_state", "app":{"pid":pid}}),
     )
     .await;
+    assert_eq!(
+        main["app_state"]["window_title"],
+        "Computer Use Large Main Fixture"
+    );
+    let previous_revision = host.control_snapshot().target_revision;
+    let observation = call(
+        &tool,
+        &context,
+        json!({"action":"get_app_state", "app":{"pid":pid,"window_id":window_id}}),
+    )
+    .await;
+    assert_eq!(
+        observation["app_state"]["window_title"],
+        "Computer Use Roundtrip Fixture"
+    );
+    assert!(host.control_snapshot().target_revision > previous_revision);
+    assert_eq!(
+        host.control_snapshot().target,
+        Some(format!("pid:{pid}/window:{window_id}"))
+    );
+    // A stale/wrong-owner window request must fail without attaching the old
+    // window's AX or pixels, and without destroying its healthy capture.
+    let retained = host.control_snapshot();
+    let wrong_owner = tool.call_impl(&json!({"action":"get_app_state","app":{"pid":std::process::id(),"window_id":window_id}}), &context).await.unwrap_err();
+    assert!(
+        wrong_owner
+            .to_string()
+            .contains("TARGET_WINDOW_UNAVAILABLE"),
+        "{wrong_owner}"
+    );
+    assert_eq!(host.control_snapshot().target, retained.target);
+    assert_eq!(
+        host.control_snapshot().target_revision,
+        retained.target_revision
+    );
+    let described = call_observation(
+        &tool,
+        &context,
+        json!({"action":"describe_screen","include_image":true}),
+    )
+    .await;
+    assert_eq!(described.image_count, 1);
+    assert_eq!(
+        described.data["window_title"],
+        "Computer Use Roundtrip Fixture"
+    );
+    assert_eq!(described.data["image_bytes"], true);
+    assert!(described.data["screenshot_meta"]["screenshot_id"]
+        .as_str()
+        .is_some());
     let control = host.control_snapshot();
     assert_eq!(control.state, "active");
     assert!(control.sharing.is_none());
