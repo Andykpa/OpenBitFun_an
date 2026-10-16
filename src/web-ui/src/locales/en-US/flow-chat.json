@@ -3317,7 +3317,8 @@
       "pool": "Battery mode",
       "comingSoon": "Not available yet",
       "developmentNotice": "This mode is not available yet. It currently uses your primary model directly.",
-      "primaryRequired": "Configure a primary model first"
+      "primaryRequired": "Configure a primary model first",
+      "unavailable": "Smart and battery modes are not available on this host yet. Choose a model manually."
     },
     "model": "Model",
     "modelExplanation": "Model explanation",
@@ -3360,6 +3361,14 @@
       "agentPromptLabel": "Last request prompt",
       "acpContext": "ACP reported context: {{usage}}",
       "acpContextLabel": "ACP reported context"
+    },
+    "scope": {
+      "remember": "Remember selection",
+      "session": "Only this session",
+      "title": "Selection scope",
+      "rememberHint": "For this session and future new sessions",
+      "sessionHint": "Temporary choice; new-session defaults stay unchanged",
+      "saveFailed": "Could not change the save preference. Your current session model is unchanged."
     }
   },
   "reasoningEffort": {

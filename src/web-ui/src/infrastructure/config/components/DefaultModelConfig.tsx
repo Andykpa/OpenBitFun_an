@@ -16,6 +16,7 @@ import {
   isSelectableModelForCapability,
 } from '../services/modelCategory';
 import './DefaultModelConfig.scss';
+import { ModelBillingSummary } from './ModelBillingSummary';
 
 const log = createLogger('DefaultModelConfig');
 
@@ -226,6 +227,13 @@ export const DefaultModelConfig: React.FC<DefaultModelConfigProps> = ({
           size="sm"
         />
       </ConfigPageRow>
+      <ModelBillingSummary
+        key={`${defaultModels.primary}:${defaultModels.fast}`}
+        primary={models.find(model => model.id === defaultModels.primary)}
+        fast={models.find(model => model.id === (defaultModels.fast ?? defaultModels.primary))}
+        disabled={controlsDisabled}
+        onSaved={() => undefined}
+      />
     </div>
   );
 };

@@ -4,6 +4,7 @@ export const modelSelectorAppearanceDescriptor: AppearanceSurfaceDescriptor = {
   id: 'model-selector',
   parts: [
     { id: 'root' },
+    { id: 'nativePanel' },
     { id: 'trigger' },
     { id: 'name' },
     { id: 'selectionSummary' },

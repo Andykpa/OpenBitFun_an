@@ -1,0 +1,21 @@
+.model-billing {
+  padding-block: var(--openbitfun-space-3);
+  border-top: 1px solid var(--openbitfun-color-border-subtle);
+
+  &__heading, &__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--openbitfun-space-3);
+  }
+  &__identity { display: grid; min-width: 0; gap: var(--openbitfun-space-1); }
+  &__hint, &__identity small {
+    color: var(--openbitfun-color-content-secondary);
+    font-size: var(--openbitfun-type-body-sm-font-size);
+    line-height: var(--openbitfun-type-body-sm-line-height);
+  }
+  &__hint, &__warning { margin: var(--openbitfun-space-2) 0; overflow-wrap: anywhere; }
+  &__warning { color: var(--openbitfun-color-status-warning-content); font-size: var(--openbitfun-type-body-sm-font-size); }
+  &__details, &__editor { display: grid; gap: var(--openbitfun-space-3); }
+  &__field { display: grid; gap: var(--openbitfun-space-2); }
+}

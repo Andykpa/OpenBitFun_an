@@ -193,6 +193,41 @@ VITE_BUILD_TARGET=web pnpm --dir src/web-ui run build
 # output: dist/
 ```
 
+## Model selection and billing hints
+
+The chat model picker remembers a native session's selection for future new
+sessions by default. **Only this session** keeps a temporary choice on the
+current session without changing that default. Choosing it after changing the
+model in the same open picker also restores the previous default, unless another
+editor has since changed it. Existing sessions keep their explicit model choices.
+Delegated subagents and external agent transports keep their own model ownership.
+Before a draft session exists, only the remembered default is available.
+
+The session model and remembered default use the existing host configuration and
+session APIs, including the active peer surface. The picker remembers its
+save-scope preference locally per device and session; it does not store model
+credentials or a second copy of the host's default. Smart and battery modes remain
+disabled until runtime routing is available; choosing a primary model must not be
+presented as automatic routing.
+
+**Billing details**, in the picker and Settings → Models → Default models, lets
+you annotate each configured model channel with its billing method, currency,
+API rates, account label and source. An API key can represent a Coding Plan;
+account sign-in alone does not establish pricing either. Rates are user-entered
+estimates, not an authenticated bill or a model-name-based catalog price.
+Missing rates stay unknown, while an explicit zero means free. Subscription
+quota and overage remain unknown, and monthly fees are never converted into
+per-token rates. Different currencies are not compared.
+
+Comparisons use the same displayed example input/output usage with no cache
+hits, excluding cache-write, routing and other fees. The calculation treats
+cached input as a subset of total input. A more expensive fast model produces
+an advisory, not a block or an automatic model swap. These annotations do not
+enforce budgets or approve paid fallback. Changing a model's endpoint, identity,
+authentication or API key marks its quote for review; provider group edits do
+not copy one model's rates to others. Unknown future billing records are
+preserved without overwriting them.
+
 ## Subscription models
 
 In **Settings → Models → Subscription accounts**, sign in, choose **Use**, and

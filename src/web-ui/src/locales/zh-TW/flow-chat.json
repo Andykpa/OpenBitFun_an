@@ -3317,7 +3317,8 @@
       "pool": "電池模式",
       "comingSoon": "尚未開放",
       "developmentNotice": "目前模式尚未開放，暫時直接使用主力模型。",
-      "primaryRequired": "請先設定主力模型"
+      "primaryRequired": "請先設定主力模型",
+      "unavailable": "此版本尚未接入智慧路由和電池模式，請手動選擇模型。"
     },
     "model": "模型",
     "modelExplanation": "模型說明",
@@ -3360,6 +3361,14 @@
       "agentPromptLabel": "上次請求輸入上下文",
       "acpContext": "ACP 回報上下文: {{usage}}",
       "acpContextLabel": "ACP 回報上下文"
+    },
+    "scope": {
+      "remember": "記住選擇",
+      "session": "僅用於目前對話",
+      "title": "選擇適用範圍",
+      "rememberHint": "用於目前對話和之後的新對話",
+      "sessionHint": "暫時切換，不改變新對話的預設選擇",
+      "saveFailed": "適用範圍儲存失敗，目前對話的模型保持不變。"
     }
   },
   "reasoningEffort": {

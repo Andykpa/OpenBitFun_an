@@ -3372,6 +3372,34 @@ mod tests {
     }
 
     #[test]
+    fn model_billing_annotations_preserve_legacy_and_future_metadata() {
+        let legacy = serde_json::json!({
+            "id": "existing-model", "model_name": "same-model", "provider": "openai"
+        });
+        let model: AIModelConfig = serde_json::from_value(legacy).unwrap();
+        assert!(model.metadata.is_none());
+        let reloaded: AIModelConfig =
+            serde_json::from_value(serde_json::to_value(model).unwrap()).unwrap();
+        assert_eq!(reloaded.id, "existing-model");
+
+        // Older hosts already round-trip arbitrary metadata. Billing is an
+        // advisory annotation; it does not add a required config/wire field.
+        for version in [1, 2] {
+            let metadata = serde_json::json!({
+                "provider_instance_id": "work-account",
+                "user_tags": ["keep"],
+                "billing_v1": { "version": version, "kind": "api", "input": 0, "future": null }
+            });
+            let model: AIModelConfig = serde_json::from_value(serde_json::json!({
+                "id": "existing-model", "metadata": metadata
+            }))
+            .unwrap();
+            let saved = serde_json::to_value(model).unwrap();
+            assert_eq!(saved["metadata"], metadata);
+        }
+    }
+
+    #[test]
     fn mode_model_selector_preserves_configured_ids_on_round_trip() {
         for (stored, expected) in [
             ("custom-selector", "custom-selector"),
