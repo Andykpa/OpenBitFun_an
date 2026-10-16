@@ -9,6 +9,7 @@ const agentRuntimeIpcForbiddenDeps = [
   'openbitfun-ai-adapters',
   'openbitfun-claude-code-adapter',
   'openbitfun-codex-adapter',
+  'openbitfun-zcode-adapter',
   'openbitfun-core',
   'openbitfun-core-types',
   'openbitfun-dsh-adapter',
@@ -60,6 +61,7 @@ export const noCoreDependencyCrates = [
   'product-domains',
   'claude-code-adapter',
   'codex-adapter',
+  'zcode-adapter',
   'dsh-adapter',
   'opencode-adapter',
   'opencode-plugin-host',
@@ -146,6 +148,7 @@ export const forbiddenManifestDependencyRules = [
   ...[
     ['openbitfun-claude-code-adapter', 'claude-code-adapter'],
     ['openbitfun-codex-adapter', 'codex-adapter'],
+    ['openbitfun-zcode-adapter', 'zcode-adapter'],
     ['openbitfun-pi-adapter', 'pi-adapter'],
   ].map(([dependencyName, crateName]) => ({
     dependencyNames: [dependencyName],
@@ -156,7 +159,7 @@ export const forbiddenManifestDependencyRules = [
       'src/crates/assembly/core/Cargo.toml',
     ],
     reason: `${crateName} production dependencies are limited to the reviewed product composition root`,
-    message: `only openbitfun-core product-full assembly may register ${dependencyName} through the static Hook provider boundary`,
+    message: `only openbitfun-core external-sources assembly may register ${dependencyName} through its reviewed source capability boundary`,
   })),
   {
     dependencyNames: ['openbitfun-static-hook-support'],

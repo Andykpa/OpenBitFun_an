@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "a0070347f9527a6eddeb84b5cd0a93d345c378aa008ce857976f02a9f4bd3d2f",
-  "count": 212,
+  "catalogDigest": "1cd850650aa8b8df165b6fe69c90f060c240169f4becf163ecaba3fbe037000b",
+  "count": 214,
   "reasonCounts": {
     "externalAuth": 4,
     "secretEntry": 5,
-    "unstructuredInteraction": 180,
+    "unstructuredInteraction": 182,
     "visualSelection": 23
   },
   "entries": [
@@ -1650,6 +1650,44 @@
         "command:set_external_source_enabled_command",
         "command:update_external_integration_policy_command",
         "command:set_external_source_conflict_choice_command"
+      ]
+    },
+    {
+      "capabilityId": "feature.ecosystem-compatibility",
+      "itemId": "codex-session-import",
+      "titleZh": "发现、移除和重新添加 Codex 来源会话，并在 OpenBitFun 分支中续聊",
+      "titleEn": "Discover, remove and restore Codex source sessions, then continue in OpenBitFun branches",
+      "reasonCode": "unstructuredInteraction",
+      "reasonZh": "“发现、移除和重新添加 Codex 来源会话，并在 OpenBitFun 分支中续聊”由用户在生态兼容页开启发现或选择已移除的来源。打开来源时刷新历史，首次发送创建独立分支。归档、移除和分支删除各自独立，原应用历史保持不变。智能体打开入口，由用户选择具体会话。",
+      "reasonEn": "“Discover, remove and restore Codex source sessions, then continue in OpenBitFun branches” requires the user to enable discovery or select a removed source in ecosystem compatibility. Opening a source refreshes its history and first send creates an independent branch. Archives, source removal and branch deletion stay independent; original history is preserved. The Agent opens the entry for the user to choose a session.",
+      "presentationTarget": {
+        "kind": "action",
+        "actionId": "surface.ecosystemCompatibility.open"
+      },
+      "evidence": [
+        "command:list_removed_external_sessions",
+        "command:restore_removed_external_session",
+        "source:src/web-ui/src/app/scenes/ecosystem-compatibility/RemovedExternalSessions.tsx#RemovedExternalSessions",
+        "source:src/web-ui/src/app/scenes/ecosystem-compatibility/ExternalAgentSessions.tsx#ExternalAgentSessions"
+      ]
+    },
+    {
+      "capabilityId": "feature.ecosystem-compatibility",
+      "itemId": "zcode-session-import",
+      "titleZh": "发现、移除和重新添加 Zcode 来源会话，并在 OpenBitFun 分支中续聊",
+      "titleEn": "Discover, remove and restore Zcode source sessions, then continue in OpenBitFun branches",
+      "reasonCode": "unstructuredInteraction",
+      "reasonZh": "“发现、移除和重新添加 Zcode 来源会话，并在 OpenBitFun 分支中续聊”由用户在生态兼容页开启发现或选择已移除的来源。打开来源时刷新历史，首次发送创建独立分支。归档、移除和分支删除各自独立，原应用历史保持不变。智能体打开入口，由用户选择具体会话。",
+      "reasonEn": "“Discover, remove and restore Zcode source sessions, then continue in OpenBitFun branches” requires the user to enable discovery or select a removed source in ecosystem compatibility. Opening a source refreshes its history and first send creates an independent branch. Archives, source removal and branch deletion stay independent; original history is preserved. The Agent opens the entry for the user to choose a session.",
+      "presentationTarget": {
+        "kind": "action",
+        "actionId": "surface.ecosystemCompatibility.open"
+      },
+      "evidence": [
+        "command:list_removed_external_sessions",
+        "command:restore_removed_external_session",
+        "source:src/web-ui/src/app/scenes/ecosystem-compatibility/RemovedExternalSessions.tsx#RemovedExternalSessions",
+        "source:src/web-ui/src/app/scenes/ecosystem-compatibility/ExternalAgentSessions.tsx#ExternalAgentSessions"
       ]
     },
     {
