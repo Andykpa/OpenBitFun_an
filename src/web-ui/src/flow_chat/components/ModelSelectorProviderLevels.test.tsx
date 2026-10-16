@@ -581,6 +581,88 @@ describe('ModelSelector provider levels', () => {
     expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
   });
 
+  const openRolePicker = async (role: 'primary' | 'fast') => {
+    await act(async () => document.body.querySelector<HTMLButtonElement>(`[data-testid="model-selection-smart-${role}"]`)!.click());
+  };
+  const roleOption = (id: string) => document.body.querySelector<HTMLButtonElement>(`[data-testid="model-selection-role-option"][data-model-id="${id}"]`);
+
+  it('chooses each smart preview role inline and updates billing without changing actual models', async () => {
+    flowChatStoreMocks.sessions.set('session-a', { config: { modelName: 'umbra-main', reasoningPreset: 'high' } });
+    await renderSelector(CATALOG_MODELS, 'umbra-main', 'session-a');
+    await openSettingsMenu();
+    await act(async () => modeOption('smart')!.click());
+    await openRolePicker('primary');
+    expect(roleOption('acme-fast')?.getAttribute('aria-checked')).toBe('true');
+    await act(async () => roleOption('acme-deep')!.click());
+    expect(document.body.querySelector('[data-testid="model-selection-role-picker"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="model-selection-smart-primary"]')?.textContent).toContain('acme-deep-native');
+    expect(document.activeElement).toBe(document.body.querySelector('[data-testid="model-selection-smart-primary"]'));
+    await openRolePicker('fast');
+    await act(async () => roleOption('acme-fast')!.click());
+    expect(document.activeElement).toBe(document.body.querySelector('[data-testid="model-selection-smart-fast"]'));
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-testid="model-billing-toggle"]')!.click());
+    const billing = document.body.querySelector('[data-testid="model-billing-summary"]')!;
+    expect(billing.textContent).toContain('acme-deep-native');
+    expect(billing.textContent).toContain('acme-fast-native');
+    expect(billing.textContent).not.toContain('umbra-main-native');
+    await act(async () => modeOption('manual')!.click());
+    expect(document.body.querySelector('[data-testid="model-selection-primary"]')?.textContent).toContain('acme-fast-native');
+    expect(document.body.querySelector('[data-testid="model-selection-fast"]')?.textContent).toContain('umbra-main-native');
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+    expect(configManager.updateConfig).not.toHaveBeenCalled();
+    expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
+    expect(flowChatStoreMocks.sessions.get('session-a')?.config).toEqual({ modelName: 'umbra-main', reasoningPreset: 'high' });
+  });
+
+  it('searches configured channels and excludes disabled or non-chat models from preview choices', async () => {
+    await renderSelector([...CATALOG_MODELS,
+      { ...model('disabled', 'Acme', 'provider-acme', 'https://acme.test/v1'), enabled: false },
+      { ...model('image-only', 'Acme', 'provider-acme', 'https://acme.test/v1'), category: 'multimodal', capabilities: ['image_understanding'] },
+    ]);
+    await openSettingsMenu();
+    await act(async () => modeOption('smart')!.click());
+    await openRolePicker('primary');
+    expect(roleOption('disabled')).toBeNull();
+    expect(roleOption('image-only')).toBeNull();
+    const search = document.body.querySelector<HTMLInputElement>('[aria-label="modelSelector.picker.search"]')!;
+    expect(document.activeElement).toBe(search);
+    const searchFor = async (value: string) => act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, value);
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await searchFor('Umbra');
+    expect(roleOption('umbra-main')).not.toBeNull();
+    expect(roleOption('acme-fast')).toBeNull();
+    await searchFor('no-such-model');
+    expect(document.body.querySelector('[data-testid="model-selection-role-options"]')?.textContent).toContain('modelSelector.picker.empty');
+    expect(document.body.querySelectorAll('[data-testid="model-selection-role-option"]')).toHaveLength(0);
+  });
+
+  it('returns from the inline role picker with Escape while retaining the smart preview', async () => {
+    await renderSelector(); await openSettingsMenu();
+    await act(async () => modeOption('smart')!.click());
+    await openRolePicker('fast');
+    const search = document.body.querySelector<HTMLInputElement>('[aria-label="modelSelector.picker.search"]')!;
+    await act(async () => search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, isComposing: true })));
+    expect(document.body.querySelector('[data-testid="model-selection-role-picker"]')).not.toBeNull();
+    await act(async () => search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
+    expect(document.body.querySelector('[data-testid="model-selection-role-picker"]')).toBeNull();
+    expect(modeOption('smart')?.getAttribute('aria-pressed')).toBe('true');
+    expect(document.activeElement).toBe(document.body.querySelector('[data-testid="model-selection-smart-fast"]'));
+    expect(container.querySelector('[data-testid="chat-model-selector-btn"]')?.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('does not carry a preview pair into another session', async () => {
+    await renderSelector(CATALOG_MODELS, 'primary', 'session-a'); await openSettingsMenu();
+    await act(async () => modeOption('smart')!.click());
+    await openRolePicker('primary');
+    await act(async () => roleOption('acme-deep')!.click());
+    await renderSelector(CATALOG_MODELS, 'primary', 'session-b');
+    await act(async () => modeOption('smart')!.click());
+    expect(document.body.querySelector('[data-testid="model-selection-smart-primary"]')?.textContent).toContain('acme-fast-native');
+    expect(document.body.querySelector('[data-testid="model-selection-smart-primary"]')?.textContent).not.toContain('acme-deep-native');
+  });
+
   it('selects the advertised levels inline and keeps Auto separate from Off without closing the card', async () => {
     aiApiMocks.getModelCatalog.mockResolvedValue({
       version: 1,

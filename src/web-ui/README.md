@@ -207,7 +207,10 @@ The session model and remembered default use the existing host configuration and
 session APIs, including the active peer surface. The picker remembers its
 save-scope preference locally per device and session; it does not store model
 credentials or a second copy of the host's default. Smart mode opens a clearly
-marked preview of the primary/fast model pair and billing hints. Previewing it
+marked preview of the primary/fast model pair and billing hints. Select either
+role to search configured text models by model or provider within the same
+popover. Choosing a model updates that preview pair and its billing comparison;
+the back button or Escape returns without opening Settings. Previewing it
 does not change the current model, session or remembered default; actual routing
 remains unavailable. Battery mode remains disabled until supported by the runtime.
 

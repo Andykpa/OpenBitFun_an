@@ -3380,7 +3380,14 @@
       "saveFailed": "適用範圍儲存失敗，目前對話的模型保持不變。"
     },
     "close": "關閉模型選擇",
-    "manageModels": "管理模型"
+    "manageModels": "管理模型",
+    "picker": {
+      "title": "選擇{{role}}",
+      "search": "搜尋模型或供應商",
+      "empty": "沒有符合的可用模型",
+      "back": "返回模型選擇",
+      "previewHint": "僅用於目前預覽，不變更實際模型設定。"
+    }
   },
   "reasoningEffort": {
     "title": "推理深度",

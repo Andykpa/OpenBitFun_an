@@ -6,6 +6,7 @@ export const modelSelectorAppearanceDescriptor: AppearanceSurfaceDescriptor = {
     { id: 'root' },
     { id: 'nativePanel' },
     { id: 'modelInfo' },
+    { id: 'rolePickerList' },
     { id: 'trigger' },
     { id: 'name' },
     { id: 'selectionSummary' },

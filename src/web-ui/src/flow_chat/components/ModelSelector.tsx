@@ -2087,6 +2087,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
             ) : isNativeModelSelection ? (
               <NativeModelSelectionPanel
                 key={modelSelectionScopeKey}
+                models={allModels}
                 primary={allModels.find(model => model.id === defaultModels.primary && isSelectableTextChatModel(model))}
                 fast={allModels.find(model => model.id === (defaultModels.fast ?? defaultModels.primary) && isSelectableTextChatModel(model))}
                 selected={allModels.find(model => model.id === concreteModelId)}

@@ -3380,7 +3380,14 @@
       "saveFailed": "Could not change the save preference. Your current session model is unchanged."
     },
     "close": "Close model selection",
-    "manageModels": "Manage models"
+    "manageModels": "Manage models",
+    "picker": {
+      "title": "Choose {{role}}",
+      "search": "Search models or providers",
+      "empty": "No matching available models",
+      "back": "Back to model selection",
+      "previewHint": "For this preview only. Your model configuration stays unchanged."
+    }
   },
   "reasoningEffort": {
     "title": "Reasoning Effort",

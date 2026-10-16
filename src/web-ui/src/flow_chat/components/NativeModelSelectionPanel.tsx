@@ -1,13 +1,16 @@
-import { useRef, useState, type ReactNode, type RefObject } from 'react';
-import { Button, Icon, IconButton, MenuItem, MenuList, MenuPopover, OverflowText, SegmentedControl, StatusPill, Tooltip } from '@openbitfun/ui';
-import { Brain, SlidersHorizontal, Sparkles, X, Zap } from 'lucide-react';
+import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { Button, Icon, IconButton, MenuItem, MenuList, MenuPopover, MenuSection, OverflowText, ScrollArea, SearchField, SegmentedControl, StatusPill, Tooltip } from '@openbitfun/ui';
+import { ArrowLeft, Brain, Check, Search, SlidersHorizontal, Sparkles, X, Zap } from 'lucide-react';
 import { useI18n } from '@/infrastructure/i18n';
 import type { AIModelConfig } from '@/infrastructure/config/types';
 import { ModelBillingSummary } from '@/infrastructure/config/components/ModelBillingSummary';
+import { filterSelectableTextChatModels } from '@/infrastructure/config/services/modelCategory';
+import { getProviderDisplayName, getProviderGroupKey } from '@/infrastructure/config/services/modelConfigs';
 import type { ModelSelectionScope } from '../hooks/useModelSelectionScope';
 import './NativeModelSelectionPanel.scss';
 
 interface Props {
+  models: AIModelConfig[];
   primary?: AIModelConfig; fast?: AIModelConfig; selected?: AIModelConfig;
   modelLabel: string; selectedId: string; scope: ModelSelectionScope;
   canRemember: boolean; hasSession: boolean; disabled: boolean;
@@ -19,26 +22,109 @@ interface Props {
   children?: ReactNode;
 }
 
+type ModelRole = 'primary' | 'fast';
+
 export function NativeModelSelectionPanel(props: Props) {
   const { t } = useI18n('flow-chat');
   const [scopeOpen, setScopeOpen] = useState(false);
   const [view, setView] = useState<'manual' | 'smart'>('manual');
   const smartPreview = view === 'smart';
   const scopeRef = useRef<HTMLButtonElement>(null);
+  const primaryRef = useRef<HTMLButtonElement>(null);
+  const fastRef = useRef<HTMLButtonElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const returnRole = useRef<ModelRole | null>(null);
+  const [pickingRole, setPickingRole] = useState<ModelRole | null>(null);
+  const [query, setQuery] = useState('');
+  const [previewIds, setPreviewIds] = useState<Partial<Record<ModelRole, string>>>({});
+  const availableModels = filterSelectableTextChatModels(props.models);
+  const previewPair = {
+    primary: availableModels.find(model => model.id === previewIds.primary) ?? props.primary,
+    fast: availableModels.find(model => model.id === previewIds.fast) ?? props.fast,
+  };
+  useLayoutEffect(() => {
+    if (pickingRole) searchRef.current?.focus({ preventScroll: true });
+    else if (returnRole.current) {
+      (returnRole.current === 'primary' ? primaryRef : fastRef).current?.focus({ preventScroll: true });
+      returnRole.current = null;
+    }
+  }, [pickingRole]);
+  const closePicker = () => {
+    returnRole.current = pickingRole;
+    setPickingRole(null);
+    setQuery('');
+  };
+  const roleLabel = (role: ModelRole) => t(role === 'primary' ? 'modelSelector.primaryModel' : 'modelSelector.fastModel');
   const chooseScope = (scope: ModelSelectionScope) => { setScopeOpen(false); props.onScopeChange(scope); };
-  const modelRow = (role: 'primary' | 'fast', model?: AIModelConfig) => (
-    <MenuItem data-testid={`model-selection-smart-${role}`} disabled={props.disabled} onClick={props.onSettings}
+  const modelRow = (role: ModelRole, model?: AIModelConfig) => (
+    <MenuItem ref={role === 'primary' ? primaryRef : fastRef} data-testid={`model-selection-smart-${role}`} disabled={props.disabled}
+      onClick={() => { setQuery(''); setPickingRole(role); }}
       labelBehavior="static" leading={<Icon glyph={role === 'primary' ? Brain : Zap} />}
       metadata={<Icon name="chevron-right" size="sm" />}>
       <span className="native-model-selection__model-info" data-openbitfun-component="model-selector" data-openbitfun-part="modelInfo">
         <span className="native-model-selection__model-meta">
-          <span>{t(role === 'primary' ? 'modelSelector.primaryModel' : 'modelSelector.fastModel')}</span>
+          <span>{roleLabel(role)}</span>
           {model && <OverflowText className="native-model-selection__channel">{model.name}</OverflowText>}
         </span>
         <OverflowText className="native-model-selection__model-name">{model?.model_name ?? t('modelSelector.modelNotConfigured')}</OverflowText>
       </span>
     </MenuItem>
   );
+  if (pickingRole) {
+    const search = query.trim().toLowerCase();
+    const groups = new Map<string, { name: string; models: AIModelConfig[] }>();
+    for (const model of availableModels) {
+      const name = getProviderDisplayName(model);
+      if (search && !`${model.model_name} ${model.name} ${name}`.toLowerCase().includes(search)) continue;
+      const key = getProviderGroupKey(model);
+      const group = groups.get(key) ?? { name, models: [] };
+      group.models.push(model);
+      groups.set(key, group);
+    }
+    return <div className="native-model-selection" data-testid="model-selection-role-picker"
+      data-openbitfun-component="model-selector" data-openbitfun-part="nativePanel"
+      onKeyDownCapture={event => {
+        if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+        if (event.key === 'Escape' || (event.key === 'ArrowLeft' && event.target !== searchRef.current)) {
+          event.preventDefault(); event.stopPropagation(); closePicker();
+        }
+      }}>
+      <div className="native-model-selection__header">
+        <div className="native-model-selection__title">
+          <IconButton size="xs" variant="quiet" icon={<Icon glyph={ArrowLeft} />} aria-label={t('modelSelector.picker.back')} onClick={closePicker} />
+          <strong>{t('modelSelector.picker.title', { role: roleLabel(pickingRole) })}</strong>
+        </div>
+        <StatusPill tone="neutral">{t('modelSelector.modes.previewBadge')}</StatusPill>
+      </div>
+      <SearchField ref={searchRef} size="sm" value={query} onValueChange={setQuery} disabled={props.disabled}
+        aria-label={t('modelSelector.picker.search')} placeholder={t('modelSelector.picker.search')}
+        leadingIcon={<Icon glyph={Search} />} onKeyDown={event => {
+          if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            pickerRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({ preventScroll: true });
+          }
+        }} />
+      <div className="native-model-selection__picker-options" data-openbitfun-component="model-selector" data-openbitfun-part="rolePickerList">
+      <ScrollArea orientation="vertical"><MenuList ref={pickerRef} data-testid="model-selection-role-options">
+        {[...groups].map(([key, group]) => <MenuSection key={key} title={group.name}>
+          {group.models.map(model => <MenuItem key={model.id} role="menuitemradio" checked={previewPair[pickingRole]?.id === model.id}
+            data-testid="model-selection-role-option" data-model-id={model.id} disabled={props.disabled}
+            metadata={previewPair[pickingRole]?.id === model.id ? <Icon glyph={Check} size="sm" /> : undefined}
+            onClick={() => { setPreviewIds(current => ({ ...current, [pickingRole]: model.id })); closePicker(); }}>
+            {model.model_name}
+          </MenuItem>)}
+        </MenuSection>)}
+        {groups.size === 0 && <p className="native-model-selection__hint" role="status">{t('modelSelector.picker.empty')}</p>}
+      </MenuList></ScrollArea>
+      </div>
+      <div className="native-model-selection__footer">
+        <small>{t('modelSelector.picker.previewHint')}</small>
+        <Button size="xs" variant="text" trailingIcon={<Icon name="chevron-right" size="xs" />} onClick={props.onSettings}>{t('modelSelector.manageModels')}</Button>
+      </div>
+    </div>;
+  }
   return <div className="native-model-selection" data-testid="chat-model-selector-settings" data-openbitfun-component="model-selector" data-openbitfun-part="nativePanel">
     <div className="native-model-selection__header">
       <div className="native-model-selection__title"><strong>{t('modelSelector.modelSelection')}</strong>
@@ -69,8 +155,8 @@ export function NativeModelSelectionPanel(props: Props) {
     <p className="native-model-selection__hint">{t(smartPreview ? 'modelSelector.modes.smartSummary' : 'modelSelector.modes.manualSummary')}</p>
     {smartPreview ? <>
       <MenuList data-testid="model-selection-smart-preview">
-        {modelRow('primary', props.primary)}
-        {modelRow('fast', props.fast)}
+        {modelRow('primary', previewPair.primary)}
+        {modelRow('fast', previewPair.fast)}
       </MenuList>
     </> : <><MenuList>
       <MenuItem ref={props.modelRef} data-testid="chat-model-selector-settings-model" disabled={props.disabled} onClick={props.onBrowse}
@@ -91,7 +177,7 @@ export function NativeModelSelectionPanel(props: Props) {
       </MenuItem>
     </MenuList>
     {props.children}</>}
-    <ModelBillingSummary compact primary={props.primary} fast={props.fast} selected={smartPreview ? undefined : props.selected} disabled={props.disabled} onSaved={props.onSaved} />
+    <ModelBillingSummary compact primary={smartPreview ? previewPair.primary : props.primary} fast={smartPreview ? previewPair.fast : props.fast} selected={smartPreview ? undefined : props.selected} disabled={props.disabled} onSaved={props.onSaved} />
     <div className="native-model-selection__footer">
       {smartPreview ? <Tooltip content={t('modelSelector.modes.previewNotice', { model: props.modelLabel })}>
         <span className="native-model-selection__preview-status" role="status" tabIndex={0}>

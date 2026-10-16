@@ -17,6 +17,7 @@
     line-height: var(--openbitfun-type-body-sm-line-height);
   }
   &__hint { margin: 0; }
+  &__picker-options { display: grid; min-height: 0; max-height: min(320px, 45vh); }
   &__model-info { display: grid; min-width: 0; gap: var(--openbitfun-space-1); padding-block: var(--openbitfun-space-2); }
   &__model-meta { display: flex; align-items: center; justify-content: space-between; gap: var(--openbitfun-space-3); }
   &__channel { min-width: 0; max-width: 55%; }

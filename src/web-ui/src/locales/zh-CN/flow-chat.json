@@ -3380,7 +3380,14 @@
       "saveFailed": "适用范围保存失败，当前会话的模型保持不变。"
     },
     "close": "关闭模型选择",
-    "manageModels": "管理模型"
+    "manageModels": "管理模型",
+    "picker": {
+      "title": "选择{{role}}",
+      "search": "搜索模型或供应商",
+      "empty": "没有匹配的可用模型",
+      "back": "返回模型选择",
+      "previewHint": "仅用于当前预览，不更改实际模型配置。"
+    }
   },
   "reasoningEffort": {
     "title": "推理深度",
