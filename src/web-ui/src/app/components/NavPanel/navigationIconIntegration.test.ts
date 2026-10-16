@@ -19,14 +19,24 @@ describe('navigation icon integration', () => {
     expect(entryMarkup).toContain('size="sm"');
   });
 
-  it('uses each MiniApp icon and the standard Skill icon in the overview', () => {
+  it('uses each MiniApp icon and the standard Skill discovery icon in the overview', () => {
     const source = readFileSync(
       fileURLToPath(new URL('../../scenes/personal-overview/PersonalOverviewScene.tsx', import.meta.url)),
       'utf8',
     );
-    expect(source).toContain("leading={renderMiniAppIcon(app.icon || 'box', 'lg')}");
-    expect(source).toContain('<Icon name="book-open" size="lg" />');
+    const miniAppLogosSource = readFileSync(
+      fileURLToPath(new URL('../../scenes/personal-overview/OverviewMiniAppLogos.tsx', import.meta.url)),
+      'utf8',
+    );
+    expect(source).toContain('<OverviewMiniAppLogos apps={miniAppItems}');
+    expect(miniAppLogosSource).toContain("icon={renderMiniAppIcon(app.icon || 'box', 'lg')}");
+    const discoveryEnd = source.indexOf('data-testid="personal-overview-discover-skills"');
+    const discoveryStart = source.lastIndexOf('<OverviewSplitCardAction', discoveryEnd);
+    expect(discoveryStart).toBeGreaterThanOrEqual(0);
+    expect(discoveryEnd).toBeGreaterThan(discoveryStart);
+    expect(source.slice(discoveryStart, discoveryEnd)).toContain('<Icon name="search" size="lg" />');
     expect(source).not.toContain('strokeWidth');
+    expect(miniAppLogosSource).not.toContain('strokeWidth');
   });
 
   it('uses the reference clock icon for Task Board', () => {
