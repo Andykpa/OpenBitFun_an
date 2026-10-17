@@ -72,6 +72,44 @@ const MODULES = [
 
 const TEST_ROOT = join('C:', 'repo');
 
+test('session metadata paging delegates query parameters to the services-core store', async () => {
+  const managerRule = requiredContentRules.find(
+    rule => rule.path === 'src/crates/assembly/core/src/agentic/persistence/manager.rs',
+  );
+  const pageRule = managerRule.patterns.find(
+    pattern => pattern.message === 'missing metadata page delegation to services-core store',
+  );
+  const source = await readFile(new URL(`../${managerRule.path}`, import.meta.url), 'utf8');
+  const call = '.list_metadata_page_with_query(cursor, limit, query)';
+  assert.ok(source.includes(call));
+  assert.ok(pageRule.regex.test(source));
+  for (const replacement of [
+    '.list_metadata_page(cursor, limit)',
+    '.list_metadata_page_with_query(cursor, limit, None)',
+    '.list_metadata_page_with_query(None, limit, query)',
+    '.list_metadata_page_with_query(cursor, 1, query)',
+  ]) {
+    assert.ok(!pageRule.regex.test(source.replace(call, replacement)), replacement);
+  }
+  assert.ok(!pageRule.regex.test(source.replaceAll(
+    '.session_metadata_store(workspace_path)',
+    '.local_metadata_store(workspace_path)',
+  )));
+
+  const storeRule = requiredContentRules.find(
+    rule => rule.path === 'src/crates/services/services-core/src/session/metadata_store.rs',
+  );
+  const storeSource = await readFile(new URL(`../${storeRule.path}`, import.meta.url), 'utf8');
+  const acceptsStore = text => storeRule.patterns.every(({ regex }) => regex.test(text));
+  assert.ok(acceptsStore(storeSource));
+  for (const entrypoint of ['list_metadata_page', 'list_metadata_page_with_query']) {
+    assert.ok(!acceptsStore(storeSource.replace(
+      `pub async fn ${entrypoint}(`,
+      'pub async fn removed_entrypoint(',
+    )), `must keep ${entrypoint} in the services-core store`);
+  }
+});
+
 test('workspace instruction owner requires family priority and non-empty fallback regressions', async () => {
   const rule = requiredContentRules.find(
     rule => rule.path === 'src/crates/services/services-core/tests/declarative_workspace_instruction_contracts.rs',

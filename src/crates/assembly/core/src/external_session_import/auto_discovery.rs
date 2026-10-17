@@ -262,7 +262,105 @@ async fn discover_enabled(
     warnings
 }
 
-type SourceCatalogs = tokio::sync::Mutex<HashMap<String, (Instant, Arc<ExternalSessionCatalog>)>>;
+#[derive(Debug)]
+struct SourceCatalog {
+    catalog: ExternalSessionCatalog,
+    ownership: Mutex<Option<CatalogOwnership>>,
+    #[cfg(test)]
+    ownership_resolutions: std::sync::atomic::AtomicUsize,
+}
+
+#[derive(Debug)]
+struct CatalogOwnership {
+    roots: Vec<(String, PathBuf)>,
+    candidates: HashMap<String, Vec<usize>>,
+}
+
+impl SourceCatalog {
+    fn new(catalog: ExternalSessionCatalog) -> Self {
+        Self {
+            catalog,
+            ownership: Mutex::new(None),
+            #[cfg(test)]
+            ownership_resolutions: std::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+
+    fn workspace_candidates(
+        &self,
+        workspace: &WorkspaceInfo,
+        workspaces: &[WorkspaceInfo],
+        mut normalize: impl FnMut(&Path) -> String,
+    ) -> Vec<ExternalSessionCandidate> {
+        if workspace.workspace_kind == WorkspaceKind::Remote {
+            return Vec::new();
+        }
+        // Registry order is significant when two registered roots are equal:
+        // matching_workspace selects the last equally specific owner.
+        let roots = workspaces
+            .iter()
+            .filter(|workspace| workspace.workspace_kind != WorkspaceKind::Remote)
+            .map(|workspace| (workspace.id.clone(), workspace.root_path.clone()))
+            .collect::<Vec<_>>();
+        let mut ownership = self
+            .ownership
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if ownership
+            .as_ref()
+            .is_none_or(|cached| cached.roots != roots)
+        {
+            let mut normalized = HashMap::<PathBuf, String>::new();
+            let mut normalize_once = |path: &Path| {
+                normalized
+                    .entry(path.to_path_buf())
+                    .or_insert_with(|| normalize(path))
+                    .clone()
+            };
+            let normalized_roots = roots
+                .iter()
+                .map(|(id, root)| (id, normalize_once(root)))
+                .collect::<Vec<_>>();
+            let mut owners = HashMap::<&str, Option<&String>>::new();
+            let mut candidates = HashMap::<String, Vec<usize>>::new();
+            for (index, candidate) in self.catalog.candidates.iter().enumerate() {
+                let Some(cwd) = candidate.cwd.as_deref() else {
+                    continue;
+                };
+                let owner = owners.entry(cwd).or_insert_with(|| {
+                    #[cfg(test)]
+                    self.ownership_resolutions.fetch_add(1, Ordering::Relaxed);
+                    let source = normalize_once(Path::new(cwd));
+                    normalized_roots
+                        .iter()
+                        .filter(|(_, root)| {
+                            source == *root
+                                || source
+                                    .strip_prefix(root.as_str())
+                                    .is_some_and(|suffix| suffix.starts_with('/'))
+                        })
+                        .max_by_key(|(_, root)| root.len())
+                        .map(|(id, _)| *id)
+                });
+                if let Some(owner) = owner {
+                    candidates.entry((*owner).clone()).or_default().push(index);
+                }
+            }
+            *ownership = Some(CatalogOwnership { roots, candidates });
+        }
+        ownership
+            .as_ref()
+            .unwrap()
+            .candidates
+            .get(&workspace.id)
+            .into_iter()
+            .flatten()
+            .map(|index| self.catalog.candidates[*index].clone())
+            .collect()
+    }
+}
+
+type SourceCatalogs = tokio::sync::Mutex<HashMap<String, (Instant, Arc<SourceCatalog>)>>;
 static SOURCE_CATALOGS: LazyLock<SourceCatalogs> = LazyLock::new(Default::default);
 
 async fn shared_catalog(
@@ -270,7 +368,7 @@ async fn shared_catalog(
     ecosystem: &str,
     requested_at: Instant,
     read: impl FnOnce() -> Result<ExternalSessionCatalog, String> + Send + 'static,
-) -> Result<Arc<ExternalSessionCatalog>, String> {
+) -> Result<Arc<SourceCatalog>, String> {
     // Serialize source scans across workspaces. Requests already queued when a
     // scan finishes share that snapshot; a later workspace activation refreshes it.
     let mut cache = cache.lock().await;
@@ -279,11 +377,11 @@ async fn shared_catalog(
             return Ok(catalog.clone());
         }
     }
-    let catalog = Arc::new(
+    let catalog = Arc::new(SourceCatalog::new(
         tokio::task::spawn_blocking(read)
             .await
             .map_err(|error| error.to_string())??,
-    );
+    ));
     cache.insert(ecosystem.into(), (Instant::now(), catalog.clone()));
     Ok(catalog)
 }
@@ -293,25 +391,20 @@ async fn register_catalog(
     workspace: &WorkspaceInfo,
     project: &WorkspaceInfo,
     workspaces: &[WorkspaceInfo],
-    catalog: &ExternalSessionCatalog,
+    catalog: &SourceCatalog,
     cancelled: &AtomicBool,
 ) -> Vec<String> {
     if cancelled.load(Ordering::Acquire) {
         return Vec::new();
     }
     let mut warnings = Vec::new();
-    if !catalog.diagnostics.is_empty() {
+    if !catalog.catalog.diagnostics.is_empty() {
         warnings.push(format!(
             "Some {} source records could not be read",
-            catalog.ecosystem_id
+            catalog.catalog.ecosystem_id
         ));
     }
-    let candidates = catalog
-        .candidates
-        .iter()
-        .filter(|candidate| belongs_to_workspace(candidate, workspace, workspaces))
-        .cloned()
-        .collect();
+    let candidates = catalog.workspace_candidates(workspace, workspaces, normalized_path);
     if let Err(error) =
         super::deferred::register(store.sessions_root(), workspace, project, candidates).await
     {
@@ -547,7 +640,7 @@ pub(super) mod tests {
             selected[0],
             &project,
             &workspaces,
-            &discovered,
+            &SourceCatalog::new(discovered),
             &AtomicBool::new(false),
         )
         .await;
@@ -673,7 +766,7 @@ pub(super) mod tests {
             &workspace,
             &workspace,
             &[workspace.clone()],
-            &catalog("codex", vec![candidate("codex", "a", temp.path())]),
+            &SourceCatalog::new(catalog("codex", vec![candidate("codex", "a", temp.path())])),
             &AtomicBool::new(true),
         )
         .await;
@@ -701,5 +794,84 @@ pub(super) mod tests {
             &root,
             &sources
         ));
+    }
+
+    #[test]
+    fn catalog_ownership_normalizes_unique_paths_once_for_all_workspaces() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = workspace("root", temp.path(), WorkspaceKind::Normal);
+        let nested = workspace("nested", &temp.path().join("nested"), WorkspaceKind::Normal);
+        let remote = workspace("remote", &nested.root_path, WorkspaceKind::Remote);
+        let workspaces = vec![root.clone(), nested.clone(), remote.clone()];
+        let mut candidates = Vec::new();
+        for index in 0..200 {
+            let cwd = if index % 2 == 0 {
+                root.root_path.join("src")
+            } else {
+                nested.root_path.join("src")
+            };
+            candidates.push(candidate("codex", &index.to_string(), &cwd));
+        }
+        candidates.push(candidate(
+            "codex",
+            "sibling",
+            &temp.path().with_extension("sibling"),
+        ));
+        let mut missing = candidate("codex", "missing", temp.path());
+        missing.cwd = None;
+        candidates.push(missing);
+        let source = SourceCatalog::new(catalog("codex", candidates));
+        let mut normalized = Vec::new();
+        for workspace in &workspaces {
+            let actual = source.workspace_candidates(workspace, &workspaces, |path| {
+                normalized.push(path.to_path_buf());
+                normalized_path(path)
+            });
+            let expected = source
+                .catalog
+                .candidates
+                .iter()
+                .filter(|candidate| belongs_to_workspace(candidate, workspace, &workspaces))
+                .map(|candidate| &candidate.candidate_id)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                actual
+                    .iter()
+                    .map(|candidate| &candidate.candidate_id)
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
+        assert_eq!(normalized.len(), 5, "Two local roots and three distinct source directories, shared across all workspace readers");
+        assert_eq!(
+            normalized
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            5
+        );
+
+        assert_eq!(
+            source.ownership_resolutions.load(Ordering::Relaxed),
+            3,
+            "Resolve each distinct source directory once, not once per session or workspace"
+        );
+        let replacement = workspace("replacement", &nested.root_path, WorkspaceKind::Normal);
+        let changed_registry = vec![root, nested, remote, replacement.clone()];
+        let actual = source.workspace_candidates(&replacement, &changed_registry, |path| {
+            normalized.push(path.to_path_buf());
+            normalized_path(path)
+        });
+        assert_eq!(
+            actual.len(),
+            100,
+            "Registry changes invalidate ownership; the last equal root wins"
+        );
+        assert_eq!(
+            normalized.len(),
+            10,
+            "A new registry snapshot resolves paths afresh, still once per unique path"
+        );
+        assert_eq!(source.ownership_resolutions.load(Ordering::Relaxed), 6);
     }
 }

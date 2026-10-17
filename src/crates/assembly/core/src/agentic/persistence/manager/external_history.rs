@@ -3,6 +3,18 @@ use crate::agentic::persistence::session_branch::TransientSessionBranchSource;
 use crate::external_session_import::deferred::{self, tracking};
 use openbitfun_services_core::session::OfflineSessionBundle;
 
+pub(crate) fn external_history_catalog(bundle: &OfflineSessionBundle) -> SessionTurnCatalog {
+    build_turn_catalog(
+        &bundle.metadata.session_id,
+        bundle
+            .turns
+            .iter()
+            .enumerate()
+            .map(|(ordinal, turn)| turn_catalog_entry(turn, ordinal))
+            .collect(),
+    )
+}
+
 impl PersistenceManager {
     pub(crate) async fn restore_external_session_reference(
         &self,
@@ -96,13 +108,13 @@ impl PersistenceManager {
         workspace: &Path,
         id: &str,
         refresh: bool,
-    ) -> OpenBitFunResult<Option<OfflineSessionBundle>> {
+    ) -> OpenBitFunResult<Option<tracking::HistorySnapshot>> {
         if self.has_independent_native_history(workspace, id).await? {
             return Ok(None);
         }
         // Keep source decoding state out of every native persistence future.
         // Native restores and undo/fork paths already nest several async owners.
-        Box::pin(tracking::snapshot(
+        Box::pin(tracking::snapshot_shared(
             &self.project_sessions_dir(workspace),
             id,
             refresh,
@@ -115,13 +127,17 @@ impl PersistenceManager {
         workspace: &Path,
         id: &str,
         turns: &[DialogTurnData],
-    ) -> OpenBitFunResult<Option<OfflineSessionBundle>> {
+    ) -> OpenBitFunResult<Option<tracking::HistorySnapshot>> {
         if self.has_independent_native_history(workspace, id).await? {
             return Ok(None);
         }
         if let Some(turn) = turns.first() {
-            tracking::snapshot_at_turn(&self.project_sessions_dir(workspace), id, &turn.turn_id)
-                .await
+            tracking::snapshot_at_turn_shared(
+                &self.project_sessions_dir(workspace),
+                id,
+                &turn.turn_id,
+            )
+            .await
         } else {
             self.external_history_snapshot(workspace, id, false).await
         }
@@ -138,14 +154,16 @@ impl PersistenceManager {
         let Some(bundle) = self.external_history_snapshot(workspace, id, true).await? else {
             return Ok(None);
         };
-        let total = bundle.turns.len();
+        let total = bundle.turns().len();
         let session =
-            Self::build_session_from_persisted_parts(bundle.metadata, None, &bundle.turns).await?;
-        let turns = bundle
-            .turns
-            .into_iter()
-            .skip(tail.map_or(0, |count| total.saturating_sub(count)))
-            .collect::<Vec<_>>();
+            Self::build_session_from_persisted_parts(bundle.metadata.clone(), None, bundle.turns())
+                .await?;
+        let start = tail.map_or(0, |count| total.saturating_sub(count));
+        let turns = if start == 0 {
+            bundle.into_bundle().turns
+        } else {
+            bundle.copy_turns(start..total)
+        };
         let timing = SessionTurnLoadTiming {
             requested_tail_turn_count: tail,
             loaded_turn_count: turns.len(),
@@ -168,38 +186,30 @@ impl PersistenceManager {
         }
         let root = self.project_sessions_dir(&request.workspace_path);
         let bundle = if let Some(turn_id) = request.expected_turn_id.as_deref() {
-            tracking::snapshot_at_turn(&root, &request.session_id, turn_id).await?
+            tracking::snapshot_at_turn_shared(&root, &request.session_id, turn_id).await?
         } else {
-            tracking::snapshot(&root, &request.session_id, false).await?
+            tracking::snapshot_shared(&root, &request.session_id, false).await?
         };
         let Some(bundle) = bundle else {
             return Ok(None);
         };
-        let catalog = build_turn_catalog(
-            &request.session_id,
-            bundle
-                .turns
-                .iter()
-                .enumerate()
-                .map(|(ordinal, turn)| turn_catalog_entry(turn, ordinal))
-                .collect(),
-        );
+        let catalog = bundle.catalog();
         if request
             .expected_catalog_revision
             .as_deref()
             .is_some_and(|revision| revision != catalog.revision)
         {
-            return Ok(Some(SessionTurnWindowResponse::Stale { catalog }));
+            return Ok(Some(SessionTurnWindowResponse::Stale {
+                catalog: catalog.clone(),
+            }));
         }
-        let Some(target) = bundle
-            .turns
-            .iter()
-            .position(|turn| turn.turn_index == request.target_storage_turn_index)
-        else {
-            return Ok(Some(SessionTurnWindowResponse::NotFound { catalog }));
+        let Some(target) = bundle.turn_position(request.target_storage_turn_index) else {
+            return Ok(Some(SessionTurnWindowResponse::NotFound {
+                catalog: catalog.clone(),
+            }));
         };
         let start = target.saturating_sub(request.before.min(SESSION_TURN_WINDOW_MAX_BEFORE));
-        let end = bundle.turns.len().min(
+        let end = bundle.turns().len().min(
             target.saturating_add(
                 request
                     .after
@@ -207,12 +217,12 @@ impl PersistenceManager {
             ),
         );
         Ok(Some(SessionTurnWindowResponse::Ready {
-            catalog_revision: catalog.revision,
+            catalog_revision: catalog.revision.clone(),
             total_turn_count: catalog.total_turn_count,
             start_ordinal: start,
             end_ordinal_exclusive: end,
-            target_turn_id: bundle.turns[target].turn_id.clone(),
-            turns: bundle.turns[start..end].to_vec(),
+            target_turn_id: bundle.turns()[target].turn_id.clone(),
+            turns: bundle.copy_turns(start..end),
         }))
     }
 

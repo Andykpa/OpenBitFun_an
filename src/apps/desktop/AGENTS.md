@@ -128,6 +128,9 @@ For whole-session copy routing, run
 `cargo test --locked -p openbitfun-desktop --lib whole_session_copy_uses_the_latest_persisted_turn_fork`.
 After command registration changes, also run the `remote_workspace_policy` filter.
 
+For optional workspace catalog query payload compatibility, run
+`cargo test --locked -p openbitfun-desktop --lib api::session_api::catalog_request_tests`.
+
 For model selector request compatibility and configuration effect routing:
 
 ```bash

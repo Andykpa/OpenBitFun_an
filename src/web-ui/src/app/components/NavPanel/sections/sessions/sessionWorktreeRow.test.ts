@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { workspaceSessionCatalogTotal } from './workspaceSessionCatalogQuery';
 
 function read(relativePath: string): string {
   return readFileSync(
@@ -57,9 +58,8 @@ describe('worktree isolated session row', () => {
     // Both the main checkout and linked worktrees share the storage total.
     // Ownership behavior is covered with real hierarchies in sessionNavHierarchy.test.ts.
     expect(sessionsSection).toContain('getWorkspaceSessionHierarchy(');
-    expect(sessionsSection).toContain(
-      'const totalTopLevelSessionCount = topLevelSessions.length;',
-    );
+    expect(workspaceSessionCatalogTotal(3, { paged: false, total: 655 })).toBe(3);
+    expect(workspaceSessionCatalogTotal(3, { paged: true, total: 94, knownCount: 3 })).toBe(94);
     expect(sessionsSection).not.toContain('getEffectiveTopLevelSessionCount');
   });
 

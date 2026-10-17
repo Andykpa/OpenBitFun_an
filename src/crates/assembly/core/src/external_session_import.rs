@@ -193,6 +193,33 @@ fn convert_document(
     include_tool_history: bool,
     include_thinking: bool,
 ) -> ExternalSourceOperationResult<OfflineSessionBundle> {
+    let mut metadata = document_metadata(
+        session_id,
+        workspace,
+        project,
+        agent_id,
+        session_name,
+        document,
+    )?;
+    let turns = convert_document_turns(
+        session_id,
+        agent_id,
+        document,
+        include_tool_history,
+        include_thinking,
+    );
+    finish_document_metadata(&mut metadata, &turns);
+    Ok(OfflineSessionBundle { metadata, turns })
+}
+
+fn document_metadata(
+    session_id: &str,
+    workspace: &crate::service::workspace::WorkspaceInfo,
+    project: &crate::service::workspace::WorkspaceInfo,
+    agent_id: &str,
+    session_name: &str,
+    document: &ExternalSessionDocument,
+) -> ExternalSourceOperationResult<SessionMetadata> {
     // The source model is retained on the imported rounds and provenance
     // metadata, while continuation uses the target host's configured primary
     // model instead of assuming the source model exists locally.
@@ -223,7 +250,16 @@ fn convert_document(
         "sourceModel": document.candidate.model_name,
         "continuationMode": "openbitfun_local"
     }));
+    Ok(metadata)
+}
 
+fn convert_document_turns(
+    session_id: &str,
+    agent_id: &str,
+    document: &ExternalSessionDocument,
+    include_tool_history: bool,
+    include_thinking: bool,
+) -> Vec<DialogTurnData> {
     let mut turns = Vec::with_capacity(document.turns.len());
     for (turn_index, source) in document.turns.iter().enumerate() {
         let turn_id = format!("{session_id}-turn-{turn_index}");
@@ -390,6 +426,10 @@ fn convert_document(
         };
         turns.push(turn);
     }
+    turns
+}
+
+fn finish_document_metadata(metadata: &mut SessionMetadata, turns: &[DialogTurnData]) {
     metadata.turn_count = turns.len();
     metadata.message_count = turns.len()
         + turns
@@ -407,7 +447,6 @@ fn convert_document(
         .and_then(|turn| turn.end_time)
         .unwrap_or_else(current_time_ms);
     metadata.last_finished_at = Some(metadata.last_active_at);
-    Ok(OfflineSessionBundle { metadata, turns })
 }
 
 fn current_time_ms() -> u64 {

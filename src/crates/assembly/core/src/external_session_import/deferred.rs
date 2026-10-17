@@ -2,6 +2,8 @@
 //! reads a source snapshot; navigation never copies transcript bodies.
 
 mod legacy;
+#[cfg(test)]
+mod test_io;
 pub(crate) mod tracking;
 pub(crate) use legacy::has_native_view;
 
@@ -12,7 +14,6 @@ use openbitfun_services_core::{json_store::JsonFileStore, session::SessionMetada
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
-use std::time::SystemTime;
 
 const INDEX_FILE: &str = ".external-session-index.json";
 const PENDING_KEY: &str = "externalHistoryPending";
@@ -87,9 +88,16 @@ impl Default for Index {
     }
 }
 
-type Stamp = (Option<SystemTime>, u64);
+type Stamp = openbitfun_services_core::json_store::JsonFileRevision;
 type IndexCache = HashMap<PathBuf, (Stamp, Arc<Index>)>;
 static CACHE: LazyLock<tokio::sync::Mutex<IndexCache>> = LazyLock::new(Default::default);
+
+pub(crate) async fn catalog_revision(root: &Path) -> OpenBitFunResult<Option<Stamp>> {
+    JsonFileStore
+        .revision(&root.join(INDEX_FILE))
+        .await
+        .map_err(index_error)
+}
 
 fn index_error(error: impl std::fmt::Display) -> OpenBitFunError {
     OpenBitFunError::io(format!("External session index is unavailable: {error}"))
@@ -97,14 +105,10 @@ fn index_error(error: impl std::fmt::Display) -> OpenBitFunError {
 
 async fn read_index(root: &Path) -> OpenBitFunResult<Arc<Index>> {
     let path = root.join(INDEX_FILE);
-    let stat = match tokio::fs::metadata(&path).await {
-        Ok(stat) => stat,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(Arc::new(Index::default()))
-        }
-        Err(error) => return Err(index_error(error)),
+    let Some(stamp) = catalog_revision(root).await? else {
+        CACHE.lock().await.remove(&path);
+        return Ok(Arc::new(Index::default()));
     };
-    let stamp = (stat.modified().ok(), stat.len());
     let mut cache = CACHE.lock().await;
     if let Some((previous, index)) = cache.get(&path) {
         if *previous == stamp {
@@ -154,7 +158,11 @@ async fn update_index<T>(
             .await
             .map_err(index_error)?;
         CACHE.lock().await.remove(&path);
+        #[cfg(test)]
+        test_io::record(root, |counts| counts.index_writes += 1);
         SessionMetadataStore::notify_catalog_changed();
+        #[cfg(test)]
+        test_io::record(root, |counts| counts.catalog_notifications += 1);
     }
     Ok(result)
 }
@@ -816,7 +824,8 @@ async fn materialize_reference(
         return Box::pin(tracking::refresh_reference(
             root, entry, workspace, project, workspaces, read,
         ))
-        .await;
+        .await
+        .map(|_| ());
     }
     let store = OfflineSessionImportStore::new(root);
     let before = store
@@ -1547,6 +1556,135 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn catalog_query_pages_native_and_external_metadata_without_materializing_history() {
+        use openbitfun_services_core::session::page::{
+            SessionCatalogOrdering, SessionCatalogQuery,
+        };
+        let (_temp, workspace, root, manager) = fixture();
+        let candidates = (0..60)
+            .map(|index| {
+                let mut value = candidate(
+                    if index % 2 == 0 { "codex" } else { "zcode" },
+                    &index.to_string(),
+                    &workspace.root_path,
+                );
+                value.created_at = Some(index + 1);
+                value.updated_at = Some(1000 - index);
+                value
+            })
+            .collect();
+        register(&root, &workspace, &workspace, candidates)
+            .await
+            .unwrap();
+        let mut other = workspace.clone();
+        other.id = "another-workspace".into();
+        register(
+            &root,
+            &other,
+            &workspace,
+            vec![candidate("codex", "other", &workspace.root_path)],
+        )
+        .await
+        .unwrap();
+        let mut native = SessionMetadata::new(
+            "native".into(),
+            "Native".into(),
+            "agent".into(),
+            "model".into(),
+        );
+        native.workspace_id = Some(workspace.id.clone());
+        native.created_at = 100;
+        SessionMetadataStore::new(&root)
+            .save_metadata(&native)
+            .await
+            .unwrap();
+        let before = tokio::fs::read(root.join(INDEX_FILE)).await.unwrap();
+        let mut query = SessionCatalogQuery {
+            workspace_id: workspace.id.clone(),
+            ordering: SessionCatalogOrdering::Updated,
+            source: "codex".into(),
+            sort_timestamps: HashMap::new(),
+        };
+        let first = manager
+            .list_session_metadata_page_with_query(&root, None, 5, Some(&query))
+            .await
+            .unwrap();
+        assert_eq!(first.catalog_query, Some(query.clone()));
+        assert_eq!(first.total_top_level_count, 30);
+        assert_eq!(first.sessions.len(), 5);
+        assert_eq!(first.sessions[0].session_name, "58");
+        let second = manager
+            .list_session_metadata_page_with_query(
+                &root,
+                first.next_cursor.as_deref(),
+                5,
+                Some(&query),
+            )
+            .await
+            .unwrap();
+        assert_eq!(second.sessions[0].session_name, "48");
+        assert_eq!(second.catalog_revision, first.catalog_revision);
+        assert_eq!(manager.session_catalog_build_count_for_test().await, 1);
+        assert!(first
+            .sessions
+            .iter()
+            .chain(&second.sessions)
+            .all(|record| !root.join(&record.session_id).exists()));
+        query.source = "all".into();
+        let all = manager
+            .list_session_metadata_page_with_query(&root, None, 5, Some(&query))
+            .await
+            .unwrap();
+        assert_eq!(all.total_top_level_count, 61);
+        assert_eq!(all.sessions[0].session_id, "native");
+        assert_eq!(
+            tokio::fs::read(root.join(INDEX_FILE)).await.unwrap(),
+            before
+        );
+        assert_eq!(manager.session_catalog_build_count_for_test().await, 2);
+
+        // Bypass the process-local notification/cache as a foreign writer does.
+        let mut foreign: Index = serde_json::from_slice(&before).unwrap();
+        let renamed_id = first.sessions[0].session_id.clone();
+        let renamed = foreign.entries.get_mut(&renamed_id).unwrap();
+        renamed.metadata.session_name = "Renamed outside this process".into();
+        renamed.metadata.custom_metadata.as_mut().unwrap()["externalSessionTitleOverride"] =
+            Value::Bool(true);
+        JsonFileStore
+            .write_atomic_strict(&root.join(INDEX_FILE), &foreign)
+            .await
+            .unwrap();
+        query.source = "codex".into();
+        let refreshed = manager
+            .list_session_metadata_page_with_query(
+                &root,
+                first.next_cursor.as_deref(),
+                5,
+                Some(&query),
+            )
+            .await
+            .unwrap();
+        assert!(refreshed.catalog_reset);
+        assert_eq!(
+            refreshed.sessions[0].session_name,
+            "Renamed outside this process"
+        );
+        assert_eq!(manager.session_catalog_build_count_for_test().await, 3);
+        let continued = manager
+            .list_session_metadata_page_with_query(
+                &root,
+                refreshed.next_cursor.as_deref(),
+                5,
+                Some(&query),
+            )
+            .await
+            .unwrap();
+        assert!(!continued.catalog_reset);
+        assert_eq!(continued.sessions[0].session_name, "48");
+        assert_eq!(manager.session_catalog_build_count_for_test().await, 3);
+    }
+
+    #[tokio::test]
     async fn rename_archive_and_delete_remain_index_only_and_rediscovery_preserves_intent() {
         let (_temp, workspace, root, manager) = fixture();
         let source = candidate("zcode", "one", &workspace.root_path);
@@ -1910,6 +2048,23 @@ mod tests {
         assert_eq!(page.sessions.len(), 1);
         assert_eq!(page.sessions[0].session_id, "native");
         assert_eq!(page.discovery_warnings.len(), 1);
+        let query = openbitfun_services_core::session::page::SessionCatalogQuery {
+            workspace_id: workspace.id.clone(),
+            ordering: openbitfun_services_core::session::page::SessionCatalogOrdering::Updated,
+            source: "all".into(),
+            sort_timestamps: HashMap::new(),
+        };
+        let fallback = manager
+            .list_session_metadata_page_with_query(&root, Some("old-cursor"), 5, Some(&query))
+            .await
+            .unwrap();
+        assert_eq!(fallback.sessions[0].session_id, "native");
+        assert_eq!(fallback.discovery_warnings.len(), 1);
+        assert!(
+            fallback.catalog_query.is_none(),
+            "an unavailable revision must restart legacy traversal"
+        );
+        assert_eq!(manager.session_catalog_build_count_for_test().await, 0);
         assert_eq!(manager.list_session_metadata(&root).await.unwrap().len(), 1);
         assert_eq!(
             manager

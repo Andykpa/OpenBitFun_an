@@ -2,6 +2,12 @@
 
 use super::*;
 
+mod history_cache;
+pub(crate) use history_cache::HistorySnapshot;
+
+#[cfg(test)]
+mod refresh_tests;
+
 const MODE: &str = "externalHistoryMode";
 const VERSION: &str = "externalContentVersion";
 const SNAPSHOTS: &str = ".external-history";
@@ -73,20 +79,11 @@ async fn reference(root: &Path, id: &str) -> OpenBitFunResult<Option<Reference>>
         .cloned())
 }
 
-async fn read_snapshot(
-    root: &Path,
+fn validate_snapshot(
+    snapshot: &Snapshot,
     entry: &Reference,
     version: &str,
-) -> OpenBitFunResult<OfflineSessionBundle> {
-    let snapshot: Snapshot = JsonFileStore
-        .read_optional(&snapshot_path(root, &entry.metadata.session_id, version)?)
-        .await
-        .map_err(index_error)?
-        .ok_or_else(|| {
-            index_error(
-                "The viewed external history version is unavailable; reopen the source session",
-            )
-        })?;
+) -> OpenBitFunResult<()> {
     if snapshot.schema_version != 1
         || snapshot.version != version
         || snapshot.ecosystem_id != entry.ecosystem_id
@@ -98,15 +95,17 @@ async fn read_snapshot(
             "External history snapshot identity does not match its source",
         ));
     }
-    snapshot.bundle.validate().map_err(index_error)?;
-    let mut bundle = snapshot.bundle;
+    Ok(())
+}
+
+fn overlay_view_metadata(metadata: &mut SessionMetadata, entry: &Reference) {
     // Names and archive state belong to the local view, not to a frozen version.
-    bundle.metadata.session_name = entry.metadata.session_name.clone();
-    bundle.metadata.tags = entry.metadata.tags.clone();
-    bundle.metadata.status = entry.metadata.status.clone();
+    metadata.session_name = entry.metadata.session_name.clone();
+    metadata.tags = entry.metadata.tags.clone();
+    metadata.status = entry.metadata.status.clone();
     if let (Some(current), Some(custom)) = (
         entry.metadata.custom_metadata.as_ref(),
-        bundle.metadata.custom_metadata.as_mut(),
+        metadata.custom_metadata.as_mut(),
     ) {
         for key in [
             "externalSourceStatus",
@@ -118,7 +117,14 @@ async fn read_snapshot(
             }
         }
     }
-    Ok(bundle)
+}
+
+async fn read_snapshot_shared(
+    root: &Path,
+    entry: &Reference,
+    version: &str,
+) -> OpenBitFunResult<HistorySnapshot> {
+    history_cache::read(root, entry, version).await
 }
 
 /// A turn carries its immutable view version. Existing fork requests can pin it
@@ -128,6 +134,16 @@ pub(crate) async fn snapshot_at_turn(
     id: &str,
     turn_id: &str,
 ) -> OpenBitFunResult<Option<OfflineSessionBundle>> {
+    Ok(snapshot_at_turn_shared(root, id, turn_id)
+        .await?
+        .map(HistorySnapshot::into_bundle))
+}
+
+pub(crate) async fn snapshot_at_turn_shared(
+    root: &Path,
+    id: &str,
+    turn_id: &str,
+) -> OpenBitFunResult<Option<HistorySnapshot>> {
     let Some(entry) = reference(root, id).await? else {
         return Ok(None);
     };
@@ -137,8 +153,8 @@ pub(crate) async fn snapshot_at_turn(
     let (version, _) = suffix
         .split_once("-turn-")
         .ok_or_else(|| index_error("Invalid external history fork point"))?;
-    let bundle = read_snapshot(root, &entry, version).await?;
-    if !bundle.turns.iter().any(|turn| turn.turn_id == turn_id) {
+    let bundle = read_snapshot_shared(root, &entry, version).await?;
+    if !bundle.contains_turn(turn_id) {
         return Err(index_error(
             "The fork point does not belong to the viewed external history",
         ));
@@ -151,21 +167,72 @@ pub(crate) async fn snapshot(
     id: &str,
     refresh: bool,
 ) -> OpenBitFunResult<Option<OfflineSessionBundle>> {
+    Ok(snapshot_shared(root, id, refresh)
+        .await?
+        .map(HistorySnapshot::into_bundle))
+}
+
+pub(crate) async fn snapshot_shared(
+    root: &Path,
+    id: &str,
+    refresh: bool,
+) -> OpenBitFunResult<Option<HistorySnapshot>> {
     let Some(entry) = reference(root, id).await? else {
         return Ok(None);
     };
-    if refresh || content_version(&entry.metadata).is_none() {
-        Box::pin(refresh_source(root, entry)).await?;
-    }
+    let refreshed = if refresh || content_version(&entry.metadata).is_none() {
+        Box::pin(refresh_source(root, entry)).await?
+    } else {
+        None
+    };
+    load_current_snapshot_shared(root, id, refreshed).await
+}
+
+#[cfg(test)]
+async fn load_current_snapshot(
+    root: &Path,
+    id: &str,
+    refreshed: Option<HistorySnapshot>,
+) -> OpenBitFunResult<Option<OfflineSessionBundle>> {
+    Ok(load_current_snapshot_shared(root, id, refreshed)
+        .await?
+        .map(HistorySnapshot::into_bundle))
+}
+
+async fn load_current_snapshot_shared(
+    root: &Path,
+    id: &str,
+    refreshed: Option<HistorySnapshot>,
+) -> OpenBitFunResult<Option<HistorySnapshot>> {
     let Some(entry) = reference(root, id).await? else {
         return Ok(None);
     };
     let version = content_version(&entry.metadata)
         .ok_or_else(|| index_error("The original source has no readable history snapshot"))?;
-    Ok(Some(read_snapshot(root, &entry, version).await?))
+    if let Some(mut bundle) = refreshed.filter(|bundle| {
+        content_version(&bundle.metadata) == Some(version)
+            && bundle.metadata.session_id == entry.metadata.session_id
+            && bundle
+                .metadata
+                .custom_metadata
+                .as_ref()
+                .is_some_and(|custom| {
+                    custom["importedFrom"] == entry.ecosystem_id
+                        && custom["sourceSessionId"] == entry.source_session_id
+                })
+    }) {
+        // Recheck the pointer after refreshing: a concurrent remove, rename or
+        // newer refresh must still win, as it did when this always reread disk.
+        overlay_view_metadata(&mut bundle.metadata, &entry);
+        return Ok(Some(bundle));
+    }
+    Ok(Some(read_snapshot_shared(root, &entry, version).await?))
 }
 
-async fn refresh_source(root: &Path, entry: Reference) -> OpenBitFunResult<()> {
+async fn refresh_source(
+    root: &Path,
+    entry: Reference,
+) -> OpenBitFunResult<Option<HistorySnapshot>> {
     let service = crate::service::workspace::get_global_workspace_service()
         .ok_or_else(|| index_error("Workspace service is unavailable"))?;
     let workspace_id = entry
@@ -248,6 +315,8 @@ async fn cache_unavailable_legacy_history(
         )
         .await
         .map_err(index_error)?;
+    #[cfg(test)]
+    super::test_io::record(root, |counts| counts.snapshot_writes += 1);
     update_index(root, |index| {
         let Some(current) = index.entries.get_mut(id).filter(|entry| !entry.dismissed) else {
             return ((), false);
@@ -270,7 +339,7 @@ pub(super) async fn refresh_reference(
     project: WorkspaceInfo,
     workspaces: Vec<WorkspaceInfo>,
     read: impl FnOnce(ImportSource, &str) -> Result<ExternalSessionDocument, String> + Send + 'static,
-) -> OpenBitFunResult<()> {
+) -> OpenBitFunResult<Option<HistorySnapshot>> {
     let id = entry.metadata.session_id.clone();
     openbitfun_core_types::validate_session_id(&id).map_err(OpenBitFunError::Validation)?;
     // The source lock is distinct from native Session writers. A snapshot is
@@ -285,6 +354,8 @@ pub(super) async fn refresh_reference(
     let source = ImportSource::from_ecosystem(&entry.ecosystem_id)
         .map_err(|error| index_error(error.detail))?;
     let candidate = entry.candidate_id.clone();
+    #[cfg(test)]
+    super::test_io::record(root, |counts| counts.source_reads += 1);
     let document = match tokio::task::spawn_blocking(move || read(source, &candidate))
         .await
         .map_err(index_error)?
@@ -297,19 +368,21 @@ pub(super) async fn refresh_reference(
                         .metadata
                         .custom_metadata
                         .get_or_insert_with(|| json!({}));
+                    let changed = custom["externalSourceStatus"] != "unavailable"
+                        || custom["externalSourceError"] != error;
                     custom["externalSourceStatus"] = json!("unavailable");
                     custom["externalSourceError"] = json!(error);
-                    ((), true)
+                    ((), changed)
                 } else {
                     ((), false)
                 }
             })
             .await?;
             if content_version(&entry.metadata).is_some() {
-                return Ok(());
+                return Ok(None);
             }
             if cache_unavailable_legacy_history(root, &entry).await? {
-                return Ok(());
+                return Ok(None);
             }
             return Err(index_error(format!(
                 "The original {} history is unavailable. Restore the source and retry. {error}",
@@ -332,19 +405,70 @@ pub(super) async fn refresh_reference(
     let version = hex::encode(Sha256::digest(
         serde_json::to_vec(&(source.revision(), &document.turns)).map_err(index_error)?,
     ));
-    let mut bundle = convert_document(
-        &id,
-        &workspace,
-        &project,
-        &entry.metadata.agent_type,
-        &entry.metadata.session_name,
-        &document,
-        true,
-        true,
-    )
-    .map_err(|error| index_error(error.detail))?;
-    if !super::legacy::validate_native(root, &entry, &bundle).await? {
-        return Ok(());
+    let path = snapshot_path(root, &id, &version)?;
+    // A legacy native copy still needs its unversioned conversion for the
+    // local-edit comparison. Never let snapshot reuse bypass that check.
+    let mut cached = if !super::legacy::follows_native(&entry.metadata)
+        && tokio::fs::try_exists(&path).await.map_err(index_error)?
+    {
+        Some(read_snapshot_shared(root, &entry, &version).await?)
+    } else {
+        None
+    };
+    let mut bundle = if cached.is_some() {
+        let metadata = document_metadata(
+            &id,
+            &workspace,
+            &project,
+            &entry.metadata.agent_type,
+            &entry.metadata.session_name,
+            &document,
+        )
+        .map_err(|error| index_error(error.detail))?;
+        // Only metadata changes during an unchanged refresh. Keep the frozen
+        // body shared, including when opening a long history at its tail.
+        OfflineSessionBundle {
+            metadata,
+            turns: Vec::new(),
+        }
+    } else {
+        #[cfg(test)]
+        super::test_io::record(root, |counts| counts.conversions += 1);
+        convert_document(
+            &id,
+            &workspace,
+            &project,
+            &entry.metadata.agent_type,
+            &entry.metadata.session_name,
+            &document,
+            true,
+            true,
+        )
+        .map_err(|error| index_error(error.detail))?
+    };
+    if cached.is_none() && !super::legacy::validate_native(root, &entry, &bundle).await? {
+        return Ok(None);
+    }
+    if cached.is_none() && tokio::fs::try_exists(&path).await.map_err(index_error)? {
+        // Legacy comparison above must use freshly converted, unversioned
+        // turns. Once it succeeds, use the frozen turns for their synthesized
+        // timestamps too; missing source timestamps must not cause index churn.
+        cached = Some(read_snapshot_shared(root, &entry, &version).await?);
+    }
+    if let Some(cached) = cached.as_ref() {
+        finish_document_metadata(&mut bundle.metadata, cached.turns());
+    }
+    if content_version(&entry.metadata) == Some(version.as_str()) {
+        // Conversion timestamps are not source changes. Keep the existing
+        // version's creation time (and activity time for an empty history).
+        bundle.metadata.created_at = entry.metadata.created_at;
+        if cached
+            .as_ref()
+            .map_or(bundle.turns.is_empty(), |cached| cached.turns().is_empty())
+        {
+            bundle.metadata.last_active_at = entry.metadata.last_active_at;
+            bundle.metadata.last_finished_at = entry.metadata.last_finished_at;
+        }
     }
     bundle.metadata.tags = entry.metadata.tags.clone();
     bundle.metadata.status = entry.metadata.status.clone();
@@ -382,50 +506,61 @@ pub(super) async fn refresh_reference(
         json!(document.turns.last().is_some_and(|turn| turn.status
             != openbitfun_product_domains::session_import::ExternalSessionStatus::Complete));
     custom["continuationMode"] = json!("fork_before_continue");
-    for turn in &mut bundle.turns {
-        turn.turn_id = format!("{id}-v{version}-turn-{}", turn.turn_index);
-        if let Some(metadata) = turn.user_message.metadata.as_mut() {
-            metadata[VERSION] = json!(version);
+    if cached.is_none() {
+        for turn in &mut bundle.turns {
+            turn.turn_id = format!("{id}-v{version}-turn-{}", turn.turn_index);
+            if let Some(metadata) = turn.user_message.metadata.as_mut() {
+                metadata[VERSION] = json!(version);
+            }
         }
     }
     let last_active = bundle.metadata.last_active_at;
     openbitfun_services_core::session::refresh_session_metadata_from_turns(
         &mut bundle.metadata,
         &workspace.root_path.to_string_lossy(),
-        &bundle.turns,
+        cached
+            .as_ref()
+            .map_or(bundle.turns.as_slice(), |cached| cached.turns()),
         last_active,
     );
     if let Some(last) = bundle.metadata.last_turn.as_mut() {
         last.recovery_pending = Some(false);
     }
-    bundle.validate().map_err(index_error)?;
-    let path = snapshot_path(root, &id, &version)?;
-    if !tokio::fs::try_exists(&path).await.map_err(index_error)? {
+    if cached.is_none() {
+        bundle.validate().map_err(index_error)?;
+    }
+    let mut metadata = bundle.metadata.clone();
+    let published = if let Some(cached) = cached {
+        cached
+    } else if !tokio::fs::try_exists(&path).await.map_err(index_error)? {
+        let snapshot = Snapshot {
+            schema_version: 1,
+            ecosystem_id: entry.ecosystem_id.clone(),
+            source_session_id: entry.source_session_id.clone(),
+            version: version.clone(),
+            bundle,
+        };
         JsonFileStore
-            .write_atomic_strict(
-                &path,
-                &Snapshot {
-                    schema_version: 1,
-                    ecosystem_id: entry.ecosystem_id.clone(),
-                    source_session_id: entry.source_session_id.clone(),
-                    version,
-                    bundle: bundle.clone(),
-                },
-            )
+            .write_atomic_strict(&path, &snapshot)
             .await
             .map_err(index_error)?;
+        #[cfg(test)]
+        super::test_io::record(root, |counts| counts.snapshot_writes += 1);
+        // Publish the validated body while holding the source writer lock.
+        history_cache::remember(root, &entry, &version, snapshot.bundle).await?
     } else {
         // Never trust an interrupted or malformed cache merely because it exists.
-        read_snapshot(root, &entry, &version).await?;
-    }
+        read_snapshot_shared(root, &entry, &version).await?
+    };
     update_index(root, |index| {
         let Some(current) = index.entries.get_mut(&id).filter(|entry| !entry.dismissed) else {
             return ((), false);
         };
+        let before = serde_json::to_value(&*current).ok();
         // Preserve a concurrent rename/archive operation and a newer observation.
-        bundle.metadata.session_name = current.metadata.session_name.clone();
-        bundle.metadata.tags = current.metadata.tags.clone();
-        bundle.metadata.status = current.metadata.status.clone();
+        metadata.session_name = current.metadata.session_name.clone();
+        metadata.tags = current.metadata.tags.clone();
+        metadata.status = current.metadata.status.clone();
         if let Some(custom) = current.metadata.custom_metadata.as_ref() {
             for key in [
                 "externalSessionTitleOverride",
@@ -433,7 +568,7 @@ pub(super) async fn refresh_reference(
                 "externalLegacyNativeHash",
             ] {
                 if let Some(value) = custom.get(key) {
-                    bundle.metadata.custom_metadata.as_mut().unwrap()[key] = value.clone();
+                    metadata.custom_metadata.as_mut().unwrap()[key] = value.clone();
                 }
             }
         }
@@ -448,19 +583,21 @@ pub(super) async fn refresh_reference(
             current.source_title.as_deref(),
             current.fallback_title.as_deref(),
         );
-        bundle.metadata.session_name = current.metadata.session_name.clone();
+        metadata.session_name = current.metadata.session_name.clone();
         if let Some(title) = current
             .metadata
             .custom_metadata
             .as_ref()
             .and_then(|custom| custom.get(SOURCE_TITLE_KEY))
         {
-            bundle.metadata.custom_metadata.as_mut().unwrap()[SOURCE_TITLE_KEY] = title.clone();
+            metadata.custom_metadata.as_mut().unwrap()[SOURCE_TITLE_KEY] = title.clone();
         }
-        current.metadata = bundle.metadata;
-        ((), true)
+        current.metadata = metadata;
+        let changed = before.is_none() || before != serde_json::to_value(&*current).ok();
+        ((), changed)
     })
-    .await
+    .await?;
+    Ok(Some(published))
 }
 
 pub(crate) fn branch_metadata(source: &SessionMetadata, target: &mut SessionMetadata) {
@@ -491,7 +628,7 @@ mod tests {
     use crate::external_session_import::auto_discovery::tests::{candidate, document};
     use openbitfun_services_core::session::SessionBranchBoundary;
 
-    async fn create_source(root: &Path, workspace: &WorkspaceInfo) -> Reference {
+    pub(super) async fn create_source(root: &Path, workspace: &WorkspaceInfo) -> Reference {
         register(
             root,
             workspace,
@@ -510,7 +647,7 @@ mod tests {
             .clone()
     }
 
-    async fn publish(
+    pub(super) async fn publish(
         root: &Path,
         workspace: &WorkspaceInfo,
         entry: &Reference,
@@ -962,6 +1099,25 @@ mod tests {
             .write_bundle_atomic(&old_native)
             .await
             .unwrap();
+        assert_eq!(
+            manager
+                .load_session_tail_turns(&workspace.root_path, id, 1)
+                .await
+                .unwrap()[0]
+                .user_message
+                .content,
+            "Edited by an older host"
+        );
+        assert_eq!(
+            manager
+                .load_dialog_turn(&workspace.root_path, id, old_native.turns[0].turn_index)
+                .await
+                .unwrap()
+                .unwrap()
+                .user_message
+                .content,
+            "Edited by an older host"
+        );
         let projected = manager
             .load_session_metadata(&workspace.root_path, id)
             .await

@@ -21,7 +21,7 @@ import { flowChatManager } from '../../../../../flow_chat/services/FlowChatManag
 import type { FlowChatState, Session } from '../../../../../flow_chat/types/flow-chat';
 import { useSceneStore } from '../../../../stores/sceneStore';
 import { useWorkspaceContext } from '@/infrastructure/contexts/WorkspaceContext';
-import { sessionAPI } from '@/infrastructure/api/service-api/SessionAPI';
+import { sessionAPI, type SessionCatalogQuery, type SessionMetadataPage } from '@/infrastructure/api/service-api/SessionAPI';
 import { createLogger } from '@/shared/utils/logger';
 import { isSamePath } from '@/shared/utils/pathUtils';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
@@ -61,6 +61,7 @@ import { useSessionComposerStore } from '@/flow_chat/store/sessionComposerStore'
 import { getActiveSurfaceId, getActiveSurfaceScope, isSurfaceChangedError, surfaceScopedKey } from '@/infrastructure/peer-device/deviceSurface';
 import { getWorkspaceSessionHierarchy } from './sessionNavHierarchy';
 import { useWorkspaceSessionCatalog } from './useWorkspaceSessionCatalog';
+import { captureWorkspaceSessionCatalogQuery, countPersistedWorkspaceCatalogSessions, workspaceSessionCatalogQuery, workspaceSessionCatalogTotal } from './workspaceSessionCatalogQuery';
 import { useWorkspaceSessionDiscovery } from './useWorkspaceSessionDiscovery';
 import { useSessionNavExpansion } from './useSessionNavExpansion';
 import { isSessionNavRowActive } from './sessionNavSelection';
@@ -274,6 +275,7 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
     loadedScope: string | null;
     isLoading: boolean;
     loadError: boolean;
+    firstPage?: SessionMetadataPage;
   }>({
     loadedScope: null,
     isLoading: false,
@@ -298,12 +300,6 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
     onDiscoveryCompleted,
   );
   const observeDiscovery = discovery.observe;
-  const catalog = useWorkspaceSessionCatalog({
-    workspaceId,
-    enabled: isVisible && !workspaceScopes?.length && metadataPageState.loadedScope === initialMetadataKey,
-    refreshVersion: catalogRefreshVersion,
-    onPage: observeDiscovery,
-  });
   const [openMenuSessionId, setOpenMenuSessionId] = useState<string | null>(null);
   /** Second level of the session menu: pick what a Markdown export includes. */
   const [isExportScopeMenu, setIsExportScopeMenu] = useState(false);
@@ -320,6 +316,36 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
     void orderingRevision;
     return new Set([...flowChatState.sessions.keys()].filter(sessionNavStatusService.isRunning));
   }, [flowChatState.sessions, orderingRevision]);
+  const catalogQueryJson = useMemo(() => {
+    void orderingRevision;
+    return JSON.stringify(workspaceSessionCatalogQuery(workspaceId, sessionOrdering, sessionShow,
+      sessionFilters, sourceAgent, flowChatState.sessions.values(), sessionNavStatusService.getSortTimestamp) ?? null);
+  }, [workspaceId, sessionOrdering, sessionShow, sessionFilters, sourceAgent, flowChatState.sessions, orderingRevision]);
+  const captureCatalogQuery = useCallback((query: SessionCatalogQuery) => captureWorkspaceSessionCatalogQuery(
+    query, flowChatStore.getState().sessions.values(), sessionNavStatusService.getSortTimestamp,
+  ), []);
+  // Capture the view's observed order only when beginning a catalog. Hydration
+  // and streaming must not restart it; a refresh or device switch must rebind it.
+  const catalogQuery = useMemo(() => {
+    void catalogRefreshVersion;
+    void initialMetadataKey;
+    const query = (JSON.parse(catalogQueryJson) ?? undefined) as SessionCatalogQuery | undefined;
+    return query ? captureCatalogQuery(query) : undefined;
+  }, [captureCatalogQuery, catalogQueryJson, catalogRefreshVersion, initialMetadataKey]);
+  const getKnownCatalogCount = useCallback(() => countPersistedWorkspaceCatalogSessions(
+    flowChatStore.getState().sessions.values(), workspaceId, sourceAgent,
+  ), [workspaceId, sourceAgent]);
+  const catalog = useWorkspaceSessionCatalog({
+    workspaceId,
+    enabled: isVisible && !workspaceScopes?.length && metadataPageState.loadedScope === initialMetadataKey,
+    refreshVersion: catalogRefreshVersion,
+    onPage: observeDiscovery,
+    query: catalogQuery,
+    captureQuery: captureCatalogQuery,
+    targetCount: expandLevel === 2 ? level2DisplayCount : expandLevel === 1 ? SESSIONS_LEVEL_1 : SESSIONS_LEVEL_0,
+    firstPage: metadataPageState.loadedScope === initialMetadataKey ? metadataPageState.firstPage : undefined,
+    getKnownCount: getKnownCatalogCount,
+  });
   const [scheduledJobsSessionId, setScheduledJobsSessionId] = useState<string | null>(null);
   const cronJobCountsRevision = useSyncExternalStore(
     subscribeCronJobCounts,
@@ -499,7 +525,7 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
       try {
         const page = await flowChatStore.loadSessionMetadataPage(
           workspaceId, limit, cursor,
-          source
+          source, { query: catalogQuery },
         );
         if (metadataLoadRequestIdRef.current === requestId && surface.isCurrent()) {
           observeDiscovery(workspaceId, page);
@@ -507,6 +533,7 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
             loadedScope: initialMetadataKey,
             isLoading: false,
             loadError: false,
+            firstPage: page,
           });
         }
         return page;
@@ -522,7 +549,7 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
         return null;
       }
     },
-    [initialMetadataKey, observeDiscovery, surface, workspaceId]
+    [catalogQuery, initialMetadataKey, observeDiscovery, surface, workspaceId]
   );
 
   const loadInitialMetadataPage = useCallback(
@@ -747,9 +774,16 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
     });
   }, [topLevelSessions.length, expandLevel, level2DisplayCount, showAllWithoutLimit]);
 
-  // A storage root can include several workspace rows, including the main
-  // checkout. Its page total is never the total for this filtered list.
-  const totalTopLevelSessionCount = topLevelSessions.length;
+  // Only an acknowledged workspace query provides a scoped total. Include
+  // newly-created local rows while their metadata publication is in flight.
+  const totalTopLevelSessionCount = workspaceSessionCatalogTotal(topLevelSessions.length, catalog);
+  const knownCatalogCount = getKnownCatalogCount();
+  useEffect(() => {
+    // Page hydration updates the baseline inside the reader. A later local
+    // creation/removal/archive needs a new bounded first page to refill rows.
+    if (isVisible && catalog.paged && catalog.complete && !catalog.loading
+      && catalog.knownCount !== knownCatalogCount) setCatalogRefreshVersion(value => value + 1);
+  }, [catalog.complete, catalog.knownCount, catalog.loading, catalog.paged, isVisible, knownCatalogCount]);
   const isSessionCountComplete = !workspaceId || Boolean(workspaceScopes?.length)
     || (catalog.complete && !discovery.pending && !discovery.failed);
   const expandToggleState = getSessionExpandToggleState(totalTopLevelSessionCount, expandLevel);
@@ -1950,22 +1984,23 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
 
       {aggregateLoadStatus}
 
-      {!showAllWithoutLimit && expandLevel === 2 && topLevelSessions.length > sessionDisplayLimit && (
+      {!showAllWithoutLimit && expandLevel === 2 && totalTopLevelSessionCount > sessionDisplayLimit && (
         <button data-overflow-trigger
           type="button"
           className="openbitfun-nav-panel__inline-toggle"
           data-testid="nav-session-list-load-more"
           aria-label={isSessionCountComplete ? t('nav.sessions.showMore', {
-            count: topLevelSessions.length - sessionDisplayLimit,
+            count: totalTopLevelSessionCount - sessionDisplayLimit,
           }) : t('nav.sessions.showMoreLabel')}
           onClick={() => setLevel2DisplayCount(prev => prev + SESSIONS_LEVEL_2_PAGE)}
+          disabled={catalog.loading}
         >
           <OverflowText className="openbitfun-nav-panel__inline-toggle-label">
             {t('nav.sessions.showMoreLabel')}
           </OverflowText>
           {isSessionCountComplete && (
             <span className="openbitfun-nav-panel__inline-toggle-count" aria-hidden>
-              +{topLevelSessions.length - sessionDisplayLimit}
+              +{totalTopLevelSessionCount - sessionDisplayLimit}
             </span>
           )}
           <span className="openbitfun-nav-panel__inline-toggle-trailing">

@@ -9,7 +9,7 @@ use super::metadata::{
     build_session_index_snapshot, remove_session_index_entry, upsert_session_index_entry,
 };
 use super::ordinal;
-use super::page::{build_session_metadata_page, empty_session_metadata_page};
+use super::page::{build_session_metadata_page_with_query, SessionCatalogQuery};
 use super::types::{SessionMetadata, StoredSessionIndexFile, StoredSessionMetadataFile};
 use super::SessionMetadataPage;
 use crate::file_lock::{FileLock, FileLockError, FileLockMode};
@@ -349,14 +349,36 @@ impl SessionMetadataStore {
     pub async fn list_indexed_metadata(
         &self,
     ) -> Result<Vec<SessionMetadata>, SessionMetadataStoreError> {
+        self.indexed_metadata_snapshot()
+            .await
+            .map(|(metadata, _)| metadata)
+    }
+
+    /// Capture the index revision under the same cross-process lock as its
+    /// contents, including a missing/corrupt index rebuilt during this read.
+    pub async fn indexed_metadata_snapshot(
+        &self,
+    ) -> Result<
+        (
+            Vec<SessionMetadata>,
+            Option<crate::json_store::JsonFileRevision>,
+        ),
+        SessionMetadataStoreError,
+    > {
         if !self.sessions_root().exists() {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), None));
         }
         let lock = self.get_index_lock().await;
         let _guard = lock.lock().await;
         let _file_guard = self.lock_index_file().await?;
         let (index, _) = self.read_or_rebuild_index_locked().await?;
-        Ok(compatible_metadata_list(index.sessions))
+        let metadata = if index.metadata_file_count < index.sessions.len() {
+            self.rebuild_index_locked().await?
+        } else {
+            index.sessions
+        };
+        let revision = self.json_store.revision(&self.index_path()).await?;
+        Ok((compatible_metadata_list(metadata), revision))
     }
 
     pub async fn list_metadata(&self) -> Result<Vec<SessionMetadata>, SessionMetadataStoreError> {
@@ -429,8 +451,23 @@ impl SessionMetadataStore {
         cursor: Option<&str>,
         limit: usize,
     ) -> Result<SessionMetadataPage, SessionMetadataStoreError> {
+        self.list_metadata_page_with_query(cursor, limit, None)
+            .await
+    }
+
+    pub async fn list_metadata_page_with_query(
+        &self,
+        cursor: Option<&str>,
+        limit: usize,
+        query: Option<&SessionCatalogQuery>,
+    ) -> Result<SessionMetadataPage, SessionMetadataStoreError> {
         if !self.sessions_root().exists() {
-            return Ok(empty_session_metadata_page());
+            return Ok(build_session_metadata_page_with_query(
+                Vec::new(),
+                cursor,
+                limit,
+                query,
+            ));
         }
 
         let limit = limit.max(1);
@@ -451,7 +488,8 @@ impl SessionMetadataStore {
             index.sessions
         };
 
-        let mut page = build_session_metadata_page(indexed_sessions, cursor, limit);
+        let mut page =
+            build_session_metadata_page_with_query(indexed_sessions, cursor, limit, query);
         let has_stale_page_entry = page
             .sessions
             .iter()
@@ -466,7 +504,8 @@ impl SessionMetadataStore {
             index_path.display()
         );
         let rebuilt_sessions = self.rebuild_index_locked().await?;
-        let mut page = build_session_metadata_page(rebuilt_sessions, cursor, limit);
+        let mut page =
+            build_session_metadata_page_with_query(rebuilt_sessions, cursor, limit, query);
         page.sessions = compatible_metadata_list(page.sessions);
         Ok(page)
     }
@@ -641,6 +680,64 @@ fn current_unix_ms() -> u64 {
 mod tests {
     use super::*;
     use crate::session::{SessionStatus, StoredSessionIndexFile};
+
+    #[tokio::test]
+    async fn catalog_first_page_does_not_open_unselected_metadata_or_history() {
+        let root = tempfile::tempdir().unwrap();
+        let store = SessionMetadataStore::new(root.path());
+        let sessions = (0..655)
+            .map(|index| {
+                let mut record = metadata(&format!("session-{index:04}"), 10_000 - index);
+                record.workspace_id = Some("main".into());
+                record.created_at = index;
+                record
+            })
+            .collect::<Vec<_>>();
+        // Only the selected five metadata paths exist. Reading or validating
+        // every directory would rebuild the index and lose the expected total.
+        for record in &sessions[650..] {
+            store.ensure_session_dir(&record.session_id).await.unwrap();
+            store
+                .write_json_atomic(
+                    &store.metadata_path(&record.session_id),
+                    &StoredSessionMetadataFile::new(record.clone()),
+                )
+                .await
+                .unwrap();
+            fs::write(
+                store.session_dir(&record.session_id).join("turns.json"),
+                b"unreadable history",
+            )
+            .await
+            .unwrap();
+        }
+        let index = StoredSessionIndexFile {
+            schema_version: super::super::types::SESSION_STORAGE_SCHEMA_VERSION,
+            metadata_file_count: 655,
+            updated_at: 1,
+            sessions,
+        };
+        store
+            .write_json_atomic(&store.index_path(), &index)
+            .await
+            .unwrap();
+        let before = fs::read(store.index_path()).await.unwrap();
+        let query = SessionCatalogQuery {
+            workspace_id: "main".into(),
+            ordering: super::super::page::SessionCatalogOrdering::Updated,
+            source: "all".into(),
+            sort_timestamps: HashMap::new(),
+        };
+        let page = store
+            .list_metadata_page_with_query(None, 5, Some(&query))
+            .await
+            .unwrap();
+        assert_eq!(page.catalog_query, Some(query));
+        assert_eq!(page.total_top_level_count, 655);
+        assert_eq!(page.sessions.len(), 5);
+        assert_eq!(page.sessions[0].session_id, "session-0654");
+        assert_eq!(fs::read(store.index_path()).await.unwrap(), before);
+    }
 
     #[tokio::test]
     async fn legacy_auto_metadata_reads_are_compatible_without_rewriting_files() {
