@@ -12,7 +12,7 @@ use crate::agentic::tools::computer_use_host::{
 use crate::agentic::tools::framework::{Tool, ToolResult, ToolUseContext};
 use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 use openbitfun_services_core::system::{
-    truncate_with_marker, LocalSystemActionError, LocalSystemProvider, RunScriptRequest,
+    LocalSystemActionError, LocalSystemProvider, RunScriptRequest,
 };
 use serde_json::{json, Value};
 
