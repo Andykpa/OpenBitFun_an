@@ -463,14 +463,29 @@ void obf_capture_stop(void *handle) {
     [arrow lineToPoint:NSMakePoint(15, 8)];
     [arrow curveToPoint:NSMakePoint(8, 8) controlPoint1:NSMakePoint(12, 7) controlPoint2:NSMakePoint(10, 6)];
     [arrow closePath];
+    // Shrink around the hotspot, leaving room for the fixed 3pt white outline.
+    NSAffineTransform *size = [NSAffineTransform transform];
+    [size translateXBy:8 yBy:8];
+    [size scaleBy:0.7];
+    [size translateXBy:-8 yBy:-8];
+    [arrow transformUsingAffineTransform:size];
+    arrow.lineWidth = 3;
+    arrow.lineJoinStyle = NSLineJoinStyleRound;
     [NSGraphicsContext saveGraphicsState];
     NSShadow *shadow = [[NSShadow alloc] init];
     shadow.shadowColor = [NSColor colorWithWhite:0 alpha:0.45];
     shadow.shadowBlurRadius = 3;
-    shadow.shadowOffset = NSMakeSize(0, -2);
+    // This view is flipped, so positive Y places the shadow below the cursor.
+    shadow.shadowOffset = NSMakeSize(0, 2);
     [shadow set];
-    [[NSColor colorWithSRGBRed:166.0/255 green:166.0/255 blue:166.0/255 alpha:1] setFill];
+    // Cast one shadow from the complete silhouette, including its white edge.
+    CGContextRef context = NSGraphicsContext.currentContext.CGContext;
+    CGContextBeginTransparencyLayer(context, NULL);
+    [[NSColor colorWithSRGBRed:64.0/255 green:64.0/255 blue:64.0/255 alpha:1] setFill];
     [arrow fill];
+    [NSColor.whiteColor setStroke];
+    [arrow stroke];
+    CGContextEndTransparencyLayer(context);
     [NSGraphicsContext restoreGraphicsState];
 }
 @end

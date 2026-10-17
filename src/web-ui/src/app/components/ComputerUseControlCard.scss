@@ -43,7 +43,10 @@
       inline-size: 100%;
       block-size: 100%;
       // Fixed neutral feedback over captured content, independent of accent color.
-      fill: color-mix(in srgb, var(--openbitfun-color-content-on-dark) 65%, var(--openbitfun-color-content-on-light));
+      fill: color-mix(in srgb, var(--openbitfun-color-content-on-dark) 25%, var(--openbitfun-color-content-on-light));
+      stroke: var(--openbitfun-color-content-on-dark);
+      stroke-width: 3px;
+      stroke-linejoin: round;
       filter: drop-shadow(0 2px 3px color-mix(in srgb, var(--openbitfun-color-content-on-light) 45%, transparent));
     }
 
