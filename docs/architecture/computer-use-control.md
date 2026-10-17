@@ -545,7 +545,9 @@ that worker. Recheck the request fence immediately before input so a late
 preflight cannot dispatch after abandonment. Once input enters a provider, a
 timeout, cancellation or provider error means `INPUT_OUTCOME_UNKNOWN`; never
 replay it or fall back to a coordinate click. Discard abandoned observations on
-the owning apartment. Native input already submitted can still finish after
+the owning apartment. A retained observation also carries caller acceptance:
+publishing native cache entries before a rejected reply does not make their
+indices valid for subsequent input. Native input already submitted can still finish after
 Stop, and a permanently hung provider requires recovery or a host restart.
 
 The control card treats preview availability separately from control status.

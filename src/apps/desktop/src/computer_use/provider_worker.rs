@@ -21,6 +21,7 @@ pub(super) struct Request {
     started: Instant,
     deadline: Instant,
     state: AtomicU8,
+    response_accepted: AtomicBool,
     phase: Mutex<&'static str>,
 }
 
@@ -32,6 +33,7 @@ impl Request {
             started,
             deadline: started + timeout,
             state: AtomicU8::new(READING),
+            response_accepted: AtomicBool::new(false),
             phase: Mutex::new("queued"),
         }
     }
@@ -40,6 +42,13 @@ impl Request {
         self.check()?;
         *self.phase.lock().unwrap_or_else(|e| e.into_inner()) = phase;
         Ok(())
+    }
+
+    /// A native observation may be cached just before the caller rejects its
+    /// reply. Only the caller can publish acceptance; an accepted observation
+    /// remains usable beyond the completed request's execution deadline.
+    pub(super) fn response_accepted(&self) -> bool {
+        self.response_accepted.load(Ordering::Acquire)
     }
 
     pub(super) fn check(&self) -> Result<(), String> {
@@ -181,6 +190,9 @@ impl<S: 'static> Worker<S> {
                         return Err(request.abandon(&reason));
                     }
                     request.check()?;
+                    if result.is_ok() {
+                        request.response_accepted.store(true, Ordering::Release);
+                    }
                     return Ok(result);
                 }
                 Err(RecvTimeoutError::Timeout) => {}
@@ -197,7 +209,7 @@ mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
 
-    const TEST_TIMEOUT: Duration = Duration::from_millis(100);
+    const TEST_TIMEOUT: Duration = Duration::from_secs(1);
 
     #[test]
     fn blocked_preflight_times_out_without_late_input_or_queued_work() {
@@ -345,5 +357,73 @@ mod tests {
         let error = request.input_failure().unwrap();
         assert!(error.contains("INPUT_OUTCOME_UNKNOWN"));
         assert!(request.begin_input("retry").is_err());
+    }
+
+    #[test]
+    fn an_observation_cached_before_a_rejected_reply_is_never_accepted() {
+        let worker = Worker::new(|| None::<Arc<Request>>);
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let provider_cancelled = cancelled.clone();
+        let (published, cached) = mpsc::sync_channel(1);
+        let result = worker.run(
+            "observe",
+            Duration::from_secs(5),
+            || {
+                if cancelled.load(Ordering::Acquire) {
+                    Err("CONTROL_STOPPED".into())
+                } else {
+                    Ok(())
+                }
+            },
+            move |state, request| {
+                *state = Some(request.clone());
+                published.send(request).unwrap();
+                // Publication on the native thread does not guarantee that
+                // the reply survived the caller's final authority check.
+                provider_cancelled.store(true, Ordering::Release);
+                Ok::<_, String>(())
+            },
+        );
+        assert!(result.unwrap_err().contains("CONTROL_STOPPED"));
+        assert!(!cached
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .response_accepted());
+    }
+
+    #[test]
+    fn only_a_successful_reply_is_accepted_for_retained_observations() {
+        let worker = Worker::new(|| ());
+        let request = worker
+            .run(
+                "observe",
+                Duration::from_secs(5),
+                || Ok(()),
+                |_, request| {
+                    assert!(!request.response_accepted());
+                    Ok::<_, String>(request)
+                },
+            )
+            .unwrap()
+            .unwrap();
+        assert!(request.response_accepted());
+        let (published, cached) = mpsc::sync_channel(1);
+        let error = worker
+            .run(
+                "observe",
+                Duration::from_secs(5),
+                || Ok(()),
+                move |_, request| {
+                    published.send(request).unwrap();
+                    Err::<(), _>("provider failure")
+                },
+            )
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(error, "provider failure");
+        assert!(!cached
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .response_accepted());
     }
 }

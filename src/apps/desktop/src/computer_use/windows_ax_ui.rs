@@ -1123,6 +1123,7 @@ struct ObservedWindow {
     scope: openbitfun_agent_tools::computer_use_control::ObservationScope,
     pid: u32,
     nodes: Vec<UiaNode>,
+    response: std::sync::Arc<super::provider_worker::Request>,
 }
 struct WorkerState {
     initialized: bool,
@@ -1311,11 +1312,19 @@ pub(super) fn get_app_state_snapshot_for_window(
         checkpoint("publish_observation")?;
         super::control_session::validate_observation_scope(&scope)
             .map_err(OpenBitFunError::tool)?;
+        let response = CURRENT_REQUEST
+            .with_borrow(|request| request.clone())
+            .ok_or_else(|| {
+                OpenBitFunError::tool(
+                    "[AX_WORKER_REQUIRED] Observation requires the provider worker",
+                )
+            })?;
         state.observed = Some(ObservedWindow {
             hwnd,
             scope,
             pid: window_pid_for(handle).unwrap_or(0),
             nodes,
+            response,
         });
         Ok(snapshot)
     })
@@ -1590,6 +1599,11 @@ fn apply_semantic(
         ScrollAmount_SmallIncrement,
     };
     super::control_session::capture_allowed().map_err(OpenBitFunError::tool)?;
+    if !cache.response.response_accepted() {
+        return Err(OpenBitFunError::tool(
+            "[AX_OBSERVATION_REQUIRED] The previous observation was not delivered; read the target again before input",
+        ));
+    }
     if cache.hwnd != hwnd
         || super::control_session::validate_observation_scope(&cache.scope).is_err()
         || window_pid_for(windows::Win32::Foundation::HWND(hwnd as *mut _)) != Some(cache.pid)
