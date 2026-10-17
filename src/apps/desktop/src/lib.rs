@@ -1483,6 +1483,7 @@ pub async fn run() {
             desktop_cards::commands::desktop_card_set_checklist_item,
             desktop_cards::commands::desktop_card_set_always_on_top,
             list_agent_companion_pets,
+            load_agent_companion_pet_spritesheet,
             import_agent_companion_pet_package,
             delete_agent_companion_pet_package,
             read_file_content,
