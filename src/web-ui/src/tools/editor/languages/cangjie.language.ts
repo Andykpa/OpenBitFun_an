@@ -1,5 +1,5 @@
 /**
- * Cangjie (仓颉) language definition for Monaco Editor.
+ * Cangjie language definition for Monaco Editor.
  *
  * Derived from the TextMate grammar shipped with the CodeArts Agent Cangjie
  * extension (`huaweicloud.cangjie`, language id `Cangjie`, scope `source.cj`).
@@ -284,7 +284,7 @@ export function registerCangjieLanguage(monaco: typeof Monaco): void {
       monaco.languages.register({
         id: CANGJIE_LANGUAGE_ID,
         extensions: ['.cj', '.cj.macrocall'],
-        aliases: ['Cangjie', 'cangjie', '仓颉', 'cj'],
+        aliases: ['Cangjie', 'cangjie', 'cj'],
         mimetypes: ['text/x-cangjie'],
       });
     }

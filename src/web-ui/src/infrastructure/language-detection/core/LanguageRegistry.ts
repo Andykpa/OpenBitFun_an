@@ -108,7 +108,7 @@ const BUILTIN_LANGUAGES: Language[] = [
     textmateScope: 'source.cj',
     iconType: 'code',
     color: APPEARANCE_LANGUAGE_TOKENS.cangjie,
-    aliases: ['cj', '仓颉'],
+    aliases: ['cj'],
     supportsComments: true,
     lineCommentPrefix: '//',
     blockComment: { start: '/*', end: '*/' },
