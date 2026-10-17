@@ -15,6 +15,9 @@ const INPUT_SUBMITTED: u8 = 1;
 const ABANDONED: u8 = 2;
 const INPUT_UNKNOWN: u8 = 3;
 const CANCEL_POLL: Duration = Duration::from_millis(50);
+const IDLE: u8 = 0;
+const RUNNING: u8 = 1;
+const CLEANING: u8 = 2;
 
 pub(super) struct Request {
     operation: &'static str,
@@ -124,10 +127,10 @@ impl Request {
     }
 }
 
-struct BusyPermit(Arc<AtomicBool>);
+struct BusyPermit(Arc<AtomicU8>);
 impl Drop for BusyPermit {
     fn drop(&mut self) {
-        self.0.store(false, Ordering::Release);
+        self.0.store(IDLE, Ordering::Release);
     }
 }
 
@@ -135,7 +138,7 @@ type Job<S> = Box<dyn FnOnce(&mut S) + Send>;
 
 pub(super) struct Worker<S> {
     sender: SyncSender<Job<S>>,
-    busy: Arc<AtomicBool>,
+    busy: Arc<AtomicU8>,
 }
 
 impl<S: 'static> Worker<S> {
@@ -151,8 +154,27 @@ impl<S: 'static> Worker<S> {
         });
         Self {
             sender,
-            busy: Arc::new(AtomicBool::new(false)),
+            busy: Arc::new(AtomicU8::new(IDLE)),
         }
+    }
+
+    /// Release thread-affine state promptly when idle. Never queue cleanup
+    /// behind an occupied provider or make the stopping caller wait for it.
+    pub(super) fn try_cleanup(&self, cleanup: impl FnOnce(&mut S) + Send + 'static) -> bool {
+        if self
+            .busy
+            .compare_exchange(IDLE, CLEANING, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return false;
+        }
+        let permit = BusyPermit(self.busy.clone());
+        self.sender
+            .try_send(Box::new(move |state| {
+                cleanup(state);
+                drop(permit);
+            }))
+            .is_ok()
     }
 
     pub(super) fn run<T: Send + 'static, E: Send + 'static>(
@@ -163,10 +185,22 @@ impl<S: 'static> Worker<S> {
         work: impl FnOnce(&mut S, Arc<Request>) -> Result<T, E> + Send + 'static,
     ) -> Result<Result<T, E>, String> {
         allowed()?;
-        self.busy.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .map_err(|_| "[AX_PROVIDER_BUSY] The previous native UIA call has not returned. No request was queued and no input was sent; wait for the target application to recover".to_string())?;
-        let permit = BusyPermit(self.busy.clone());
         let request = Arc::new(Request::new(operation, timeout));
+        loop {
+            match self.busy.compare_exchange(IDLE, RUNNING, Ordering::AcqRel, Ordering::Acquire) {
+                Ok(_) => break,
+                Err(CLEANING) => {
+                    // Stop/start can be adjacent. Await idle COM cleanup within
+                    // this request's deadline instead of reporting a false busy
+                    // provider or queuing input behind an unbounded release.
+                    request.checkpoint("cleanup")?;
+                    if let Err(reason) = allowed() { return Err(request.abandon(&reason)); }
+                    std::thread::sleep(CANCEL_POLL.min(request.deadline.saturating_duration_since(Instant::now())));
+                }
+                Err(_) => return Err("[AX_PROVIDER_BUSY] The previous native UIA call has not returned. No request was queued and no input was sent; wait for the target application to recover".into()),
+            }
+        }
+        let permit = BusyPermit(self.busy.clone());
         let worker_request = request.clone();
         let (sender, receiver) = mpsc::sync_channel(1);
         self.sender
@@ -243,12 +277,13 @@ mod tests {
             |_, _| Ok::<_, String>(()),
         );
         assert!(busy.unwrap_err().contains("AX_PROVIDER_BUSY"));
+        assert!(!worker.try_cleanup(|state| *state = 99));
         release.send(()).unwrap();
         completed.recv_timeout(Duration::from_secs(2)).unwrap();
         // Only the real provider completion releases admission. No replacement
         // worker or queued action is allowed while the caller is timed out.
         let start = Instant::now();
-        while worker.busy.load(Ordering::Acquire) {
+        while worker.busy.load(Ordering::Acquire) != IDLE {
             assert!(start.elapsed() < Duration::from_secs(2));
             std::thread::yield_now();
         }
@@ -425,5 +460,60 @@ mod tests {
             .recv_timeout(Duration::from_secs(2))
             .unwrap()
             .response_accepted());
+    }
+
+    #[test]
+    fn idle_cleanup_releases_native_state_on_its_owning_thread_without_another_request() {
+        struct NativeState {
+            owner: std::thread::ThreadId,
+            _not_send: std::rc::Rc<()>,
+            dropped: SyncSender<bool>,
+        }
+        impl Drop for NativeState {
+            fn drop(&mut self) {
+                self.dropped
+                    .send(self.owner == std::thread::current().id())
+                    .unwrap();
+            }
+        }
+        let (dropped, receipt) = mpsc::sync_channel(1);
+        let worker = Worker::new(move || {
+            Some(NativeState {
+                owner: std::thread::current().id(),
+                _not_send: std::rc::Rc::new(()),
+                dropped,
+            })
+        });
+        assert!(worker.try_cleanup(|state| *state = None));
+        assert!(receipt.recv_timeout(Duration::from_secs(2)).unwrap());
+    }
+
+    #[test]
+    fn a_new_request_waits_for_idle_cleanup_without_a_spurious_busy_error() {
+        let worker = Arc::new(Worker::new(|| 0usize));
+        let (release, blocked) = mpsc::channel();
+        assert!(worker.try_cleanup(move |state| {
+            blocked.recv().unwrap();
+            *state = 42;
+        }));
+        let (waiting, ready) = mpsc::sync_channel(1);
+        let caller = std::thread::spawn(move || {
+            let mut checks = 0;
+            worker.run(
+                "observe",
+                Duration::from_secs(5),
+                || {
+                    checks += 1;
+                    if checks == 2 {
+                        waiting.send(()).unwrap();
+                    }
+                    Ok(())
+                },
+                |state, _| Ok::<_, String>(*state),
+            )
+        });
+        ready.recv_timeout(Duration::from_secs(2)).unwrap();
+        release.send(()).unwrap();
+        assert_eq!(caller.join().unwrap().unwrap().unwrap(), 42);
     }
 }

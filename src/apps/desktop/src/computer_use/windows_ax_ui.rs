@@ -1151,8 +1151,16 @@ thread_local! {
 
 pub(super) fn clear_observations() {
     // Never enqueue behind a stuck provider, and never release COM on the
-    // cancelling thread. The worker discards it before accepting further work.
+    // cancelling thread. Idle cleanup releases cached references promptly;
+    // occupied workers consume the flag when their current call returns.
     CLEAR_OBSERVATIONS.store(true, std::sync::atomic::Ordering::Release);
+    if let Some(worker) = UIA_WORKER.get() {
+        worker.try_cleanup(|state| {
+            if CLEAR_OBSERVATIONS.swap(false, std::sync::atomic::Ordering::AcqRel) {
+                state.observed = None;
+            }
+        });
+    }
 }
 
 pub(super) fn checkpoint(phase: &'static str) -> OpenBitFunResult<()> {
