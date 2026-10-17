@@ -529,10 +529,28 @@ capture errors. No unlock, wake or automatic activation is a recovery action.
 
 ### Windows
 
-Observation and semantic actions share a retained MTA UIA worker/cache. Validate
+Observation, semantic actions, locate, hit-testing and shortcut discovery share
+a retained MTA UIA worker/cache. Validate
 PID, HWND, generation, target revision, enabled state and geometry before supported Invoke,
 Toggle, SelectionItem or Scroll operations. Release retained COM references with
 the cache; do not rebuild indices during input.
+
+Use `CUIAutomation8` / `IUIAutomation2` with automatic focus disabled, a two-second
+connection timeout and a five-second transaction timeout. A separate ten-second
+caller deadline bounds providers that do not honor COM timeouts. Control-token
+cancellation is polled every 50 ms. An occupied worker rejects new requests with
+`AX_PROVIDER_BUSY` until its native call actually returns; caller timeout never
+creates replacement workers or queues more work. Stop and status do not wait on
+that worker. Recheck the request fence immediately before input so a late
+preflight cannot dispatch after abandonment. Once input enters a provider, a
+timeout, cancellation or provider error means `INPUT_OUTCOME_UNKNOWN`; never
+replay it or fall back to a coordinate click. Discard abandoned observations on
+the owning apartment. Native input already submitted can still finish after
+Stop, and a permanently hung provider requires recovery or a host restart.
+
+The control card treats preview availability separately from control status.
+Missing AX-only images, capture failures and stale frames clear the preview
+without hiding valid status or disabling Stop.
 
 Standard Unicode Edit/RichEdit text insertion replaces the current selection
 through `EM_REPLACESEL`, preserving text outside that selection. An observed

@@ -218,6 +218,17 @@ Unsupported providers return a capability error. These Windows paths have
 cross-compilation coverage; interactive Windows acceptance is still pending. Windows does not
 have the macOS Sharing menu.
 
+Windows accessibility requests return after ten seconds if the application's
+provider stops responding. Stop remains available and prevents input that has
+not yet been submitted. An `INPUT_OUTCOME_UNKNOWN` error means the application
+may still complete the input: wait for it to recover, then observe before taking
+another action. OpenBitFun does not automatically repeat the click or text. While
+that native call is still running, new accessibility requests return
+`AX_PROVIDER_BUSY`; a provider that never returns requires the target to recover
+or OpenBitFun to restart. A missing preview only means no valid image is available
+(including observations requested without images); it does not mean that the
+control status is unavailable.
+
 See the [cross-platform control contract](../../../docs/architecture/computer-use-control.md)
 for platform limits, lifecycle guarantees, and native verification scenarios.
 
