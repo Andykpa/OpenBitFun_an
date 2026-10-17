@@ -327,6 +327,8 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
   // Capture the view's observed order only when beginning a catalog. Hydration
   // and streaming must not restart it; a refresh or device switch must rebind it.
   const catalogQuery = useMemo(() => {
+    void catalogRefreshVersion;
+    void initialMetadataKey;
     const query = (JSON.parse(catalogQueryJson) ?? undefined) as SessionCatalogQuery | undefined;
     return query ? captureCatalogQuery(query) : undefined;
   }, [captureCatalogQuery, catalogQueryJson, catalogRefreshVersion, initialMetadataKey]);
