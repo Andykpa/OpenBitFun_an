@@ -720,7 +720,10 @@ target stayed below the foreground window; available AX focus samples retained
 the same window ID. Some AX reads timed out or became stale and remain unknown.
 TextEdit / VS Code intervals also contained real user cursor movement or
 switches among other foreground applications, so they are not an unchanged-
-desktop proof. Polling can miss transients; the controlled fixture's independent
+desktop proof. The Codex Edge click/text interval contained one target-above-
+foreground stacking sample between below samples with the same foreground PID
+and AX window ID. Its cause was not isolated; it is not evidence of invariant
+window order. Polling can miss transients; the controlled fixture's independent
 observer-input, key-window and exact-delivery checks remain necessary.
 
 Cancellation cleanup now retains and revalidates process identity, confirms the
