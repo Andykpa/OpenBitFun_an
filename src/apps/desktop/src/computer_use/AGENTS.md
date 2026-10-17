@@ -80,12 +80,15 @@ The directed-input route can change a target application's internal
 focus without changing the human foreground application. Its window-addressed
 focus pair at local `(-8,-8)` must remain outside content; the requested gesture
 must reach content exactly once with unchanged modifiers. Do not validate it
-using a fixture that overrides `acceptsFirstMouse`. Record observer active/key,
+using a fixture that overrides `acceptsFirstMouse`. Record dequeued mouse events
+so standard controls' tracking loops cannot hide a delivered mouse-up. Record observer active/key,
 frontmost PID, stacking order, real text destination and content event counts.
 Do not use missing AX key-state attributes as a substitute for native focus
 validation: fixtures inspect their own `NSWindow.keyWindow`. Preparation caches
 must include generation, PID, window ID, human foreground identity and activation
-epoch, and must not add app-name rules or content-coordinate guesses. An off-frame routing
+epoch plus a passive target-local loss epoch, and must not add app-name rules or
+content-coordinate guesses. Target-local event monitoring must be listen-only;
+unavailable monitoring disables cache reuse, not background input. An off-frame routing
 position is distinct from the actual user-requested content target.
 No after-action raise/restore is allowed. Stop may deactivate a target only when
 it is not the user's actual foreground application. Prototype success is not
@@ -129,7 +132,12 @@ node scripts/test-macos-input-controls.mjs --semantic
 # Full Tool image-coordinate button activation/text focus and wrong-field guard.
 # Target/observer have distinct app bundles; AppKit initializes before the
 # foreground baseline. Activation history catches transient focus changes.
+# Also induces target-local loss while foreground stays fixed, then verifies
+# the next ordinary input prepares focus again without another content click.
 node scripts/test-macos-input-controls.mjs --orchestration
+# Real AX messaging timeout in a stopped disposable process, then one directed
+# click after resumption; retains exact delivery and foreground/cursor checks.
+node scripts/test-macos-input-controls.mjs --busy-ax
 # Identical five-input sequence: five tool calls vs one batch, with default
 # images and AX-only observations. Fresh isolated app/host per case.
 node scripts/test-macos-input-controls.mjs --latency
@@ -140,6 +148,30 @@ node scripts/test-macos-input-controls.mjs
 # Full Tool -> provider -> native loop on a dedicated window, with main-thread runloop.
 node scripts/test-macos-control-roundtrip.mjs
 ```
+
+For explicitly selected disposable real applications, the devtools JSONL probe
+uses the same production Tool path and main-thread run loop. It accepts only one
+startup PID (optionally one window), background observations and app actions;
+it rejects activation, global input, clipboard and scripts. Do not use personal
+application windows or infer delivery from `ok: true`. Observe after errors
+before choosing another action; the probe never retries input automatically.
+
+```bash
+cargo test -p openbitfun-desktop --features devtools --test computer_use_native_roundtrip --no-run --message-format=json
+# Use the executable path emitted above; EOF or the total deadline stops control.
+OPENBITFUN_CUA_PROBE_PID=<pid> OPENBITFUN_CUA_PROBE_OUTPUT_DIR=/tmp/cua-probe <executable>
+# stdin JSONL: {"id":"observe","input":{"action":"get_app_state","include_image":true}}
+cargo test -p openbitfun-desktop --features devtools --lib native_control_roundtrip::probe
+# Independent read-only witness; no app launch, permission prompts or input.
+clang -fobjc-arc -fblocks -Wall -Wextra -Werror -framework AppKit -framework ApplicationServices scripts/fixtures/computer-use-background-witness.m -o /tmp/cua-witness
+/tmp/cua-witness --target-pid <pid> --target-window <window-id> --output /tmp/cua-witness.json
+```
+
+Wait for the witness's baseline before input. `SIGUSR1` requests a new baseline;
+wait for its sequence to advance. `SIGTERM` flushes the final record. Check
+sampling gaps and unknown AX reads, and separate concurrent human activity from
+backend-caused changes. The witness records IDs/coordinates, not titles, text or
+pixels; it cannot independently prove key-window state or causal attribution.
 
 The browser fixture runs production snapshot/resolver JavaScript in Chromium,
 then passes the actual DOM payload to compiled Rust presentation tests. The
