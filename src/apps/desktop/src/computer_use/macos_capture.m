@@ -615,22 +615,26 @@ void obf_capture_stop(void *handle) {
     [arrow transformUsingAffineTransform:size];
     arrow.lineWidth = 3;
     arrow.lineJoinStyle = NSLineJoinStyleRound;
-    [NSGraphicsContext saveGraphicsState];
-    NSShadow *shadow = [[NSShadow alloc] init];
-    shadow.shadowColor = [NSColor colorWithWhite:0 alpha:0.45];
-    shadow.shadowBlurRadius = 3;
-    // This view is flipped, so positive Y places the shadow below the cursor.
-    shadow.shadowOffset = NSMakeSize(0, 2);
-    [shadow set];
-    // Cast one shadow from the complete silhouette, including its white edge.
-    CGContextRef context = NSGraphicsContext.currentContext.CGContext;
-    CGContextBeginTransparencyLayer(context, NULL);
-    [[NSColor colorWithSRGBRed:64.0/255 green:64.0/255 blue:64.0/255 alpha:1] setFill];
-    [arrow fill];
-    [NSColor.whiteColor setStroke];
-    [arrow stroke];
-    CGContextEndTransparencyLayer(context);
-    [NSGraphicsContext restoreGraphicsState];
+    // A broad halo plus a denser contact shadow, both centered on the complete
+    // silhouette. Zero offset keeps the falloff even around every white edge.
+    const CGFloat blur[] = {5, 1.5};
+    const CGFloat opacity[] = {0.5, 0.8};
+    for (NSUInteger layer = 0; layer < 2; ++layer) {
+        [NSGraphicsContext saveGraphicsState];
+        NSShadow *shadow = [[NSShadow alloc] init];
+        shadow.shadowColor = [NSColor colorWithWhite:0 alpha:opacity[layer]];
+        shadow.shadowBlurRadius = blur[layer];
+        shadow.shadowOffset = NSZeroSize;
+        [shadow set];
+        CGContextRef context = NSGraphicsContext.currentContext.CGContext;
+        CGContextBeginTransparencyLayer(context, NULL);
+        [[NSColor colorWithSRGBRed:64.0/255 green:64.0/255 blue:64.0/255 alpha:1] setFill];
+        [arrow fill];
+        [NSColor.whiteColor setStroke];
+        [arrow stroke];
+        CGContextEndTransparencyLayer(context);
+        [NSGraphicsContext restoreGraphicsState];
+    }
 }
 @end
 static NSPanel *obfPointerPanel;
