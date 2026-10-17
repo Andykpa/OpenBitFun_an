@@ -208,6 +208,24 @@ cargo build -p openbitfun-desktop
 ```
 
 Windows-only paths (`windows_wgc_capture`, UIA) compile on CI (`windows-latest`).
+The Windows job also runs the isolated native-module unit suite independently
+of the Tauri test loader; interactive native delivery fixtures remain ignored.
+UIA observation, semantic input, locate, hit-test and shortcut discovery share
+one MTA worker. `provider_worker.rs` bounds admission and caller waits: a request
+has a ten-second deadline and polls control cancellation every 50 ms. UIA also
+uses two-second connection and five-second transaction limits with automatic
+focus disabled. Never release the occupied slot, spawn replacement workers, or
+queue another input just because a caller timed out. Foreign code may still be
+running. Input that has crossed its submission fence has an unknown outcome on
+failure; do not retry it or switch to a coordinate click. Stop fences input still
+in preflight, while already submitted input can complete later. After the native
+call returns, discard abandoned observations and require a fresh read. A provider
+that never returns leaves UIA explicitly busy until it recovers or the host is
+restarted; status and Stop must remain independent of that worker.
+
+The focused desktop `computer_use` tests include portable blocking-provider
+regressions for deadlines, cancellation, late input, busy admission and recovery.
+They simulate foreign-call stalls and do not establish real Windows delivery.
 The isolated native-module harness compiles the production control owner, UIA,
 MSAA, WGC and pointer modules. Its portable error-envelope adapter replaces no
 native APIs or algorithms. Cross-compilation is type-checking, not Windows
