@@ -219,21 +219,30 @@ fn pointer_pixels(clicked: bool) -> Vec<u32> {
         }
     }
     let weights: Vec<f64> = (-5..=5)
-        .map(|n| (-(f64::from(n).powi(2)) / (2.0 * 1.5 * 1.5)).exp())
+        .map(|n| (-(f64::from(n).powi(2)) / (2.0 * 2.0 * 2.0)).exp())
+        .collect();
+    let edge_weights: Vec<f64> = (-5..=5)
+        .map(|n| (-(f64::from(n).powi(2)) / (2.0 * 0.65 * 0.65)).exp())
         .collect();
     let sum: f64 = weights.iter().sum();
+    let edge_sum: f64 = edge_weights.iter().sum();
     let mut pixels = vec![0u32; 1600];
     for y in 0..40i32 {
         for x in 0..40i32 {
             let mut shadow = 0.0;
+            let mut edge_shadow = 0.0;
             for dy in -5..=5 {
                 for dx in -5..=5 {
-                    let (mx, my) = (x - dx, y - 2 - dy);
+                    let (mx, my) = (x - dx, y - dy);
                     if (0..40).contains(&mx) && (0..40).contains(&my) {
-                        shadow += mask[(my * 40 + mx) as usize]
-                            * weights[(dx + 5) as usize]
-                            * weights[(dy + 5) as usize]
-                            / (sum * sum);
+                        let coverage = mask[(my * 40 + mx) as usize];
+                        shadow +=
+                            coverage * weights[(dx + 5) as usize] * weights[(dy + 5) as usize]
+                                / (sum * sum);
+                        edge_shadow += coverage
+                            * edge_weights[(dx + 5) as usize]
+                            * edge_weights[(dy + 5) as usize]
+                            / (edge_sum * edge_sum);
                     }
                 }
             }
@@ -247,7 +256,9 @@ fn pointer_pixels(clicked: bool) -> Vec<u32> {
             } else {
                 0.0
             };
-            let behind = ring + shadow * 0.45 * (1.0 - ring);
+            // Center both layers: dark beside the white edge, softer farther out.
+            let halo = edge_shadow * 0.8 + shadow * 0.5 * (1.0 - edge_shadow * 0.8);
+            let behind = ring + halo * (1.0 - ring);
             let alpha = silhouette + behind * (1.0 - silhouette);
             let channel =
                 (64.0 * fill + 255.0 * stroke + 166.0 * ring * (1.0 - silhouette)).round() as u32;
@@ -433,5 +444,25 @@ mod tests {
         assert!(pixels.iter().all(|p| p & 255 <= p >> 24));
         assert_eq!(pixels[0], 0);
         assert_ne!(pixels, pointer_pixels(true));
+        // The contour is diagonal-symmetric; directional shadow offsets must
+        // not bias one side. Outside each edge, black fades toward transparency.
+        for y in 0..40 {
+            for x in 0..40 {
+                assert_eq!(pixels[y * 40 + x], pixels[x * 40 + y]);
+            }
+        }
+        for ray in [
+            [(12, 5), (12, 4), (12, 3)],
+            [(5, 12), (4, 12), (3, 12)],
+            [(28, 16), (29, 16), (30, 16)],
+            [(16, 28), (16, 29), (16, 30)],
+        ] {
+            let alpha = ray.map(|(x, y)| {
+                let pixel = pixels[y * 40 + x];
+                assert_eq!(pixel & 0xffffff, 0);
+                pixel >> 24
+            });
+            assert!(alpha[0] > alpha[1] && alpha[1] > alpha[2] && alpha[2] > 0);
+        }
     }
 }
