@@ -5,6 +5,8 @@ use openbitfun_agent_tools::computer_use_control::{
     ControlActionPolicy, ControlMode, ControlSharing, ControlSnapshot, SharingPhase,
 };
 
+pub(super) const FOREGROUND_REQUIRED: &str = "[FOREGROUND_REQUIRED] This global action uses the human's foreground application or cursor. Keep background control and use app_click, app_type_text, app_key_chord, app_scroll or app_drag with observed application/window targets. Do not request foreground takeover to recover from this error. Use start_control with mode=foreground only when the user explicitly requests taking over the visible desktop.";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ControlToken {
     pub(super) generation: u64,
@@ -428,7 +430,7 @@ impl<E: Copy + PartialEq> Admission<E> {
             return Err("[CONTROL_OBSERVE_ONLY] Start a control session to send input".into());
         }
         if policy.foreground && mode != ControlMode::Foreground {
-            return Err("[FOREGROUND_REQUIRED] This action uses desktop focus or seat input; explicitly start_control with mode=foreground".into());
+            return Err(FOREGROUND_REQUIRED.into());
         }
         let sequence = self
             .snapshot
@@ -483,6 +485,15 @@ mod tests {
         assert!(state.snapshot.sharing.is_none());
         state.bind("pid:1/window:10".into()).unwrap();
         state.release(observe, true);
+        for action in ["click", "type_text", "key_chord", "scroll", "drag"] {
+            let error = state.admit("task", action, 1).unwrap_err();
+            assert!(error.starts_with("[FOREGROUND_REQUIRED]"), "{error}");
+            assert!(error.contains("app_click, app_type_text, app_key_chord"));
+            assert!(error.contains("Do not request foreground takeover"));
+            assert!(error.contains("only when the user explicitly requests"));
+            assert_eq!(state.snapshot.mode, ControlMode::Background);
+            assert!(!state.busy);
+        }
         let input = state.admit("task", "app_type_text", 1).unwrap();
         assert!(state.check_input(input).is_ok());
         state.release(input, true);

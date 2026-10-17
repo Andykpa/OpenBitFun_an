@@ -324,9 +324,7 @@ pub(crate) fn input_allowed() -> Result<(), String> {
 pub(crate) fn foreground_allowed() -> Result<(), String> {
     input_allowed()?;
     if locked()?.admission.snapshot.mode != ControlMode::Foreground {
-        return Err(
-            "[FOREGROUND_REQUIRED] Seat input requires start_control with mode=foreground".into(),
-        );
+        return Err(admission::FOREGROUND_REQUIRED.into());
     }
     Ok(())
 }

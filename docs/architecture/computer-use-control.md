@@ -430,8 +430,12 @@ For one unmodified left ImageXy click, native application-root AX hit testing ma
 select an explicitly pressable button, checkbox, radio button or link. The hit
 must belong to the exact bound window and contain the point. Do not rank nearby
 rectangles, climb ancestors or replace double/right/modifier clicks with AXPress.
-Only explicit ActionUnsupported permits a different delivery path; unknown AX
-outcomes stop without a duplicate click.
+For an attempted AX mutation, only explicit ActionUnsupported permits a different
+delivery path; unknown mutation outcomes stop without a duplicate click. The
+optional read-only point lookup has a local 300 ms messaging timeout. An absent,
+unsupported or temporarily unresponsive AX hit test retains the independently
+validated window-coordinate route; permission, identity and unknown errors stay
+visible. This is a route choice before input, never a retry of an uncertain action.
 
 Text/key `focus` uses retained AX identity or native hit testing and semantic
 focus for text controls. Other eligible targets use the exact-window directed
@@ -463,7 +467,10 @@ The directed mouse source is `CombinedSessionState`, with modifier flags set
 explicitly to the requested modifiers. A private mouse source itself caused
 AppKit to raise inactive windows in the strict fixture; changing only that source
 is therefore part of the routing contract, not a reason to add Command. Keyboard
-events retain a private source. Event field 58 is set to 1 for window routing; it
+events retain a private source. A chord uses one source, unique modifiers and
+cumulative press/release flags, ending with no modifiers held. Native modifier
+events are `FlagsChanged`, so cancellation tracks and releases them as well as
+ordinary keys. Event field 58 is set to 1 for window routing; it
 is not a click-group identifier and must not be repurposed as one. These event
 fields are native adapter details, not application-specific rules.
 
@@ -477,10 +484,15 @@ window-addressed down/up focus pair is placed outside the content frame at local
 observed target coordinates and original modifiers. There is no implicit Command,
 global foreground switch, window raise/restore or human-cursor warp.
 
-The preparation cache includes generation, PID, window ID, human foreground
-identity and activation epoch, so preparation is not repeated for every key or
-batch step while stale activation state cannot be reused. There is no app-name
-rule or guessed content-control coordinate. Preparation does not depend on an AX
+The preparation cache includes generation, PID, process-serial identity, window
+ID, human foreground identity, global activation epoch and target-local loss
+epoch. A PID-scoped, listen-only event tap invalidates preparation when native
+deactivation or key-focus loss occurs, even when the human foreground PID does
+not change. It returns every event unchanged and never suppresses input. A
+missing or disabled observer disables cache reuse while keeping directed input
+available; it does not trigger foreground takeover. Stop, target replacement and
+capture failure remove the matching observer. There is no app-name rule or
+guessed content-control coordinate. Preparation does not depend on an AX
 key-state acknowledgement, which normal AppKit windows can omit; fixtures inspect
 their own `NSWindow.keyWindow` directly.
 
@@ -596,6 +608,129 @@ port cleanup does not authorize changing persisted or cross-version wire shapes.
 Local fixtures and unsupported-host unit tests are not remote end-to-end evidence.
 
 ## Verification and acceptance
+
+### Background input evidence, 2026-10-17
+
+REA inspected the installed Codex 26.1013.31256 artifact and its `@oai/sky`
+0.7.8 macOS client. The native `SkyComputerUseService` SHA-256 is
+`f21c31c0ee5df419dbd165bf76ebd65c64d864c6fec5b6c6c3a23c42ff3d2e13`.
+JavaScript inventory/analysis covered 41 files without parse failures; 1,513
+dynamic/external semantic relationships remained unknown. Native evidence is
+Mach-O metadata plus symbol-correlated ARM64 disassembly, not recovered Swift
+source: a configured native decompiler was unavailable.
+
+The inspected paths establish these implementation facts:
+
+- The macOS client keeps a transport per API version, serializes requests and
+  uses length-prefixed JSON messages over a Unix socket, with request IDs and
+  deadlines. Input receipts and subsequent application-state reads are separate.
+- `SynthesizedEvent.send(to:)` at `0x10075ad0c` calls the PID-directed event
+  wrapper. Mouse construction supplies a window number and window-local point.
+  PID targeting alone is not the entire background-input mechanism.
+- `SyntheticAppFocusEnforcer` distinguishes actual foreground ownership from
+  whether the target believes itself active/focused. `enforceActiveState` at
+  `0x1007479fc` constructs target-local activation events; `startMonitoring` at
+  `0x100747348` observes target-process events and updates that local state.
+- `safelyEnforceActiveState` at `0x1007482a8` also contains temporary event taps
+  and conditional foreground restoration: `0x100748c64` calls
+  `activateWithOptions:` on the saved foreground application. Its tap callbacks
+  include event suppression/redirection. Static inspection does not establish
+  that every Codex route avoids foreground changes. OpenBitFun retains its
+  stricter background contract and does not adopt those branches.
+
+The REA JavaScript parent Evidence ID is
+`ev_a10e7629df3bce8ec8fe8be5d0d9a870f775b7d798e8eb363f4b718c31a9de02`;
+the Mach-O Evidence ID is
+`ev_299cc4d31a7f4b5776f8c39358856b799661ae9229faee6e45abcb2bc5c13f20`.
+These are static shipped-artifact findings, separate from the real-application
+trials below. They do not recover hidden model prompts or establish a general
+success rate. Third-party artifacts are not build or runtime dependencies.
+
+The focused Desktop Computer Use unit suite passed 181 tests with nine opt-in
+native tests ignored. These cover the new optional AX read policy, actual native
+chord event flags and cancellation bookkeeping, target-loss cache invalidation,
+and foreground-admission guidance. Objective-C strict syntax checking also
+passed. This does not establish native delivery or application compatibility.
+
+Both local native acceptance commands passed: `--orchestration` and `--busy-ax`.
+The full Tool fixture induces real target-local deactivation without a global
+foreground switch. Subsequent ordinary input prepares focus again and reaches
+the original canvas, without repeating its content click or changing another
+field. The `--busy-ax` fixture pauses only its disposable target to trigger real
+AX messaging failure; after resumption, exactly one pointer down/up pair reaches
+the button and activates it once. The mouse witness records dequeued events,
+including those consumed inside standard controls' tracking loops, without
+changing their input behavior or overriding `acceptsFirstMouse`.
+
+Both runs retained independent foreground/key, stacking, observer-input and
+physical-cursor assertions. The full fixture also passed semantic Unicode input,
+modifier shortcuts, scroll, preview revocation and Stop cleanup. Earlier runs
+blocked by the hardware-idle gate were inconclusive and are not counted as
+passes. This is native evidence for the dedicated fixtures on this macOS host,
+not a broad application success-rate benchmark or cross-Space guarantee.
+Windows/Linux native delivery and all four remote scenarios were not exercised
+by this change.
+
+The subsequent systematic native comparison also covered capture selection,
+helper-process target resolution, first-click policy, scrolling, dragging,
+menus/sheets and cancellation. The reference uses desktop-independent window
+capture on an inspected ScreenCaptureKit path; it also has other capture routes.
+Its input target resolver can follow out-of-process AX targets, whereas
+OpenBitFun keeps input within the authorized captured PID/window. Copying that
+resolver would require an explicit authority design. Reference menu/window
+observers and drag APIs do not establish equivalent coverage of system popups,
+all helper processes or cancellation races.
+
+For text, `+[SAIVirtualKeyPress keyPressesForString:]` at `0x10024c2e4` searches
+the current keyboard layout with `UCKeyTranslate`. At `0x10024c428`, an unmatched
+UTF-16 unit is logged and skipped; this method has no Unicode-only fallback.
+The later event converter's optional Unicode field does not remove that
+limitation. OpenBitFun retains direct Unicode scalar delivery and a private
+keyboard source. Fixed US-keyboard shortcut mapping and the local 8 ms text
+pacing policy are not claims of reference parity or non-US layout coverage.
+
+Real-application trials used disposable local documents and isolated browser /
+editor profiles. OpenBitFun actions went through the production
+`ComputerUseTool` and real main-thread run loop using the devtools JSONL probe.
+Reference actions used the installed Codex public native app API; the two
+backends never sent input concurrently to the same application. Results were
+checked in the returned AX tree and, for editors, the saved file, rather than
+inferred from successful action receipts.
+
+| Application / UI family | OpenBitFun observed result | Codex observed result |
+|---|---|---|
+| TextEdit 1.20 / AppKit | Image-coordinate focus, select-all, full `OpenBitFun background 文本🙂`, and save | Click, select-all and save worked; `typeText` retained only `Codex background ` in this trial |
+| Microsoft Edge 155.0.4283.60 / Chromium | One additional button activation, full Unicode input, and anchored scroll | One button activation and anchored scroll; `typeText` retained only ASCII |
+| VS Code 1.117.0 / Electron | Image-coordinate editor focus, full Unicode, Command+Shift+Left replacement and save produced exactly `OpenBitFun shortcut 文本🙂` | Editor click, select-all and save worked; the saved text contained only ASCII |
+| Calculator 11.0 / native controls | Background clear plus directed key sequence `17 + 25` produced `42` | Background clear plus the equivalent key sequence produced `42` |
+
+These are individual compatibility observations on this host/version, not a
+success-rate benchmark or a claim that every Codex text path drops Unicode.
+The reference's static layout-lookup branch is consistent with the observed
+loss, but those actions were not instruction-traced. A planned LibreOffice
+trial could not launch and is not counted as acceptance.
+
+An independent passive witness sampled frontmost PID, physical cursor, AX
+focused-window identity and relative stacking at a requested 10 ms interval,
+with activation notifications and sampling-gap records. It requested no OS
+permissions, created no window and posted no input. No trial recorded the
+target application becoming the human foreground. During the OpenBitFun Edge
+and Calculator intervals, foreground PID and cursor were unchanged and the
+target stayed below the foreground window; available AX focus samples retained
+the same window ID. Some AX reads timed out or became stale and remain unknown.
+TextEdit / VS Code intervals also contained real user cursor movement or
+switches among other foreground applications, so they are not an unchanged-
+desktop proof. Polling can miss transients; the controlled fixture's independent
+observer-input, key-window and exact-delivery checks remain necessary.
+
+Cancellation cleanup now retains and revalidates process identity, confirms the
+original window still belongs to that process, and uses current window geometry
+for mouse release routing. A missing target or failed window-local route cannot
+fall back to an unbound event. These checks reduce stale-target delivery; they
+do not make the identity-check-to-post interval atomic. The focused unit tests
+cover identity changes, routing failure, window changes and serialized cleanup
+before capture teardown, while native Stop
+acceptance exercises ordinary cleanup.
 
 ### Latency design evidence, 2026-10-13
 

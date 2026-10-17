@@ -6,6 +6,9 @@ use openbitfun_core::agentic::tools::implementations::ComputerUseTool;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
+#[path = "native_control_probe.rs"]
+mod probe;
+
 const OWNER: &str = "native-control-roundtrip-fixture";
 async fn select_and_grant_fixture(host: &DesktopComputerUseHost, pid: i32, window: Option<u64>) {
     let pending = crate::computer_use::control_session::request_share(
@@ -215,6 +218,10 @@ async fn wait_for_observer(path: &str) -> Value {
 }
 
 pub(crate) async fn run() {
+    if std::env::var_os("OPENBITFUN_CUA_PROBE_PID").is_some() {
+        probe::run().await;
+        return;
+    }
     if std::env::var_os("OPENBITFUN_INPUT_FIXTURE_PID").is_some() {
         if let Ok(case) = std::env::var("OPENBITFUN_INPUT_LATENCY_CASE") {
             run_latency_case(&case).await;
@@ -613,6 +620,79 @@ async fn run_covered_semantic() {
                 / global["height"].as_f64().unwrap();
         json!({"kind":"image_xy","x":x.round() as i32,"y":y.round() as i32,"screenshot_id":meta["screenshot_id"]})
     };
+    if std::env::var_os("OPENBITFUN_INPUT_BUSY_AX").is_some() {
+        // Pause only the disposable fixture, after observing its exact window.
+        // The real AX IPC must time out; no mock alters the production query.
+        // Resume independently even if the tool panics, so cleanup cannot leave
+        // a stopped process. A semantic-only result fails the raw-event checks.
+        assert_eq!(unsafe { libc::kill(pid, libc::SIGSTOP) }, 0);
+        struct ResumeFixture(i32);
+        impl Drop for ResumeFixture {
+            fn drop(&mut self) {
+                unsafe {
+                    libc::kill(self.0, libc::SIGCONT);
+                }
+            }
+        }
+        let _resume_on_error = ResumeFixture(pid);
+        let resumed = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(1200));
+            unsafe {
+                libc::kill(pid, libc::SIGCONT);
+            }
+        });
+        let result = call(
+            &tool,
+            &context,
+            json!({
+                "action":"app_click", "app":{"pid":pid},
+                "target":image_target(&observation,"button")
+            }),
+        )
+        .await;
+        resumed.join().unwrap();
+        assert_eq!(result["completed_steps"], 1, "{result}");
+        for _ in 0..25 {
+            if read(&path)["button_actions"] == 2 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let target = read(&path);
+        assert_eq!(
+            target["button_actions"], 2,
+            "busy-app input must arrive exactly once"
+        );
+        let events = target["events"].as_array().unwrap();
+        let content_events: Vec<_> = events
+            .iter()
+            .filter(|event| event["outside_frame"] == false)
+            .collect();
+        assert_eq!(
+            content_events.len(),
+            2,
+            "the timed-out read must select one pointer down/up, never replay AXPress: {target}"
+        );
+        assert_eq!(content_events[0]["type"], 1);
+        assert_eq!(content_events[1]["type"], 2);
+        assert_eq!(target["foreign_actions"], 0);
+        assert_eq!(
+            crate::computer_use::macos_bg_input::frontmost_pid_macos(),
+            foreground
+        );
+        let observer = read(&observer_path);
+        assert_eq!(observer["active"], true);
+        assert_eq!(observer["key_window"], true);
+        assert_eq!(observer["target_ahead"], false);
+        assert_eq!(observer["cursor"], initial_observer["cursor"]);
+        assert_eq!(
+            observer["activation_history"].as_array().unwrap().len(),
+            baseline_activations
+        );
+        call(&tool, &context, json!({"action":"stop_control"})).await;
+        eprintln!("PASS real AX messaging timeout retains one window-directed click without foreground takeover or replay");
+        return;
+    }
     eprintln!(
         "Before image button: observer={} frontmost={:?}",
         read(&observer_path),
@@ -743,6 +823,56 @@ async fn run_covered_semantic() {
     eprintln!(
         "PASS non-AX canvas receives one unmodified click and text without foreground change"
     );
+    let focus_event_count = |value: &Value| {
+        value["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|event| event["outside_frame"] == true)
+            .count()
+    };
+    assert_eq!(
+        focus_event_count(&state),
+        2,
+        "one initial focus pair must serve the entire batch"
+    );
+    // Induce a real target-local deactivation without changing the global
+    // foreground. The next ordinary Tool input must notice the stale local
+    // focus and prepare it again, preserving the original first responder.
+    let identity = crate::computer_use::macos_skylight::process_identity(pid).unwrap();
+    assert!(crate::computer_use::macos_skylight::set_local_activation(
+        identity,
+        initial["window_id"].as_u64().unwrap() as u32,
+        false
+    ));
+    for _ in 0..25 {
+        if read(&path)["active"] == false {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        read(&path)["active"],
+        false,
+        "fixture must really lose local focus"
+    );
+    assert_eq!(
+        crate::computer_use::macos_bg_input::frontmost_pid_macos(),
+        foreground
+    );
+    let recovered = call(
+        &tool,
+        &context,
+        json!({"action":"app_type_text","app":{"pid":pid},"text":"recovered"}),
+    )
+    .await;
+    assert_eq!(recovered["completed_steps"], 1, "{recovered}");
+    let recovered_state = read(&path);
+    assert_eq!(recovered_state["canvas_text"], "canvas🙂recovered");
+    assert_eq!(recovered_state["field_text"], "native-control🙂中文");
+    assert_eq!(recovered_state["canvas_downs"], 1);
+    assert_eq!(focus_event_count(&recovered_state), 4);
+    eprintln!("PASS target-local focus loss invalidates cached preparation without global activation or a repeated content click");
     // Human preview input uses a separate host instance but the same native
     // sharing resource, lease and background guard as the Agent.
     // Exercise that optional API separately, after the entire Agent task has
