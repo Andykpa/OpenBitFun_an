@@ -208,6 +208,8 @@ cargo build -p openbitfun-desktop
 ```
 
 Windows-only paths (`windows_wgc_capture`, UIA) compile on CI (`windows-latest`).
+The Windows job also runs the isolated native-module unit suite independently
+of the Tauri test loader; interactive native delivery fixtures remain ignored.
 UIA observation, semantic input, locate, hit-test and shortcut discovery share
 one MTA worker. `provider_worker.rs` bounds admission and caller waits: a request
 has a ten-second deadline and polls control cancellation every 50 ms. UIA also
