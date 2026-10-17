@@ -206,6 +206,33 @@ on Return, combine text with `focus` and a Return key step, then inspect the
 results before selecting one. Focus-and-type by itself is already one call;
 batching cannot repair an unavailable input route.
 
+ComputerUse also reads and writes plain text on the **runtime host's clipboard**:
+
+```json
+{"action":"clipboard_set","text":"Text to copy\nincluding another line"}
+{"action":"clipboard_get","max_output_bytes":65536}
+```
+
+These actions work on Windows, macOS and Linux without activating an application.
+They do not paste or submit text. `clipboard_set` replaces the clipboard; an empty
+string clears its text. Unicode and line endings are preserved. Text containing
+NUL or exceeding 16 MiB is rejected. `clipboard_get` returns `text`, the original
+`byte_length`, and `truncated`; its output limit defaults to 64 KiB and caps at
+1 MiB, ending on a UTF-8 boundary. The older `max_bytes` name remains accepted.
+
+Windows uses the built-in Windows PowerShell and Windows Forms clipboard APIs;
+macOS uses AppKit through the built-in JavaScript bridge. On Linux, install
+`wl-clipboard` for Wayland, or `xclip`/`xsel` for X11, and run OpenBitFun in that
+desktop session. Wayland does not silently fall back to an XWayland clipboard.
+Helpers have a ten-second deadline. A failed write may already have changed the
+clipboard; inspect it before retrying. Image/file clipboard formats are not
+exposed by these text actions.
+
+Clipboard access obeys the ComputerUse session and Stop. Window-only sharing
+does not grant access to the global clipboard. SSH workspaces and headless hosts
+reject these actions; a remote controller uses the executing desktop host's
+clipboard, never its own local clipboard as a fallback.
+
 On macOS, persistent ScreenCaptureKit window sharing uses the system's sharing
 controls. macOS 12.3 or newer is required for capture; system indicator appearance
 depends on the OS version. Hidden or minimized targets must be restored before

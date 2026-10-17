@@ -31,6 +31,33 @@ const OPEN_FILE_ROUTING_NOTE: &str = "The file is now open in an external applic
 
 pub(crate) struct ComputerUseActions;
 
+fn clipboard_output_limit(params: &Value) -> OpenBitFunResult<usize> {
+    match params
+        .get("max_output_bytes")
+        .or_else(|| params.get("max_bytes"))
+    {
+        None => Ok(64 * 1024),
+        Some(value) => {
+            value
+                .as_u64()
+                .filter(|value| *value > 0)
+                .map(|value| value.min(1024 * 1024) as usize)
+                .ok_or_else(|| {
+                    coded_tool_error(ErrorCode::InvalidParams,
+                "clipboard_get max_output_bytes (legacy max_bytes) must be a positive integer")
+                })
+        }
+    }
+}
+
+fn clipboard_text_result(text: &str, max_bytes: usize) -> Value {
+    let mut end = text.len().min(max_bytes);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    json!({"text": &text[..end], "byte_length": text.len(), "truncated": end < text.len()})
+}
+
 fn include_app_state_image(params: &Value) -> OpenBitFunResult<bool> {
     match params.get("include_image") {
         None => Ok(true),
@@ -1359,23 +1386,13 @@ impl ComputerUseActions {
             // the GUI. Returns text only — binary clipboard payloads are
             // out of scope.
             "clipboard_get" => {
-                let max_bytes = params
-                    .get("max_bytes")
-                    .and_then(|v| v.as_u64())
-                    .map(|n| n as usize)
-                    .unwrap_or(64 * 1024)
-                    .clamp(64, 1024 * 1024);
+                let max_bytes = clipboard_output_limit(params)?;
 
                 match LocalSystemProvider::new().clipboard_read_text().await {
                     Ok(text) => {
-                        let (truncated, was_truncated) = truncate_with_marker(&text, max_bytes);
                         let len = text.len();
                         Ok(vec![ToolResult::ok(
-                            json!({
-                                "text": truncated,
-                                "byte_length": len,
-                                "truncated": was_truncated,
-                            }),
+                            clipboard_text_result(&text, max_bytes),
                             Some(format!("{} bytes on clipboard", len)),
                         )])
                     }
@@ -1509,6 +1526,46 @@ mod tests {
     use crate::agentic::tools::computer_use_host as h;
     use crate::util::errors::OpenBitFunResult;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn clipboard_read_limit_honors_schema_and_legacy_payloads() {
+        assert_eq!(
+            super::clipboard_output_limit(&json!({})).unwrap(),
+            64 * 1024
+        );
+        assert_eq!(
+            super::clipboard_output_limit(&json!({"max_bytes": 7})).unwrap(),
+            7
+        );
+        assert_eq!(
+            super::clipboard_output_limit(&json!({"max_output_bytes": 9, "max_bytes": 7})).unwrap(),
+            9
+        );
+        assert_eq!(
+            super::clipboard_output_limit(&json!({"max_output_bytes": u64::MAX})).unwrap(),
+            1024 * 1024
+        );
+        for value in [json!(0), json!(-1), json!("9"), json!(null), json!(1.5)] {
+            assert!(super::clipboard_output_limit(&json!({"max_output_bytes": value})).is_err());
+        }
+    }
+
+    #[test]
+    fn clipboard_read_truncates_at_utf8_boundaries_without_adding_text() {
+        let text = "a中文🦀\r\n";
+        assert_eq!(
+            super::clipboard_text_result(text, 5),
+            json!({"text":"a中", "byte_length":13, "truncated":true})
+        );
+        assert_eq!(
+            super::clipboard_text_result(text, 13),
+            json!({"text":text, "byte_length":13, "truncated":false})
+        );
+        assert_eq!(
+            super::clipboard_text_result("", 1),
+            json!({"text":"", "byte_length":0, "truncated":false})
+        );
+    }
 
     #[derive(Debug, Default)]
     struct CachedTargetHost {

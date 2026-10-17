@@ -404,6 +404,39 @@ than decoding its own JPEG. Unchanged legitimate dark frames are preserved.
 Explicit action waits subscribe to session changes; Stop, revocation or target
 replacement interrupts them immediately, including waits between batch steps.
 
+### Host clipboard text
+
+`clipboard_get` and `clipboard_set` are existing ComputerUse actions backed by
+the Services Core local-system provider. They address the runtime host's desktop
+clipboard and do not activate an app, require a bound window, or send a paste.
+Both take the control owner lease; reads are allowed in observe mode, writes are
+not. Stop and owner changes invalidate reads. Window-only sharing authorizes
+neither action because the clipboard is a global desktop resource.
+
+The provider uses AppKit string types on macOS, an STA Windows Forms helper on
+Windows, and explicit UTF-8 text helpers for the selected Linux display server.
+Wayland uses `wl-copy`/`wl-paste`; X11 uses `xclip` or `xsel`. Missing desktop
+sessions/helpers fail explicitly, with no Wayland-to-XWayland fallback. Payloads
+travel through stdin/stdout, never interpolated scripts or command arguments.
+Reads/writes preserve Unicode and line endings; writes of empty text clear the
+text clipboard. NUL and text beyond the 16 MiB transport ceiling are rejected.
+
+Each helper has a ten-second deadline and bounded cleanup. A failed or timed-out
+write is an unknown outcome and is never automatically repeated through another
+helper. Linux owner processes may outlive a successful write to serve future
+paste requests, so write completion waits for the launcher, not pipe EOF from
+its descendants. Dropping the operation kills the launcher if it is still live.
+
+`clipboard_get.max_output_bytes` defaults to 64 KiB and caps at 1 MiB; the old
+`max_bytes` alias remains readable and the canonical field wins when both occur.
+The result keeps `text`, original UTF-8 `byte_length`, and `truncated`; truncation
+does not add marker text to the clipboard content. Both model schemas expose the
+same actions and parameters. No persisted or protocol shape is renamed.
+
+Remote workspace and headless dispatch paths reject these tools before native
+IO. Remote control and peer desktop sessions execute against their runtime host;
+they never read/write the driving surface's clipboard as a fallback.
+
 ## Native input rules
 
 Background actions capture desktop witnesses before and after submission.

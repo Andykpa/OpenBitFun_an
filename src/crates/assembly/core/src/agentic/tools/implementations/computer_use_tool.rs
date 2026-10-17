@@ -246,6 +246,7 @@ One batch returns ordered receipts and one final observation. End it when new in
 Use fresh observed node_idx/ocr_text targets and echo observation_id for node/index input when available. Read capability, OCR and truncation notes; report missing evidence instead of inventing it. \
 Verify the intended content, not digest changes. Never replay completed steps after partial failure; check delivery before retrying a submission. \
 Keep background mode. Foreground takeover requires the user's explicit request; never activate an app or widen scope to repair an error. Respect Stop, cancellation and permission denial. start_control is needed for an authorized restart or mode choice; control_status is diagnostic, and stop_control releases the session when finished. \
+Use clipboard_get to read plain text from the runtime host clipboard (optional max_output_bytes, default 65536), and clipboard_set with text to replace it; an empty string clears it. Clipboard actions do not activate or paste into an application and are unavailable during window-only sharing. \
 Use ExecCommand for genuine shell work, never ad hoc GUI capture, clipboard or input workarounds. Prefer available ControlHub browser actions for web content. Before an irreversible submission verify its target, content and user authorization, then verify the result.",
             os, keys
         )
@@ -449,7 +450,7 @@ Use ExecCommand for genuine shell work, never ad hoc GUI capture, clipboard or i
             "start_y": { "type": "integer", "description": "For `drag`: start Y coordinate." },
             "end_x": { "type": "integer", "description": "For `drag`: end X coordinate." },
             "end_y": { "type": "integer", "description": "For `drag`: end Y coordinate." },
-            "text": { "type": "string", "description": "Required for app_type_text/type_text/paste: the exact text to insert. For background tasks use app_type_text with the app selector and optional focus; do not substitute global clipboard shortcuts." },
+            "text": { "type": "string", "description": "Required for clipboard_set/app_type_text/type_text/paste: exact plain text. clipboard_set accepts an empty string to clear the clipboard (maximum 16 MiB; no NUL). For background tasks use app_type_text with the app selector and optional focus; do not substitute global clipboard shortcuts." },
             "ms": { "type": "integer", "description": "For `wait`: duration in milliseconds." },
             "text_query": { "type": "string", "description": "For `move_to_text`, `move_to_target`, `click_target`: visible text to OCR-match on screen (case-insensitive substring)." },
             "identifier_contains": { "type": "string", "description": "For `locate`, `click_element`: case-insensitive substring on AXIdentifier." },
@@ -466,7 +467,8 @@ Use ExecCommand for genuine shell work, never ad hoc GUI capture, clipboard or i
             ]},
             "script_type": { "type": "string", "enum": ["applescript", "shell", "bash", "powershell", "cmd"], "description": "For `run_script`: script interpreter/type." },
             "timeout_ms": { "type": "integer", "description": "For run_script/app_wait_for: timeout in milliseconds; app_wait_for defaults to 8000." },
-            "max_output_bytes": { "type": "integer", "description": "For `run_script` / `clipboard_get`: maximum bytes to return." },
+            "max_output_bytes": { "type": "integer", "minimum": 1, "description": "For run_script/clipboard_get: maximum output bytes. clipboard_get defaults to 65536 and caps at 1048576; text ends at a UTF-8 boundary and truncated reports whether bytes were omitted." },
+            "max_bytes": { "type": "integer", "minimum": 1, "description": "Legacy alias for clipboard_get max_output_bytes; max_output_bytes takes precedence when both are supplied." },
             "clear_first": { "type": "boolean", "description": "For `paste`: select all before pasting." },
             "submit": { "type": "boolean", "description": "For `paste`: press submit keys after pasting." },
             "submit_keys": { "type": "array", "items": { "type": "string" }, "description": "For `paste`: key chord to submit, default `[\"return\"]`." },
@@ -1112,10 +1114,10 @@ Use ExecCommand for genuine shell work, never ad hoc GUI capture, clipboard or i
 
     fn key_chord_os_hint() -> &'static str {
         match std::env::consts::OS {
-            "macos" => "macOS app_key_chord uses command/option/control/shift. Clipboard and global key_chord operate on desktop focus and require foreground mode.",
+            "macos" => "macOS app_key_chord uses command/option/control/shift. Global key_chord and paste require foreground mode; clipboard_get/clipboard_set do not change focus.",
             "windows" => "Windows background typing supports validated native editable controls selected by observed node, image point or the bound window thread’s current focus; scrolling requires an observed scrollable node. App-scoped keyboard chords are unavailable; global key_chord requires foreground mode and uses meta, alt, control, shift.",
             "linux" => "Linux background actions use AT-SPI semantic nodes; text insertion requires an observed EditableText node in focus. Arbitrary background coordinates and app_key_chord are unavailable. Portal keyboard input requires foreground mode and uses control, alt, shift, meta/super.",
-            _ => "Match modifiers to the host OS. Use app-scoped capabilities where available; desktop clipboard and seat input require foreground mode.",
+            _ => "Match modifiers to the host OS. Use app-scoped capabilities where available; global seat input requires foreground mode; clipboard_get/clipboard_set do not change focus.",
         }
     }
 
@@ -1567,7 +1569,8 @@ One batch returns ordered receipts and one final observation. Use that result fo
 Set include_image=false when AX text is enough for the next decision; keep the default true for visual, canvas or image-coordinate work. Read tree_text, observation_id, screenshot_id, geometry and errors. Use observed image_xy with its exact screenshot_id; echo observation_id for node/index input when available. AX/OCR are optional precision aids for visible graphical controls. \
 A submitted event or changed digest does not prove completion. Verify intended content; never replay completed steps after partial failure, and check delivery before retrying a submission. \
 Keep background mode. Foreground takeover requires the user's explicit request; never activate an app or widen scope to repair an error. Respect Stop, cancellation and permission denial. start_control is needed for an authorized restart or mode choice; control_status is diagnostic, and stop_control releases the session when finished. \
-Capabilities describe available routes, not support for every control. Use supported recovery or report the limitation. Text-only models use describe_screen/get_app_state and AX/OCR targets. Use ExecCommand for genuine shell work, never ad hoc GUI capture, clipboard or input workarounds. Prefer available ControlHub browser actions for web content. Before an irreversible submission verify its target, content and user authorization, then verify the result.",
+Capabilities describe available routes, not support for every control. Use supported recovery or report the limitation. Text-only models use describe_screen/get_app_state and AX/OCR targets. Use clipboard_get to read plain text from the runtime host clipboard (optional max_output_bytes, default 65536), and clipboard_set with text to replace it; an empty string clears it. Clipboard actions do not activate or paste into an application and are unavailable during window-only sharing. \
+Use ExecCommand for genuine shell work, never ad hoc GUI capture, clipboard or input workarounds. Prefer available ControlHub browser actions for web content. Before an irreversible submission verify its target, content and user authorization, then verify the result.",
             os, keys,
         ))
     }
@@ -4223,25 +4226,30 @@ mod tests {
             "Fixture".into(),
             identity,
         ));
-        let result = ComputerUseTool::new()
-            .call_impl(&json!({"action":"start_control"}), &remote)
-            .await;
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("workspace is remote"));
+        for input in [
+            json!({"action":"start_control"}),
+            json!({"action":"clipboard_get"}),
+            json!({"action":"clipboard_set","text":"must stay on the runtime host"}),
+        ] {
+            let result = ComputerUseTool::new().call_impl(&input, &remote).await;
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("workspace is remote"));
+        }
         assert!(host.events.lock().unwrap().is_empty());
         let headless = ToolUseContext::for_tool_listing(None, None);
-        let result = ComputerUseTool::new()
-            .call_impl(
-                &json!({"action":"get_app_state","app":{"pid":421}}),
-                &headless,
-            )
-            .await;
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("provider unavailable"));
+        for input in [
+            json!({"action":"get_app_state","app":{"pid":421}}),
+            json!({"action":"clipboard_get"}),
+            json!({"action":"clipboard_set","text":"must not touch the controller"}),
+        ] {
+            let result = ComputerUseTool::new().call_impl(&input, &headless).await;
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("provider unavailable"));
+        }
     }
 
     #[tokio::test]

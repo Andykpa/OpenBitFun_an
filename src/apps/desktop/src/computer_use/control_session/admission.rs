@@ -422,7 +422,7 @@ impl<E: Copy + PartialEq> Admission<E> {
         };
         if self.snapshot.sharing.is_some()
             && (policy.foreground && !policy.target
-                || matches!(action, "clipboard_set" | "open_app"))
+                || matches!(action, "clipboard_get" | "clipboard_set" | "open_app"))
         {
             return Err("[SHARED_TARGET_ONLY] Window sharing does not authorize global clipboard, launching or scripts".into());
         }
@@ -581,10 +581,22 @@ mod tests {
             .unwrap();
         state.finish_share(generation, 1).unwrap();
         state.set_control(generation, 1, 0, true).unwrap();
-        for action in ["clipboard_set", "open_app", "run_jxa"] {
+        for action in ["clipboard_get", "clipboard_set", "open_app", "run_script"] {
             assert!(state.admit("owner", action, 1).is_err(), "{action}");
             assert!(!state.busy);
         }
+    }
+
+    #[test]
+    fn clipboard_reads_obey_owner_stop_and_observe_mode() {
+        let mut state = running();
+        state.snapshot.mode = ControlMode::Observe;
+        assert!(state.admit("other-owner", "clipboard_get", 1).is_err());
+        assert!(state.admit("owner", "clipboard_set", 1).is_err());
+        let token = state.admit("owner", "clipboard_get", 1).unwrap();
+        state.release(token, true);
+        state.revoke("user_stopped");
+        assert!(state.admit("owner", "clipboard_get", 1).is_err());
     }
     fn running() -> Admission<u8> {
         let mut state = Admission::default();
