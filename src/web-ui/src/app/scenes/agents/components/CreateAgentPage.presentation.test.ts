@@ -39,11 +39,11 @@ describe('CreateAgentPage presentation contract', () => {
 
     expect(source).toContain('data-openbitfun-part="contextPreview"');
     expect(source).toContain('onClick={() => toggleContextSection(section)}');
-    expect(source).toContain("aria-describedby={fieldId('runtime-context-preview')}");
+    expect(source).toContain("aria-describedby={`${fieldId('runtime-context-preview')}");
     expect(source).toContain('value={prompt}');
   });
 
-  it('uses the home-page content frame and a single column on both surfaces', () => {
+  it('keeps the page content frame and gives the dialog a responsive two-column layout', () => {
     const stylesheet = readLocalFile('./CreateAgentPage.scss');
 
     expect(stylesheet).toContain(
@@ -63,6 +63,12 @@ describe('CreateAgentPage presentation contract', () => {
     );
     expect(stylesheet).toMatch(
       /@media \(max-width: 480px\)[\s\S]*\.th-create-panel__identity-fields[\s\S]*grid-template-columns: minmax\(0, 1fr\);/,
+    );
+    expect(stylesheet).toMatch(
+      /\.th-create-page--dialog \{[\s\S]*grid-template-columns: minmax\(240px, 0\.9fr\) minmax\(0, 1\.3fr\);/,
+    );
+    expect(stylesheet).toMatch(
+      /@media \(max-width: 640px\)[\s\S]*\.th-create-page--dialog \{\s*grid-template-columns: minmax\(0, 1fr\);/,
     );
   });
 });

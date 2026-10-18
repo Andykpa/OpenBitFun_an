@@ -5,8 +5,129 @@
   background: var(--openbitfun-color-surface-scene);
 }
 
+.th-create-dialog__header {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.9fr) minmax(0, 1.3fr);
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  background: var(--openbitfun-color-surface-scene);
+}
+
+.th-create-dialog__heading {
+  justify-content: center;
+  padding: var(--openbitfun-space-6) var(--openbitfun-space-8);
+  background: var(--openbitfun-color-surface-chrome);
+}
+
+.th-create-dialog__window-actions {
+  justify-content: flex-end;
+  padding: var(--openbitfun-space-6) var(--openbitfun-space-8);
+}
+
 .th-create-page--dialog {
-  height: min(760px, 70vh);
+  display: grid;
+  height: min(680px, 72dvh);
+  grid-template-columns: minmax(240px, 0.9fr) minmax(0, 1.3fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+
+  .th-create-page__body {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .th-create-page__inner {
+    width: 100%;
+    min-height: 100%;
+    justify-content: center;
+    padding: var(--openbitfun-space-8);
+  }
+
+  .th-create-page__columns,
+  .th-create-page__panel {
+    gap: var(--openbitfun-space-6);
+  }
+
+  .th-create-panel__identity-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--openbitfun-space-5);
+  }
+
+}
+
+// The Markdown editor owns scrolling on this step. Keep the form's flex chain
+// bounded so editing cannot grow a second scrollbar on the surrounding panel.
+.th-create-page--prompt-step {
+  .th-create-page__body {
+    overflow: hidden;
+    scrollbar-gutter: auto;
+  }
+
+  .th-create-page__inner {
+    height: 100%;
+    min-height: 0;
+    justify-content: flex-start;
+  }
+
+  .th-create-page__form,
+  .th-create-page__columns,
+  .th-create-page__panel--capabilities,
+  .th-create-panel__field--prompt {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+  }
+
+  .th-create-page__prompt-heading {
+    flex-shrink: 0;
+  }
+
+  .th-create-panel__prompt-control {
+    height: auto;
+  }
+}
+
+.th-create-page__guide {
+  display: flex;
+  min-height: 0;
+  grid-column: 1;
+  grid-row: 1 / -1;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--openbitfun-space-8);
+  overflow-y: auto;
+  padding: var(--openbitfun-space-8);
+  background: var(--openbitfun-color-surface-chrome);
+}
+
+.th-create-page__guide-copy {
+  margin-block: auto;
+}
+
+.th-create-page__steps {
+  display: flex;
+  align-items: center;
+  gap: var(--openbitfun-space-3);
+  color: var(--openbitfun-color-content-muted);
+  font-size: var(--openbitfun-type-label-sm-font-size);
+  line-height: var(--openbitfun-type-label-sm-line-height);
+}
+
+.th-create-page__step {
+  color: var(--openbitfun-color-content-primary);
+  font-weight: var(--openbitfun-type-label-selected-font-weight);
+}
+
+.th-create-page__wizard-footer {
+  grid-column: 2;
+  grid-row: 2;
+  padding: var(--openbitfun-space-4) var(--openbitfun-space-8);
+
+  .th-create-page__actions {
+    width: 100%;
+  }
 }
 
 .th__list-body {
@@ -213,7 +334,28 @@
 .th-create-panel__prompt-control {
   display: flex;
   flex: 1;
-  min-height: 320px;
+  min-width: 0;
+  min-height: 0;
+  height: 420px;
+  overflow: hidden;
+}
+
+.th-create-panel__markdown-editor {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: var(--openbitfun-color-surface-scene);
+
+  .m-editor-content,
+  .m-editor-ir-panel {
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .m-editor-tiptap {
+    padding: 0;
+  }
 }
 
 .th-create-panel__identity-fields {
@@ -311,6 +453,49 @@
 }
 
 @media (max-width: 640px) {
+  .th-create-dialog__header {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .th-create-dialog__heading,
+  .th-create-dialog__window-actions {
+    padding: var(--openbitfun-space-4);
+  }
+
+  .th-create-dialog__window-actions {
+    background: var(--openbitfun-color-surface-chrome);
+  }
+
+  .th-create-page--dialog {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    height: min(740px, 76dvh);
+
+    .th-create-page__body {
+      grid-column: 1;
+      grid-row: 2;
+    }
+
+    .th-create-page__inner {
+      justify-content: flex-start;
+      padding: var(--openbitfun-space-5);
+    }
+  }
+
+  .th-create-page__guide {
+    grid-column: 1;
+    grid-row: 1;
+    gap: var(--openbitfun-space-4);
+    overflow: visible;
+    padding: var(--openbitfun-space-4) var(--openbitfun-space-5);
+  }
+
+  .th-create-page__wizard-footer {
+    grid-column: 1;
+    grid-row: 3;
+    padding-inline: var(--openbitfun-space-5);
+  }
+
   .th-create-page__actions {
     width: 100%;
 
