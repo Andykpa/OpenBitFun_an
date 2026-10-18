@@ -65,7 +65,6 @@ export const askUserMeta = {
     "type.flow.meta.fontWeight",
     "type.flow.meta.lineHeight",
     "type.body.sm.lineHeight",
-    "control.askUser.descriptionMaxWidth",
     "control.icon.sizeMd",
     "control.askUser.optionContentGap",
     "control.askUser.optionGap",
