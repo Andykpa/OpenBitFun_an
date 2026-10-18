@@ -1,4 +1,5 @@
-//! Bounded, read-only Codex rollout import. Discovery reads headers, never full histories.
+//! Bounded, read-only Codex rollout and paginated SQLite history import.
+//! Discovery reads metadata, never full histories.
 use openbitfun_product_domains::session_import::*;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -9,10 +10,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod sqlite_history;
+#[cfg(test)]
+mod sqlite_history_tests;
 mod titles;
 use titles::{TitleCache, TitleSnapshot};
 
-pub const SOURCE_REVISION: &str = "codex-rollout-jsonl-v2";
+pub const SOURCE_REVISION: &str = "codex-rollout-and-sqlite-v3";
 const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_LINE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_DOCUMENT_BYTES: usize = 128 * 1024 * 1024;
@@ -108,20 +112,39 @@ impl CodexSessionReader {
         let titles = self.title_snapshot();
         let mut diagnostics = titles.diagnostics.clone();
         let paths = self.logical_session_paths(&titles, &mut diagnostics)?;
+        let mut available = titles
+            .paginated
+            .values()
+            .filter(|thread| !thread.subagent)
+            .map(|thread| {
+                let mut candidate = thread.candidate.clone();
+                titles.apply(&mut candidate);
+                candidate
+            })
+            .collect::<Vec<_>>();
+        for path in paths {
+            match self.inspect_path_with_titles(&path, &titles) {
+                Ok(candidate) if !titles.paginated.contains_key(&candidate.source_session_id) => {
+                    available.push(candidate)
+                }
+                Ok(_) => {}
+                Err(error) if diagnostics.len() < 20 => {
+                    diagnostics.push(warning("source_unreadable", &error))
+                }
+                Err(_) => {}
+            }
+        }
+        available.sort_by(|left, right| {
+            right
+                .updated_at
+                .cmp(&left.updated_at)
+                .then_with(|| left.candidate_id.cmp(&right.candidate_id))
+        });
         let mut candidates = Vec::new();
         let mut matched = 0usize;
         let mut has_more = false;
         let query = query.to_lowercase();
-        for path in paths {
-            let candidate = match self.inspect_path_with_titles(&path, &titles) {
-                Ok(candidate) => candidate,
-                Err(error) => {
-                    if diagnostics.len() < 20 {
-                        diagnostics.push(warning("source_unreadable", &error));
-                    }
-                    continue;
-                }
-            };
+        for candidate in available {
             if !query.is_empty()
                 && !format!(
                     "{} {}",
@@ -158,6 +181,17 @@ impl CodexSessionReader {
         id: &str,
         mode: ExternalSessionImportMode,
     ) -> Result<CodexSessionDocument, String> {
+        if !self.codex_home.is_absolute() {
+            return Err("Codex home must be an absolute host path".into());
+        }
+        let titles = self.title_snapshot();
+        if let Some(thread) = titles
+            .paginated
+            .values()
+            .find(|thread| thread.matches_locator(id))
+        {
+            return sqlite_history::read(thread, mode, &titles);
+        }
         let cached = self
             .headers
             .lock()
@@ -233,6 +267,9 @@ impl CodexSessionReader {
     ) -> Result<CodexSessionDocument, String> {
         let candidate = self.inspect_header(path)?;
         let titles = self.title_snapshot();
+        if let Some(thread) = titles.paginated.get(&candidate.source_session_id) {
+            return sqlite_history::read(thread, mode, &titles);
+        }
         // A resume can publish a new rollout after the last catalog scan. Read
         // only this thread's indexed file, after checking the source boundary.
         if let Some(current) = titles.current_rollout(&candidate.source_session_id) {
