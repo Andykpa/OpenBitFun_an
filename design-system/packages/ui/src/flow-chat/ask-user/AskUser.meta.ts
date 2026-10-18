@@ -10,6 +10,7 @@ export const askUserMeta = {
     { defaultValue: "{}", name: "answers", type: "AskUserAnswers" },
     { defaultValue: "asking", name: "state", type: "AskUserState" },
     { name: "navigation", type: "AskUserNavigation" },
+    { name: "waitTiming", type: "AskUserWaitTiming" },
     { name: "disclosure", type: "{ label: ReactNode; collapseLabel: string; skipped?: boolean }" },
     { name: "summaryLabel", type: "ReactNode" },
     { name: "summaryDetail", type: "ReactNode" },
