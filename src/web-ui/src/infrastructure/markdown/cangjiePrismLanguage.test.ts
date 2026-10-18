@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import Prism from 'prismjs';
+import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-async-light';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { cangjiePrismGrammar } from '@/tools/editor/languages/cangjie.language';
 import { ensureCangjiePrismLanguage } from './cangjiePrismLanguage';
 
@@ -26,14 +29,29 @@ describe('cangjie Prism grammar', () => {
 });
 
 describe('ensureCangjiePrismLanguage', () => {
-  it('registers the grammar once on a loaded highlighter', () => {
-    const registerLanguage = vi.fn();
-    const highlighter = { registerLanguage };
+  it('registers once and highlights with the real async highlighter', async () => {
+    const highlighter = SyntaxHighlighter as typeof SyntaxHighlighter & {
+      preload: () => Promise<void>;
+    };
+    await highlighter.preload();
+    const registerLanguage = vi.spyOn(highlighter, 'registerLanguage');
 
-    ensureCangjiePrismLanguage(highlighter);
-    ensureCangjiePrismLanguage(highlighter);
+    try {
+      ensureCangjiePrismLanguage(highlighter);
+      ensureCangjiePrismLanguage(highlighter);
 
-    expect(registerLanguage).toHaveBeenCalledTimes(1);
-    expect(registerLanguage).toHaveBeenCalledWith('cangjie', cangjiePrismGrammar);
+      expect(registerLanguage).toHaveBeenCalledTimes(1);
+      expect(registerLanguage).toHaveBeenCalledWith('cangjie', expect.any(Function));
+      const html = renderToStaticMarkup(React.createElement(highlighter, {
+        language: 'cangjie',
+        useInlineStyles: false,
+        children: 'func add(a: Int64): Int64 { return a + 1 }',
+      }));
+      expect(html).toContain('class="token keyword"');
+      expect(html).toContain('class="token function"');
+      expect(html).toContain('class="token builtin"');
+    } finally {
+      registerLanguage.mockRestore();
+    }
   });
 });

@@ -8,17 +8,24 @@
  * the loaded instance instead of adding a dependency on refractor.
  */
 
+import type * as Prism from 'prismjs';
 import { createLogger } from '@/shared/utils/logger';
 import { cangjiePrismGrammar } from '@/tools/editor/languages/cangjie.language';
 
 const log = createLogger('cangjiePrismLanguage');
 
 interface AsyncHighlighterRegistrar {
-  registerLanguage?: (name: string, grammar: unknown) => void;
+  registerLanguage?: (name: string, grammar: typeof registerCangjiePrismGrammar) => void;
 }
 
 const PRISM_LANGUAGE_ID = 'cangjie';
 let registered = false;
+
+// Refractor accepts language modules, rather than Prism grammar objects.
+function registerCangjiePrismGrammar(prism: typeof Prism): void {
+  prism.languages[PRISM_LANGUAGE_ID] = cangjiePrismGrammar;
+}
+registerCangjiePrismGrammar.displayName = PRISM_LANGUAGE_ID;
 
 /** Idempotently register the Cangjie Prism grammar on a loaded highlighter. */
 export function ensureCangjiePrismLanguage(highlighter: unknown): void {
@@ -33,7 +40,7 @@ export function ensureCangjiePrismLanguage(highlighter: unknown): void {
   }
 
   try {
-    registerLanguage.call(highlighter, PRISM_LANGUAGE_ID, cangjiePrismGrammar);
+    registerLanguage.call(highlighter, PRISM_LANGUAGE_ID, registerCangjiePrismGrammar);
     registered = true;
   } catch (error) {
     log.warn('Failed to register Cangjie Prism grammar', error);
