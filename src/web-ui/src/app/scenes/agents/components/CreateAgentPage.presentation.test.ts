@@ -43,8 +43,9 @@ describe('CreateAgentPage presentation contract', () => {
     expect(source).toContain('value={prompt}');
   });
 
-  it('keeps the page content frame and gives the dialog a responsive two-column layout', () => {
+  it('keeps the page content frame and delegates guided layout to the design system', () => {
     const stylesheet = readLocalFile('./CreateAgentPage.scss');
+    const source = readLocalFile('./CreateAgentPage.tsx');
 
     expect(stylesheet).toContain(
       'grid-template-columns: minmax(0, 1fr);',
@@ -64,11 +65,9 @@ describe('CreateAgentPage presentation contract', () => {
     expect(stylesheet).toMatch(
       /@media \(max-width: 480px\)[\s\S]*\.th-create-panel__identity-fields[\s\S]*grid-template-columns: minmax\(0, 1fr\);/,
     );
-    expect(stylesheet).toMatch(
-      /\.th-create-page--dialog \{[\s\S]*grid-template-columns: minmax\(240px, 0\.9fr\) minmax\(0, 1\.3fr\);/,
-    );
-    expect(stylesheet).toMatch(
-      /@media \(max-width: 640px\)[\s\S]*\.th-create-page--dialog \{\s*grid-template-columns: minmax\(0, 1fr\);/,
-    );
+    expect(source).toContain('<SetupWizard');
+    expect(source).toContain("contentMode={step === 1 ? 'contained' : 'scroll'}");
+    expect(stylesheet).not.toContain('th-create-page__guide');
+    expect(stylesheet).not.toContain('th-create-dialog__header');
   });
 });

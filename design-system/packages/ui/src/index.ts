@@ -221,6 +221,7 @@ export {
   type NavigationPanelSeparatorProps,
 } from "./components/NavigationPanel";
 export { PageHeader, type PageHeaderProps } from "./components/PageHeader";
+export { SetupWizard, type SetupWizardProps, type SetupWizardStep } from "./components/SetupWizard";
 export { Radio, type RadioProps, type RadioSize } from "./components/Radio";
 export { RollingText, type RollingTextProps } from "./components/RollingText";
 export { ShimmerText, type ShimmerTextProps } from "./components/ShimmerText";

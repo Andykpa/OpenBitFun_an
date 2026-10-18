@@ -9,7 +9,6 @@ export const createAgentPageAppearanceDescriptor: AppearanceSurfaceDescriptor = 
     { id: 'field' }, { id: 'levelGroup' }, { id: 'levelOption' },
     { id: 'error' }, { id: 'tools' }, { id: 'tool' }, { id: 'promptEditor' },
     { id: 'contextPreview' }, { id: 'prompt' },
-    { id: 'guide' }, { id: 'step' },
   ],
   states: [
     { id: 'loading', selector: { kind: 'self', suffix: '[data-openbitfun-state~="loading"]' } },

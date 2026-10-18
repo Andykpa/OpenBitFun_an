@@ -1,4 +1,4 @@
-import { Button, DialogBody, DialogFooter, Icon, Input, PageHeader, ScrollArea, Switch, Tooltip, type IconSource } from '@openbitfun/ui';
+import { Button, DialogBody, DialogClose, Icon, Input, PageHeader, ScrollArea, SetupWizard, Switch, Tooltip, type IconSource } from '@openbitfun/ui';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FileText,
@@ -97,11 +97,12 @@ function defaultSelectedTools(
 
 interface CreateAgentPageProps {
   standalone?: boolean;
+  titleId?: string;
   onCancel?: () => void;
   onCreated?: () => void;
 }
 
-const CreateAgentPage: React.FC<CreateAgentPageProps> = ({ standalone = false, onCancel, onCreated }) => {
+const CreateAgentPage: React.FC<CreateAgentPageProps> = ({ standalone = false, titleId, onCancel, onCreated }) => {
   const { t, formatNumber } = useI18n('scenes/agents');
   const notification = useNotification();
   const { hasWorkspace, workspace } = useCurrentWorkspace();
@@ -112,21 +113,23 @@ const CreateAgentPage: React.FC<CreateAgentPageProps> = ({ standalone = false, o
   const formId = `${formInstanceId}-custom-agent-form`;
   const fieldId = (field: string) => `${formInstanceId}-custom-agent-${field}`;
   const formRef = useRef<HTMLFormElement>(null);
-  const bodyRef = useRef<HTMLDivElement>(null);
   const promptControlRef = useRef<HTMLDivElement>(null);
   const [step, setStep] = useState(0);
   const steps = [
     {
+      id: 'basics',
       label: t('agentsOverview.form.basicInformation'),
       title: t('agentsOverview.form.wizard.basicsTitle'),
       description: t('agentsOverview.form.wizard.basicsDescription'),
     },
     {
+      id: 'prompt',
       label: t('agentsOverview.form.prompt'),
       title: t('agentsOverview.form.wizard.promptTitle'),
       description: t('agentsOverview.form.wizard.promptDescription'),
     },
     {
+      id: 'tools',
       label: t('agentsOverview.form.tools'),
       title: t('agentsOverview.form.wizard.toolsTitle'),
       description: t('agentsOverview.form.wizard.toolsDescription'),
@@ -135,7 +138,6 @@ const CreateAgentPage: React.FC<CreateAgentPageProps> = ({ standalone = false, o
 
   useEffect(() => {
     if (!standalone) return;
-    if (bodyRef.current) bodyRef.current.scrollTop = 0;
     // The Markdown editor owns focus once its lazy-loaded editing surface mounts.
     if (step === 1) return;
     const firstControl = formRef.current?.querySelector<HTMLElement>('input:not(:disabled), textarea')
@@ -956,98 +958,94 @@ const CreateAgentPage: React.FC<CreateAgentPageProps> = ({ standalone = false, o
     </>
   );
 
+  const formContent = (
+    <form
+      ref={formRef}
+      id={formId}
+      className="th-create-page__form"
+      data-openbitfun-component="create-agent-page"
+      data-openbitfun-part="form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (submitting || toolsEditing) return;
+        if (standalone && step < 2) {
+          handleNext();
+          return;
+        }
+        if (standalone && (toolsLoading || toolsLoadError)) return;
+        void handleSubmit();
+      }}
+    >
+      <div className="th-create-page__columns" data-openbitfun-component="create-agent-page" data-openbitfun-part="columns">
+        {(!standalone || step !== 1) && (
+          <section className="th-create-page__panel th-create-page__panel--definition" data-openbitfun-component="create-agent-page" data-openbitfun-part="column">
+            {(!standalone || step === 0) && basicInformation}
+            {(!standalone || step === 2) && (
+              <>
+                {standalone && permissionControls}
+                {standalone && toolsLoading ? (
+                  <p className="th__title-sub" role="status">{t('agentsOverview.form.wizard.loadingTools')}</p>
+                ) : standalone && toolsLoadError ? (
+                  <div className="th-create-page__section">
+                    <p className="th-create-panel__error" role="alert">{t('agentsOverview.form.wizard.toolsLoadFailed')}</p>
+                    <Button type="button" variant="outline" size="sm" onClick={() => setToolsAttempt((value) => value + 1)}>
+                      {t('agentsOverview.form.wizard.retry')}
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    {toolSelection}
+                    {standalone && selectableTools.length === 0 && (
+                      <p className="th__title-sub">{t('agentsOverview.form.wizard.noTools')}</p>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </section>
+        )}
+        {(!standalone || step === 1) && (
+          <section className="th-create-page__panel th-create-page__panel--capabilities" data-openbitfun-component="create-agent-page" data-openbitfun-part="column">
+            {promptEditor}
+          </section>
+        )}
+      </div>
+    </form>
+  );
+
   const page = (
     <div className={`tv th-create-page${standalone ? ' th-create-page--dialog' : ''}${standalone && step === 1 ? ' th-create-page--prompt-step' : ''}`} data-openbitfun-component="create-agent-page" data-openbitfun-part="root">
-      {standalone && (
-        <aside className="th-create-page__guide" data-openbitfun-component="create-agent-page" data-openbitfun-part="guide" aria-label={t('agentsOverview.form.wizard.navigation')}>
-          <div className="th-create-page__guide-copy" aria-live="polite" aria-atomic="true">
-            <PageHeader title={steps[step].title} description={steps[step].description} level={3} />
-          </div>
-          <div className="th-create-page__steps" aria-live="polite" aria-atomic="true">
-            <span>{t('agentsOverview.form.wizard.progress', { current: formatNumber(step + 1), total: formatNumber(steps.length) })}</span>
-            <span
-              className="th-create-page__step"
-              data-openbitfun-component="create-agent-page"
-              data-openbitfun-part="step"
-              data-openbitfun-state="active"
-              aria-current="step"
-            >
-              {steps[step].label}
-            </span>
-          </div>
-        </aside>
-      )}
-      <ScrollArea ref={bodyRef} className="th__list-body th-create-page__body">
-        <div className="th__list-inner th-create-page__inner" data-openbitfun-component="create-agent-page" data-openbitfun-part="body">
-          {!standalone && (
-            <header className="th-create-page__head" data-openbitfun-component="create-agent-page" data-openbitfun-part="heading">
-              <PageHeader title={formTitle} level={2} />
-            </header>
-          )}
-          <form
-            ref={formRef}
-            id={formId}
-            className="th-create-page__form"
-            data-openbitfun-component="create-agent-page"
-            data-openbitfun-part="form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (submitting || toolsEditing) return;
-              if (standalone && step < 2) {
-                handleNext();
-                return;
-              }
-              if (standalone && (toolsLoading || toolsLoadError)) return;
-              void handleSubmit();
-            }}
-          >
-            <div className="th-create-page__columns" data-openbitfun-component="create-agent-page" data-openbitfun-part="columns">
-              {(!standalone || step !== 1) && (
-                <section className="th-create-page__panel th-create-page__panel--definition" data-openbitfun-component="create-agent-page" data-openbitfun-part="column">
-                  {(!standalone || step === 0) && basicInformation}
-                  {(!standalone || step === 2) && (
-                    <>
-                      {standalone && permissionControls}
-                      {standalone && toolsLoading ? (
-                        <p className="th__title-sub" role="status">{t('agentsOverview.form.wizard.loadingTools')}</p>
-                      ) : standalone && toolsLoadError ? (
-                        <div className="th-create-page__section">
-                          <p className="th-create-panel__error" role="alert">{t('agentsOverview.form.wizard.toolsLoadFailed')}</p>
-                          <Button type="button" variant="outline" size="sm" onClick={() => setToolsAttempt((value) => value + 1)}>
-                            {t('agentsOverview.form.wizard.retry')}
-                          </Button>
-                        </div>
-                      ) : (
-                        <>
-                          {toolSelection}
-                          {standalone && selectableTools.length === 0 && (
-                            <p className="th__title-sub">{t('agentsOverview.form.wizard.noTools')}</p>
-                          )}
-                        </>
-                      )}
-                    </>
-                  )}
-                </section>
-              )}
-              {(!standalone || step === 1) && (
-                <section className="th-create-page__panel th-create-page__panel--capabilities" data-openbitfun-component="create-agent-page" data-openbitfun-part="column">
-                  {promptEditor}
-                </section>
-              )}
-            </div>
-          </form>
-        </div>
-      </ScrollArea>
       {standalone ? (
-        <DialogFooter className="th-create-page__wizard-footer">
-          <div className="th-create-page__actions" data-openbitfun-component="create-agent-page" data-openbitfun-part="actions">{formActions}</div>
-        </DialogFooter>
+        <SetupWizard
+          title={formTitle}
+          titleId={titleId}
+          headerActions={<DialogClose />}
+          guideLabel={t('agentsOverview.form.wizard.navigation')}
+          step={{
+            ...steps[step],
+            progress: t('agentsOverview.form.wizard.progress', { current: formatNumber(step + 1), total: formatNumber(steps.length) }),
+          }}
+          contentMode={step === 1 ? 'contained' : 'scroll'}
+          footer={<div className="th-create-page__actions" data-openbitfun-component="create-agent-page" data-openbitfun-part="actions">{formActions}</div>}
+        >
+          {formContent}
+        </SetupWizard>
       ) : (
-        <footer className="th-create-page__footer">
-          <div className="th-create-page__footer-inner">
-            <div className="th-create-page__actions" data-openbitfun-component="create-agent-page" data-openbitfun-part="actions">{formActions}</div>
-          </div>
-        </footer>
+        <>
+          <ScrollArea className="th__list-body th-create-page__body">
+            <div className="th__list-inner th-create-page__inner" data-openbitfun-component="create-agent-page" data-openbitfun-part="body">
+              <header className="th-create-page__head" data-openbitfun-component="create-agent-page" data-openbitfun-part="heading">
+                <PageHeader title={formTitle} level={2} />
+              </header>
+              {formContent}
+            </div>
+          </ScrollArea>
+          <footer className="th-create-page__footer">
+            <div className="th-create-page__footer-inner">
+              <div className="th-create-page__actions" data-openbitfun-component="create-agent-page" data-openbitfun-part="actions">{formActions}</div>
+            </div>
+          </footer>
+        </>
       )}
     </div>
   );

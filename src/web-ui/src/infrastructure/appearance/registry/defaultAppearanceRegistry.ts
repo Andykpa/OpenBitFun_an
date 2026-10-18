@@ -1,5 +1,6 @@
 import { computerUseControlAppearanceDescriptor } from '@/app/components/ComputerUseControlCard.appearance';
 import { splitViewAppearanceDescriptor } from '@/infrastructure/design-system/SplitView.appearance';
+import { setupWizardAppearanceDescriptor } from '@/infrastructure/design-system/SetupWizard.appearance';
 import { confirmDialogAppearanceDescriptor } from '@/infrastructure/confirm-dialog';
 import { inputDialogAppearanceDescriptor } from '@/app/components/InputDialog/appearance';
 import { windowControlsAppearanceDescriptor } from '@/app/components/WindowControls/appearance';
@@ -258,6 +259,7 @@ import { AppearanceRegistry } from './AppearanceRegistry';
 export function createDefaultAppearanceRegistry(): AppearanceRegistry {
   return new AppearanceRegistry()
     .registerComponent(splitViewAppearanceDescriptor)
+    .registerComponent(setupWizardAppearanceDescriptor)
     .registerComponent(confirmDialogAppearanceDescriptor)
     .registerComponent(inputDialogAppearanceDescriptor)
     .registerComponent(windowControlsAppearanceDescriptor)
