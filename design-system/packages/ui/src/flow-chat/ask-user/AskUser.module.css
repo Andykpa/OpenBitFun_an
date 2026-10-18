@@ -163,6 +163,26 @@
     display: none;
   }
 
+  .waitTiming {
+    display: inline-flex;
+    min-inline-size: 0;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: var(--openbitfun-space-1);
+  }
+
+  .waitSettled {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    color: var(--openbitfun-color-content-muted);
+    font-family: var(--openbitfun-type-flow-meta-font-family);
+    font-size: var(--openbitfun-type-flow-meta-font-size);
+    font-weight: var(--openbitfun-type-flow-meta-font-weight);
+    line-height: var(--openbitfun-type-flow-meta-line-height);
+    white-space: nowrap;
+  }
+
   .navigation {
     position: relative;
   }

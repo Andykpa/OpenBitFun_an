@@ -2216,6 +2216,7 @@
       "awaitingTimeoutConfirmation": "等待後端確認逾時",
       "cancelCountdown": "取消計時",
       "timeoutSettingsHint": "點擊可取消計時。可在設定 → 執行與權限 → 工具執行 → 提問逾時中調整逾時時間。",
+      "unlimitedWait": "不限時",
       "questionsCount": "{{count}} 個問題",
       "answerAllBeforeSubmit": "請回答所有問題後再提交",
       "submit": "提交",

@@ -2216,6 +2216,7 @@
       "awaitingTimeoutConfirmation": "Waiting for timeout confirmation",
       "cancelCountdown": "Cancel countdown",
       "timeoutSettingsHint": "Click to cancel the countdown. Change the timeout in Settings → Execution & Permissions → Tool execution → Question timeout.",
+      "unlimitedWait": "No time limit",
       "questionsCount": "{{count}} questions",
       "answerAllBeforeSubmit": "Please answer all questions before submitting",
       "submit": "Submit",
