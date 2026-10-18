@@ -188,7 +188,12 @@
     min-inline-size: 0;
   }
 
-  &__heatmap { padding: 20px; border-radius: 22px; }
+  &__heatmap {
+    padding-block: 20px;
+    // Keep the smaller calendar text optically inside the heading's edge.
+    padding-inline: calc(var(--openbitfun-space-1) / 2);
+    border-radius: 22px;
+  }
 
 }
 
@@ -214,6 +219,6 @@
 
 @container personal-overview (max-width: 440px) {
   .personal-overview {
-    &__heatmap { padding: 16px 12px; }
+    &__heatmap { padding-block: 16px; }
   }
 }

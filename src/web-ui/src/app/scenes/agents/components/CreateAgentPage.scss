@@ -6,7 +6,45 @@
 }
 
 .th-create-page--dialog {
-  height: min(760px, 70vh);
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+
+  .th-create-page__columns,
+  .th-create-page__panel {
+    gap: var(--openbitfun-space-6);
+  }
+
+  .th-create-panel__identity-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--openbitfun-space-5);
+  }
+
+}
+
+// The Markdown editor owns scrolling on this step. Keep the form's flex chain
+// bounded so editing cannot grow a second scrollbar on the surrounding panel.
+.th-create-page--prompt-step {
+  .th-create-page__form,
+  .th-create-page__columns,
+  .th-create-page__panel--capabilities,
+  .th-create-panel__field--prompt {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+  }
+
+  .th-create-page__prompt-heading {
+    flex-shrink: 0;
+  }
+
+  .th-create-panel__prompt-control {
+    height: auto;
+  }
 }
 
 .th__list-body {
@@ -213,7 +251,28 @@
 .th-create-panel__prompt-control {
   display: flex;
   flex: 1;
-  min-height: 320px;
+  min-width: 0;
+  min-height: 0;
+  height: 420px;
+  overflow: hidden;
+}
+
+.th-create-panel__markdown-editor {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: var(--openbitfun-color-surface-scene);
+
+  .m-editor-content,
+  .m-editor-ir-panel {
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .m-editor-tiptap {
+    padding: 0;
+  }
 }
 
 .th-create-panel__identity-fields {

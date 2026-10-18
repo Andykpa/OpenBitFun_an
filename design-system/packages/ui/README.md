@@ -183,6 +183,64 @@ the native scrollbar while preserving scrolling. `Menu`, `Listbox`, and
 `scrollbar-gutter`, not local scrollbar colors or show/hide handlers. Monaco
 and terminal renderers keep their own scrollbar APIs.
 
+## Guided configuration
+
+`SetupWizard` provides the split-pane layout for complex, staged configuration.
+It includes the split header, a tinted guide pane, one compact current-step
+indicator, a content viewport, and an independent footer. It has no divider lines.
+The same component can sit inside a `Dialog` or an inline card. Its container
+query stacks the guide above the form when the available width is narrow.
+
+```tsx
+import { Button, Dialog, DialogClose, SetupWizard } from "@openbitfun/ui";
+import { useId } from "react";
+
+const titleId = useId();
+
+<Dialog open={open} onOpenChange={close} size="2xl" aria-labelledby={titleId}>
+  <SetupWizard
+    title="Configure workflow"
+    titleId={titleId}
+    headerActions={<DialogClose />}
+    guideLabel="Configuration guidance"
+    step={{
+      id: step.id,
+      label: step.label,
+      title: step.guideTitle,
+      description: step.guideDescription,
+      progress: formatProgress(current + 1, steps.length),
+    }}
+    contentMode={step.hasEditor ? "contained" : "scroll"}
+    footer={<>
+      <Button onClick={close}>Cancel</Button>
+      {current > 0 && <Button onClick={back}>Back</Button>}
+      <Button type="submit" form={formId} loading={saving}>Next</Button>
+    </>}
+  >
+    <form id={formId} onSubmit={validateAndAdvance}>{stepContent}</form>
+  </SetupWizard>
+</Dialog>
+```
+
+The consumer controls the current step, any number of stages, field drafts,
+validation, focus after navigation, asynchronous work, and submission. A stable
+`step.id` resets only the content scroll position when the stage changes;
+ordinary field updates do not reset scrolling or remount the content. Supply
+localized copy and progress; the package imports no locale catalog or product
+state. The guide announces the new explanation and current step together.
+
+Write the left-hand guide about consequences, scope, or decision criteria.
+Keep field instructions beside their controls on the right. Avoid a second
+step list or repeating the right-hand heading on the left.
+
+Use `contentMode="scroll"` for ordinary forms. `contained` bounds the content
+viewport and delegates scrolling to an editor or other child. In that mode,
+intermediate wrappers must use a flex column with `flex: 1` and `min-height: 0`.
+Size the root through `className` or `style` when its default viewport height
+does not suit the host. Keep validation and loading states in the content and
+action slots. `Dialog` continues to own focus trapping, dismissal, and portals;
+connect its `aria-labelledby` to `SetupWizard.titleId` explicitly.
+
 ## Text overflow
 
 

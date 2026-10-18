@@ -3325,6 +3325,22 @@
     "projectCowork": "项目里工作。"
   },
   "modelSelector": {
+    "home": {
+      "context": "上下文",
+      "effort": "思考强度",
+      "unknownContext": "未提供",
+      "contextReadOnly": "上下文窗口由执行端管理",
+      "editContext": "编辑上下文窗口",
+      "contextTokens": "上下文窗口（Token 数）",
+      "saveContext": "保存上下文窗口",
+      "contextInvalid": "请输入 {{min}} 到 {{max}} 之间的整数 Token 数",
+      "contextSaveFailed": "保存失败，请重试。",
+      "availablePoolModels": "模型池可用模型",
+      "mode": "模式",
+      "currentModel": "当前使用模型",
+      "poolConnections": "电池接入列表",
+      "modelPool": "模型池列表"
+    },
     "modes": {
       "selection": "选择模式",
       "manual": "手动指定",
@@ -3339,6 +3355,12 @@
     "modelExplanation": "模型说明",
     "modelSettings": "模型设置",
     "modelSelection": "选择模型",
+    "searchModels": "搜索模型",
+    "collapseSearch": "收起搜索",
+    "searchPlaceholder": "搜索模型或供应商",
+    "noSearchResults": "没有匹配的模型或供应商",
+    "filterProvider": "按服务商筛选模型",
+    "allProviders": "全部服务商",
     "primaryModel": "主力模型",
     "primaryModelDesc": "使用已配置的主力模型",
     "fastModel": "快速模型",

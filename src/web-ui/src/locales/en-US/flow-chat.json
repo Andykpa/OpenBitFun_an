@@ -3325,6 +3325,22 @@
     "projectCowork": "working in the project."
   },
   "modelSelector": {
+    "home": {
+      "context": "Context",
+      "effort": "Effort",
+      "unknownContext": "Unknown",
+      "contextReadOnly": "The context window is managed by the execution target",
+      "editContext": "Edit context window",
+      "contextTokens": "Context window (tokens)",
+      "saveContext": "Save context window",
+      "contextInvalid": "Enter a whole number between {{min}} and {{max}} tokens",
+      "contextSaveFailed": "Could not save. Please try again.",
+      "availablePoolModels": "Available pool models",
+      "mode": "Mode",
+      "currentModel": "Current model",
+      "poolConnections": "Battery connections",
+      "modelPool": "Model pool"
+    },
     "modes": {
       "selection": "Select mode",
       "manual": "Manual selection",
@@ -3339,6 +3355,12 @@
     "modelExplanation": "Model explanation",
     "modelSettings": "Model settings",
     "modelSelection": "Select Model",
+    "searchModels": "Search models",
+    "collapseSearch": "Collapse search",
+    "searchPlaceholder": "Search models or providers",
+    "noSearchResults": "No matching models or providers",
+    "filterProvider": "Filter models by provider",
+    "allProviders": "All providers",
     "primaryModel": "Primary Model",
     "primaryModelDesc": "Uses the configured primary model",
     "fastModel": "Fast Model",
