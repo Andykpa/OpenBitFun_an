@@ -1732,7 +1732,7 @@
       "averageRate": "平均输出",
       "speedLevel": "速度档位",
       "rateValue": "{{value}} t/s",
-      "rateBasis": "输出 Token 除以本轮总耗时，包含工具执行与等待；档位分界为 15、40、80 Token/秒",
+      "rateBasis": "输出 Token 除以模型实际输出时长（不含工具执行与等待），档位分界为 15、40、80 Token/秒",
       "slow": "慢",
       "normal": "一般",
       "fast": "快",

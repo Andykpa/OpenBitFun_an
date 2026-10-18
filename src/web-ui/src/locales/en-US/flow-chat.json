@@ -1732,7 +1732,7 @@
       "averageRate": "Average output",
       "speedLevel": "Speed level",
       "rateValue": "{{value}} t/s",
-      "rateBasis": "Output tokens divided by total turn time, including tools and waiting; speed levels change at 15, 40 and 80 tokens/s",
+      "rateBasis": "Output tokens divided by the model's streaming time, excluding tool execution and waiting; speed levels change at 15, 40 and 80 tokens/s",
       "slow": "Slow",
       "normal": "Normal",
       "fast": "Fast",
