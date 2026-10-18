@@ -108,6 +108,15 @@ deliberate layout transitions or animate virtualized content. Rely on CI for
 full lint, build, and broad test coverage unless the local change specifically
 needs it.
 
+For navigation-divider dragging, elastic feedback, cancellation, and keyboard resizing:
+
+```bash
+pnpm --dir src/web-ui run test:run src/app/layout/useNavResize.test.tsx src/app/layout/WorkspaceBody.presentation.test.ts
+```
+
+These local DOM fixtures cover gesture state and spring settling, not native
+WebView rendering or live remote scenarios.
+
 For Appearance descriptor changes, also exercise production registration; its ID
 and property validation goes beyond the static DOM audit:
 
