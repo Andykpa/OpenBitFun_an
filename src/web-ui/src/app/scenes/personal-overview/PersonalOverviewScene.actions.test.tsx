@@ -2,6 +2,7 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Editor } from '@tiptap/core';
 import { activateSurface, resetDeviceSurfaceForTest } from '@/infrastructure/peer-device/deviceSurface';
 import { ConfirmDialogRenderer, useConfirmDialogStore } from '@/infrastructure/confirm-dialog';
 import { useAgentsStore } from '../agents/agentsStore';
@@ -107,14 +108,27 @@ const answerAssistantConfirmation = (confirm: boolean) => act(async () => {
   const label = confirm ? 'agents.createAssistant' : 'dialog.confirm.cancel';
   [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(button => button.textContent === label)!.click();
 });
-const fillAgentField = (field: string, value: string) => act(async () => {
-  const control = document.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[role="dialog"] [id$="custom-agent-${field}"]`)!;
-  const prototype = control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-  Object.getOwnPropertyDescriptor(prototype, 'value')!.set!.call(control, value);
-  control.dispatchEvent(new Event('input', { bubbles: true }));
-});
+const fillAgentField = async (field: string, value: string, scope: ParentNode = document.querySelector('[role="dialog"]')!) => {
+  if (field === 'prompt') {
+    await act(async () => { await vi.dynamicImportSettled(); });
+    const editor = scope.querySelector<HTMLElement & { editor: Editor }>('[id$="custom-agent-prompt"] .ProseMirror')!.editor;
+    act(() => editor.commands.setContent({
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: value }] }],
+    }));
+    return;
+  }
+  await act(async () => {
+    const control = scope.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[id$="custom-agent-${field}"]`)!;
+    const prototype = control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, 'value')!.set!.call(control, value);
+    control.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+};
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+  Range.prototype.getBoundingClientRect = () => new DOMRect();
   resetDeviceSurfaceForTest();
   useConfirmDialogStore.setState({ isOpen: false, options: null, resolve: null });
   useAgentsStore.setState(useAgentsStore.getInitialState(), true);
@@ -174,11 +188,13 @@ describe('overview catalog actions', () => {
     expect(mocks.openScene).not.toHaveBeenCalled();
     await fillAgentField('id', 'new-agent');
     await fillAgentField('description', 'A new agent');
+    await clickDialogButton('agentsOverview.form.wizard.next');
     await fillAgentField('prompt', 'Help with the task.');
     const contextControls = document.querySelector('[role="dialog"] .th-create-panel__context-options')!;
     expect(contextControls.querySelectorAll('[aria-pressed="true"]')).toHaveLength(2);
     await clickDialogButton('agentsOverview.form.contextWorkspaceContext');
     await clickDialogButton('agentsOverview.form.contextProjectLayout');
+    await clickDialogButton('agentsOverview.form.wizard.next');
     await clickDialogButton('agentsOverview.form.submit');
     expect(mocks.createAgent).toHaveBeenCalledWith(expect.objectContaining({
       id: 'new-agent', kind: 'mode', description: 'A new agent', prompt: 'Help with the task.',
@@ -206,12 +222,7 @@ describe('overview catalog actions', () => {
     mocks.createAgent.mockReturnValue(new Promise<void>(resolve => { finish = resolve; }));
     await act(async () => { root.render(<CreateAgentPage />); });
     for (const [field, value] of [['id', 'page-agent'], ['description', 'Page agent'], ['prompt', 'Original prompt']]) {
-      await act(async () => {
-        const control = container.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[id$="custom-agent-${field}"]`)!;
-        const prototype = control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-        Object.getOwnPropertyDescriptor(prototype, 'value')!.set!.call(control, value);
-        control.dispatchEvent(new Event('input', { bubbles: true }));
-      });
+      await fillAgentField(field, value, container);
     }
     const submit = container.querySelector<HTMLButtonElement>('.th-create-page__footer button[type="submit"]')!;
     await act(async () => { submit.click(); });
@@ -229,7 +240,9 @@ describe('overview catalog actions', () => {
     await click('personal-overview-create-agent');
     await fillAgentField('id', 'old-agent');
     await fillAgentField('description', 'Created on the original device');
+    await clickDialogButton('agentsOverview.form.wizard.next');
     await fillAgentField('prompt', 'Original task');
+    await clickDialogButton('agentsOverview.form.wizard.next');
     await clickDialogButton('agentsOverview.form.submit');
     expect(mocks.createAgent).toHaveBeenCalledOnce();
     await act(async () => { activateSurface('peer-host'); });
