@@ -7,10 +7,16 @@ import { sessionSceneWorkspaceKey } from '@/app/services/sessionSceneTarget';
 import { useContentResourceStore } from '@/app/workbench/contentResourceStore';
 import { activateSurface } from '@/infrastructure/peer-device/deviceSurface';
 
-const state = vi.hoisted(() => ({ grouping: 'all', activeWorkspaceId: null as string | null, workspaces: [
-  { id: 'assistant', name: 'Assistant', workspaceKind: 'assistant' },
-  { id: 'project', name: 'Project', workspaceKind: 'normal' },
-] }));
+const state = vi.hoisted(() => {
+  const assistant = { id: 'assistant', name: 'Assistant', workspaceKind: 'assistant' };
+  const project = { id: 'project', name: 'Project', workspaceKind: 'normal' };
+  return {
+    grouping: 'all',
+    activeWorkspaceId: null as string | null,
+    workspaces: [assistant, project],
+    defaultWorkspaces: [assistant, project],
+  };
+});
 vi.mock('@/infrastructure/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 vi.mock('@/shared/notification-system', () => ({ notificationService: { error: vi.fn() } }));
 vi.mock('@/infrastructure/contexts/WorkspaceContext', () => ({
@@ -29,11 +35,19 @@ vi.mock('../../workspaceSessionView', () => ({
   useWorkspaceSessionViewStore: (selector: (value: typeof state) => unknown) => selector(state),
 }));
 vi.mock('./WorkspaceItem', () => ({
-  default: ({ workspace, isActive, isSelected }: {
+  default: ({ workspace, isActive, isSelected, draggable }: {
     workspace: { id: string };
     isActive: boolean;
     isSelected: boolean;
-  }) => <div data-owner-row={workspace.id} data-context-active={isActive} data-selected={isSelected} />,
+    draggable?: boolean;
+  }) => (
+    <div
+      data-owner-row={workspace.id}
+      data-context-active={isActive}
+      data-selected={isSelected}
+      data-row-draggable={draggable ? 'true' : 'false'}
+    />
+  ),
 }));
 vi.mock('../sessions/SessionsSection', () => ({
   default: ({ workspaceScopes }: { workspaceScopes: { workspaceId: string }[] }) => (
@@ -52,9 +66,122 @@ function sessionTab(workspaceId: string, surfaceId = 'local'): SceneTab {
 afterEach(() => {
   state.grouping = 'all';
   state.activeWorkspaceId = null;
+  state.workspaces = [...state.defaultWorkspaces];
   useSceneStore.setState({ activeTabId: null, openTabs: [] });
   useContentResourceStore.setState({ resources: {} });
   activateSurface('local');
+});
+
+function renderList() {
+  const container = document.createElement('div');
+  const root = createRoot(container);
+  act(() => root.render(<WorkspaceListSection variant="all" />));
+  return {
+    container,
+    ownerRows: () => Array.from(container.querySelectorAll('[data-owner-row]'))
+      .map(row => row.getAttribute('data-owner-row')),
+    unmount: () => act(() => root.unmount()),
+  };
+}
+
+describe('assistant pinning', () => {
+  it('pins the assistant above the project workspaces regardless of the stored order', () => {
+    state.grouping = 'grouped';
+    // The persisted workspace order lists the project first.
+    state.workspaces = [...state.defaultWorkspaces].reverse();
+
+    const list = renderList();
+    try {
+      expect(list.ownerRows()).toEqual(['assistant', 'project']);
+      const pinnedRow = list.container.querySelector('[data-session-group-pinned="true"]');
+      expect(pinnedRow?.getAttribute('data-workspace-id')).toBe('assistant');
+      expect(pinnedRow?.getAttribute('data-session-group-kind')).toBe('assistant');
+      expect(pinnedRow?.querySelector('[data-owner-row="assistant"]')).not.toBeNull();
+    } finally {
+      list.unmount();
+    }
+  });
+
+  it('keeps the pinned assistant out of the project drag order', () => {
+    state.grouping = 'grouped';
+    state.workspaces = [
+      { id: 'assistant', name: 'Assistant', workspaceKind: 'assistant' },
+      { id: 'first-project', name: 'First', workspaceKind: 'normal' },
+      { id: 'second-project', name: 'Second', workspaceKind: 'normal' },
+    ];
+
+    const list = renderList();
+    try {
+      expect(list.ownerRows()).toEqual(['assistant', 'first-project', 'second-project']);
+      const draggable = (id: string) => list.container
+        .querySelector(`[data-owner-row="${id}"]`)?.getAttribute('data-row-draggable');
+      expect(draggable('assistant')).toBe('false');
+      expect(draggable('first-project')).toBe('true');
+      expect(draggable('second-project')).toBe('true');
+    } finally {
+      list.unmount();
+    }
+  });
+
+  it('keeps the pin above the flat session list without rendering project rows', () => {
+    state.grouping = 'all';
+
+    const list = renderList();
+    try {
+      expect(list.ownerRows()).toEqual(['assistant']);
+      expect(list.container.querySelector('[data-session-group-pinned="true"]')
+        ?.getAttribute('data-workspace-id')).toBe('assistant');
+      expect(list.container.querySelector('[data-session-scopes]')?.getAttribute('data-session-scopes'))
+        .toBe('project');
+    } finally {
+      list.unmount();
+    }
+  });
+
+  it('renders no pin when the assistant is not created or has been hidden', () => {
+    state.grouping = 'grouped';
+    // A hidden assistant is not an opened workspace, so it must not leave an
+    // empty pinned slot behind.
+    state.workspaces = state.defaultWorkspaces.filter(workspace => workspace.workspaceKind !== 'assistant');
+
+    const list = renderList();
+    try {
+      expect(list.ownerRows()).toEqual(['project']);
+      expect(list.container.querySelector('[data-session-group-pinned="true"]')).toBeNull();
+      expect(list.container.querySelector('[data-testid="nav-workspace-list-empty"]')).toBeNull();
+    } finally {
+      list.unmount();
+    }
+  });
+
+  it('leaves the flat session list in place when no assistant is open', () => {
+    state.grouping = 'all';
+    state.workspaces = state.defaultWorkspaces.filter(workspace => workspace.workspaceKind !== 'assistant');
+
+    const list = renderList();
+    try {
+      expect(list.ownerRows()).toEqual([]);
+      expect(list.container.querySelector('[data-session-group-pinned="true"]')).toBeNull();
+      expect(list.container.querySelector('[data-testid="nav-workspace-list-empty"]')).toBeNull();
+      expect(list.container.querySelector('[data-session-scopes]')?.getAttribute('data-session-scopes'))
+        .toBe('project');
+    } finally {
+      list.unmount();
+    }
+  });
+
+  it('keeps the empty state when no session group is open', () => {
+    state.grouping = 'grouped';
+    state.workspaces = [];
+
+    const list = renderList();
+    try {
+      expect(list.ownerRows()).toEqual([]);
+      expect(list.container.querySelector('[data-testid="nav-workspace-list-empty"]')).not.toBeNull();
+    } finally {
+      list.unmount();
+    }
+  });
 });
 
 describe('assistant navigation across grouping modes', () => {
