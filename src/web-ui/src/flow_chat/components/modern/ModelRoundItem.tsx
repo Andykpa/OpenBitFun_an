@@ -371,6 +371,7 @@ export const ModelRoundItem = React.memo<ModelRoundItemProps>(
     turnStartedAt,
     turnEndedAt,
     turnDurationMs,
+    turnOutputDurationMs,
     turnTokenUsage,
     canvasArtifactItems = [],
     expandedThinkingItemIds = [],
@@ -551,7 +552,9 @@ export const ModelRoundItem = React.memo<ModelRoundItemProps>(
     );
 
     const completedAt = turnEndedAt ?? round.endTime;
-    const usageDurationMs = turnDurationMs ??
+    // Throughput must divide by streaming time, not turn wall time: the latter
+    // also counts tool execution and waiting and would report a deflated rate.
+    const usageDurationMs = turnOutputDurationMs ?? turnDurationMs ??
       (typeof turnStartedAt === 'number' && typeof completedAt === 'number'
         ? Math.max(0, completedAt - turnStartedAt) : undefined);
     const effectiveDurationMs = turnDurationMs ??
