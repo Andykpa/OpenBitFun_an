@@ -154,6 +154,22 @@ describe('assistant pinning', () => {
     }
   });
 
+  it('leaves the flat session list in place when no assistant is open', () => {
+    state.grouping = 'all';
+    state.workspaces = state.defaultWorkspaces.filter(workspace => workspace.workspaceKind !== 'assistant');
+
+    const list = renderList();
+    try {
+      expect(list.ownerRows()).toEqual([]);
+      expect(list.container.querySelector('[data-session-group-pinned="true"]')).toBeNull();
+      expect(list.container.querySelector('[data-testid="nav-workspace-list-empty"]')).toBeNull();
+      expect(list.container.querySelector('[data-session-scopes]')?.getAttribute('data-session-scopes'))
+        .toBe('project');
+    } finally {
+      list.unmount();
+    }
+  });
+
   it('keeps the empty state when no session group is open', () => {
     state.grouping = 'grouped';
     state.workspaces = [];
