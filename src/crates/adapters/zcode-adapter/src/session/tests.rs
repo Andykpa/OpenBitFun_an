@@ -407,11 +407,48 @@ fn unsupported_schema_and_candidate_paths_do_not_return_empty_success() {
 #[ignore = "Reads the installed Zcode session database without changing it"]
 fn inspect_installed_zcode() {
     let reader = ZcodeSessionReader::default();
-    let catalog = reader.discover(0, 50, "").unwrap();
+    let catalog = reader.discover_all().unwrap();
     assert!(
         !catalog.candidates.is_empty(),
         "No installed Zcode sessions found"
     );
+    let (connection, _) = reader.open().unwrap().unwrap();
+    let source_ids = connection
+        .prepare("SELECT id FROM session WHERE parent_id IS NULL")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<BTreeSet<_>, _>>()
+        .unwrap();
+    let discovered_ids = catalog
+        .candidates
+        .iter()
+        .map(|candidate| candidate.source_session_id.clone())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        discovered_ids, source_ids,
+        "Every source main session must be discovered"
+    );
+    assert_eq!(
+        catalog.candidates.len(),
+        source_ids.len(),
+        "No duplicate source sessions"
+    );
+    let mut paged_ids = Vec::new();
+    let mut cursor = 0;
+    loop {
+        let page = reader.discover(cursor, 50, "").unwrap();
+        paged_ids.extend(
+            page.candidates
+                .into_iter()
+                .map(|candidate| candidate.source_session_id),
+        );
+        let Some(next) = page.next_cursor else { break };
+        assert!(next > cursor);
+        cursor = next;
+    }
+    assert_eq!(paged_ids.len(), source_ids.len());
+    assert_eq!(paged_ids.into_iter().collect::<BTreeSet<_>>(), source_ids);
     let mut turns = 0;
     let mut tools = 0;
     for candidate in &catalog.candidates {
@@ -427,7 +464,7 @@ fn inspect_installed_zcode() {
             .count();
     }
     println!(
-        "Zcode read-only import: {} sessions, {turns} user turns, {tools} tool calls",
+        "Zcode read-only import: {} source main sessions matched by ID and pagination, {turns} user turns, {tools} tool calls",
         catalog.candidates.len()
     );
 }

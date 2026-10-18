@@ -1,5 +1,5 @@
-//! Codex keeps display names outside its rollout files. Read one small,
-//! cached metadata snapshot per discovery, including committed WAL records.
+//! Read one cached state/index metadata snapshot, including committed WAL
+//! records. Paginated threads have no rollout file to discover on disk.
 use super::*;
 use rusqlite::{Connection, OpenFlags};
 use std::time::Duration;
@@ -12,6 +12,7 @@ pub(super) struct TitleSnapshot {
     indexed_names: HashMap<String, String>,
     titles: HashMap<String, String>,
     rollout_paths: HashMap<String, String>,
+    pub(super) paginated: HashMap<String, super::sqlite_history::Thread>,
     pub(super) diagnostics: Vec<ExternalSessionImportWarning>,
 }
 
@@ -237,9 +238,45 @@ fn read_database(path: &Path, snapshot: &mut TitleSnapshot) -> Result<(), String
     } else {
         "NULL"
     };
+    let optional = |name: &str| {
+        if columns.contains(name) {
+            name.to_owned()
+        } else {
+            "NULL".into()
+        }
+    };
+    let millis = |name: &str| {
+        let ms = format!("{name}_ms");
+        if columns.contains(&ms) {
+            format!(
+                "COALESCE({ms}, {})",
+                if columns.contains(name) {
+                    format!("{name} * 1000")
+                } else {
+                    "NULL".into()
+                }
+            )
+        } else if columns.contains(name) {
+            format!("{name} * 1000")
+        } else {
+            "NULL".into()
+        }
+    };
+    let metadata_columns = [
+        optional("history_mode"),
+        optional("cwd"),
+        millis("created_at"),
+        millis("updated_at"),
+        optional("source"),
+        optional("first_user_message"),
+        optional("model_provider"),
+        optional("model"),
+        optional("cli_version"),
+    ]
+    .join(", ");
     let mut query = connection
         .prepare(&format!(
-            "SELECT id, {name}, {title}, {rollout_path} FROM threads ORDER BY id LIMIT ?1",
+            "SELECT id, {name}, {title}, {rollout_path}, {metadata_columns} FROM threads ORDER BY id LIMIT ?1",
         ))
         .map_err(read_error)?;
     let rows = query
@@ -249,6 +286,15 @@ fn read_database(path: &Path, snapshot: &mut TitleSnapshot) -> Result<(), String
                 row.get::<_, Option<String>>(1)?,
                 row.get::<_, Option<String>>(2)?,
                 row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<i64>>(6)?,
+                row.get::<_, Option<i64>>(7)?,
+                row.get::<_, Option<String>>(8)?,
+                row.get::<_, Option<String>>(9)?,
+                row.get::<_, Option<String>>(10)?,
+                row.get::<_, Option<String>>(11)?,
+                row.get::<_, Option<String>>(12)?,
             ))
         })
         .map_err(read_error)?;
@@ -256,15 +302,70 @@ fn read_database(path: &Path, snapshot: &mut TitleSnapshot) -> Result<(), String
         if index >= MAX_FILES {
             return Err("Codex title catalog exceeds the discovery limit".into());
         }
-        let (id, name, title, rollout_path) = row.map_err(read_error)?;
-        if let Some(path) = rollout_path.filter(|path| !path.trim().is_empty()) {
-            snapshot.rollout_paths.entry(id.clone()).or_insert(path);
+        let (
+            id,
+            name,
+            title,
+            rollout_path,
+            history_mode,
+            cwd,
+            created_at,
+            updated_at,
+            source,
+            first_user_message,
+            model_provider,
+            model_name,
+            format_version,
+        ) = row.map_err(read_error)?;
+        if let Some(path) = rollout_path.as_ref().filter(|path| !path.trim().is_empty()) {
+            snapshot
+                .rollout_paths
+                .entry(id.clone())
+                .or_insert_with(|| path.clone());
         }
         if let Some(name) = name.filter(|name| !name.trim().is_empty()) {
             snapshot.names.entry(id.clone()).or_insert(name);
         }
         if let Some(title) = title.filter(|title| !title.trim().is_empty()) {
-            snapshot.titles.entry(id).or_insert(title);
+            snapshot.titles.entry(id.clone()).or_insert(title);
+        }
+        if history_mode.as_deref() == Some("paginated") {
+            let updated_at = updated_at.and_then(|time| u64::try_from(time).ok());
+            let candidate = ExternalSessionCandidate {
+                candidate_id: format!("codex:thread:{id}"),
+                ecosystem_id: "codex".into(),
+                source_session_id: id.clone(),
+                title: first_user_message.as_deref().and_then(user_title_preview),
+                fallback_title: first_user_message.as_deref().map(|text| preview(text, 120)),
+                title_is_source_name: false,
+                cwd,
+                created_at: created_at.and_then(|time| u64::try_from(time).ok()),
+                updated_at,
+                model_provider,
+                model_name,
+                turn_count: None,
+                file_size_bytes: 0,
+                format_version,
+                status: ExternalSessionStatus::Complete,
+                fingerprint: format!("metadata:paginated:{}", updated_at.unwrap_or(0)),
+                source_location: Some(format!("$CODEX_HOME/thread_history_1.sqlite#{id}")),
+                target_workspace_id: None,
+                target_workspace_name: None,
+                imported_session_id: None,
+            };
+            let subagent = source
+                .as_deref()
+                .and_then(|source| serde_json::from_str::<Value>(source).ok())
+                .is_some_and(|source| source.get("subagent").is_some());
+            snapshot
+                .paginated
+                .entry(id)
+                .or_insert(super::sqlite_history::Thread {
+                    candidate,
+                    rollout_path,
+                    subagent,
+                    directory: path.parent().unwrap_or_else(|| Path::new("")).to_path_buf(),
+                });
         }
     }
     Ok(())
