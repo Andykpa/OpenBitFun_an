@@ -56,6 +56,16 @@ fall through to a different tab. Ending a conversation releases its selection,
 not the user's browser pages. `open_builtin` and URL-bearing `read_article`
 remain compatible aliases, including their legacy result keys.
 
+External browser actions are background work. A conversation's tab is created in
+the background and selecting a page never raises the user's window; only an
+explicit `activate: true` request surfaces it, for steps that need the human
+(show or watch, sign-in, consent, payment, CAPTCHA, a native picker). Launch
+follows the same rule, so macOS starts the browser without activating it. The
+exceptions are the browser-owned approval prompt for a guarded real-profile
+connection and a user-initiated restart from Settings. A platform without a
+non-activating launch can let the initial browser start take focus; every later
+CDP action stays in the background.
+
 Browser permissions are independent of `ai.computer_use_enabled`. External
 browser identity/availability is exposed only after a Settings connection has
 succeeded (or an opted-in startup connection receives browser-owned consent).
