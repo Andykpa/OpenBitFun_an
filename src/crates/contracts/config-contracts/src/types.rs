@@ -641,6 +641,9 @@ pub struct AIExperienceConfig {
     /// Whether a completed interactive turn offers a one-sentence next-input suggestion.
     #[serde(default = "default_true")]
     pub enable_prompt_suggestion: bool,
+    /// Whether desktop cards are shown and the DesktopCard Agent tool is exposed.
+    #[serde(default = "default_true")]
+    pub enable_desktop_cards: bool,
 }
 
 fn default_quick_actions() -> Vec<AiExperienceQuickAction> {
@@ -1982,6 +1985,7 @@ impl Default for AIExperienceConfig {
             quick_actions: default_quick_actions(),
             enable_git_commit_coauthor: true,
             enable_prompt_suggestion: true,
+            enable_desktop_cards: true,
         }
     }
 }
@@ -2306,6 +2310,25 @@ mod tests {
         let opted_out: super::AIExperienceConfig =
             serde_json::from_value(persisted.clone()).unwrap();
         assert!(!opted_out.enable_prompt_suggestion);
+        assert_eq!(serde_json::to_value(opted_out).unwrap(), persisted);
+    }
+
+    #[test]
+    fn desktop_cards_default_on_for_legacy_settings_and_preserve_opt_out() {
+        let legacy = serde_json::json!({
+            "enable_agent_companion": false,
+            "enable_prompt_suggestion": false
+        });
+        let settings: super::AIExperienceConfig = serde_json::from_value(legacy).unwrap();
+        assert!(settings.enable_desktop_cards);
+        assert!(!settings.enable_agent_companion);
+
+        let mut persisted = serde_json::to_value(settings).unwrap();
+        assert_eq!(persisted["enable_desktop_cards"], serde_json::json!(true));
+        persisted["enable_desktop_cards"] = serde_json::json!(false);
+        let opted_out: super::AIExperienceConfig =
+            serde_json::from_value(persisted.clone()).unwrap();
+        assert!(!opted_out.enable_desktop_cards);
         assert_eq!(serde_json::to_value(opted_out).unwrap(), persisted);
     }
 
