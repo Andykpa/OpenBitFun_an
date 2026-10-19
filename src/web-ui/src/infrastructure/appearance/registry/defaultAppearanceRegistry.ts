@@ -1,5 +1,6 @@
 import { computerUseControlAppearanceDescriptor } from '@/app/components/ComputerUseControlCard.appearance';
 import { splitViewAppearanceDescriptor } from '@/infrastructure/design-system/SplitView.appearance';
+import { setupWizardAppearanceDescriptor } from '@/infrastructure/design-system/SetupWizard.appearance';
 import { confirmDialogAppearanceDescriptor } from '@/infrastructure/confirm-dialog';
 import { inputDialogAppearanceDescriptor } from '@/app/components/InputDialog/appearance';
 import { windowControlsAppearanceDescriptor } from '@/app/components/WindowControls/appearance';
@@ -40,6 +41,7 @@ import { toolGroupPickerAppearanceDescriptor } from '@/app/scenes/agents/compone
 import { inlineDiffPreviewAppearanceDescriptor } from '@/flow_chat/components/InlineDiffPreview.appearance';
 import { exportImageAppearanceDescriptor } from '@/flow_chat/components/modern/ExportImageButton.appearance';
 import { userMessageItemAppearanceDescriptor } from '@/flow_chat/components/modern/UserMessageItem.appearance';
+import { externalHistoryNoticeAppearanceDescriptor } from '@/flow_chat/components/ExternalHistoryNotice.appearance';
 import { sessionUsageReportCardAppearanceDescriptor } from '@/flow_chat/components/usage/SessionUsageReportCard.appearance';
 import { sessionUsageModalAppearanceDescriptor } from '@/flow_chat/components/usage/SessionUsageModal.appearance';
 import { createPlanDisplayAppearanceDescriptor } from '@/flow_chat/tool-cards/CreatePlanDisplay.appearance';
@@ -258,6 +260,7 @@ import { AppearanceRegistry } from './AppearanceRegistry';
 export function createDefaultAppearanceRegistry(): AppearanceRegistry {
   return new AppearanceRegistry()
     .registerComponent(splitViewAppearanceDescriptor)
+    .registerComponent(setupWizardAppearanceDescriptor)
     .registerComponent(confirmDialogAppearanceDescriptor)
     .registerComponent(inputDialogAppearanceDescriptor)
     .registerComponent(windowControlsAppearanceDescriptor)
@@ -299,6 +302,7 @@ export function createDefaultAppearanceRegistry(): AppearanceRegistry {
     .registerComponent(inlineDiffPreviewAppearanceDescriptor)
     .registerComponent(exportImageAppearanceDescriptor)
     .registerComponent(userMessageItemAppearanceDescriptor)
+    .registerComponent(externalHistoryNoticeAppearanceDescriptor)
     .registerComponent(sessionUsageReportCardAppearanceDescriptor)
     .registerComponent(sessionUsageModalAppearanceDescriptor)
     .registerComponent(createPlanDisplayAppearanceDescriptor)

@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { MenuItem, SegmentedControl } from '@openbitfun/ui';
+import { Icon, MenuItem, OverflowText, SegmentedControl } from '@openbitfun/ui';
 import { FlowChatCollapse } from '@openbitfun/ui/flow-chat';
 import { useI18n } from '@/infrastructure/i18n';
 import type { ReasoningPresetDescriptor } from '@/infrastructure/config/types';
@@ -12,6 +12,7 @@ interface ReasoningIntensityControlProps {
   allowDefaultReset?: boolean;
   active?: boolean;
   disabled?: boolean;
+  presentation?: 'compact' | 'settings-row';
   onSelect: (presetId: string | null) => boolean | Promise<boolean>;
 }
 
@@ -29,6 +30,7 @@ export const ReasoningIntensityControl: React.FC<ReasoningIntensityControlProps>
   allowDefaultReset = true,
   active = true,
   disabled = false,
+  presentation = 'compact',
   onSelect,
 }) => {
   const { t } = useI18n('flow-chat');
@@ -141,6 +143,8 @@ export const ReasoningIntensityControl: React.FC<ReasoningIntensityControlProps>
       data-openbitfun-component="model-selector"
       data-openbitfun-part="reasoningSlider"
       data-expanded={expanded ? 'true' : 'false'}
+      data-presentation={presentation}
+      data-reasoning-mode={selectedValue === 'auto' ? 'auto' : 'manual'}
       data-disabled={locked ? 'true' : undefined}
     >
       <div
@@ -160,6 +164,8 @@ export const ReasoningIntensityControl: React.FC<ReasoningIntensityControlProps>
             aria-label={`${t('reasoningSelector.title')}: ${label}`}
             aria-expanded={expanded}
             aria-controls={choicesId}
+            metadata={presentation === 'settings-row' ? <OverflowText>{label}</OverflowText> : undefined}
+            shortcut={presentation === 'settings-row' ? <Icon name="chevron-right" size="sm" aria-hidden /> : undefined}
             disabled={locked || expanded || choices.length === 0}
             onClick={() => setExpanded(true)}
             onKeyDown={event => {
@@ -169,7 +175,8 @@ export const ReasoningIntensityControl: React.FC<ReasoningIntensityControlProps>
               if (!locked && choices.length > 0) setExpanded(true);
             }}
           >
-            {t('reasoningSelector.thinking')}{' · '}{label}
+            {presentation === 'settings-row'
+              ? t('modelSelector.home.effort') : <>{t('reasoningSelector.thinking')}{' · '}{label}</>}
           </MenuItem>
         </div>
         <FlowChatCollapse
@@ -206,10 +213,12 @@ export const ReasoningIntensityControl: React.FC<ReasoningIntensityControlProps>
           </div>
         </FlowChatCollapse>
       </div>
-      {/* Non-rendering legacy targets keep saved Appearance overrides compatible. */}
-      <template data-openbitfun-component="model-selector" data-openbitfun-part="reasoningSliderSky" />
-      <template data-openbitfun-component="model-selector" data-openbitfun-part="reasoningSliderNebula" />
-      <template data-openbitfun-component="model-selector" data-openbitfun-part="reasoningSliderAurora" />
+      {/* Keep existing skin part IDs valid without rendering decorative layers. */}
+      <span hidden aria-hidden="true">
+        <span data-openbitfun-component="model-selector" data-openbitfun-part="reasoningSliderSky" />
+        <span data-openbitfun-component="model-selector" data-openbitfun-part="reasoningSliderNebula" />
+        <span data-openbitfun-component="model-selector" data-openbitfun-part="reasoningSliderAurora" />
+      </span>
     </div>
   );
 };

@@ -202,8 +202,11 @@ describe('L0 Navigation Panel', () => {
         );
         if (!list) return null;
 
+        // The pinned assistant row is a peer group in the same column even
+        // though it never joins the workspace drag order.
         const groups = Array.from(list.querySelectorAll<HTMLElement>(
-          ':scope > [data-testid="nav-workspace-drop-target"]',
+          ':scope > [data-testid="nav-workspace-pinned-item"], '
+          + ':scope > [data-testid="nav-workspace-drop-target"]',
         )).filter(group => group.getBoundingClientRect().height > 0);
         const groupWithSession = groups.find(group => group.querySelector(
           '[data-testid="nav-session-item"][data-session-level="0"]',

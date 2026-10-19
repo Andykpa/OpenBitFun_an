@@ -2379,6 +2379,14 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
             self.ensure_runtime_ownership(&workspace.root_path, None, None)?;
         }
         let workspace = workspace_service.open_workspace_by_id(workspace_id).await?;
+        #[cfg(feature = "external-sources")]
+        for warning in
+            crate::external_session_import::auto_discovery::discover_workspace(&workspace, true)
+                .await
+                .warnings
+        {
+            log::warn!("External session discovery: {warning}");
+        }
         if workspace.workspace_kind != WorkspaceKind::Remote {
             if let Err(error) = crate::service::snapshot::initialize_snapshot_manager_for_workspace(
                 &workspace.id,
@@ -6250,6 +6258,14 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
             None => None,
         };
 
+        #[cfg(feature = "external-sources")]
+        if let Some(restore) = requested_restore.as_ref() {
+            self.session_manager
+                .persistence_manager()
+                .assert_native_history_mutation(&restore.effective_storage_path, &session_id)
+                .await?;
+        }
+
         // Get latest session, restoring from persistence on demand so every entry
         // point can use the same start_dialog_turn flow. A loaded session must keep
         // the same storage identity as this invocation.
@@ -8663,6 +8679,11 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
         session_id: &str,
         undo: bool,
     ) -> OpenBitFunResult<(AgentSessionComposerUpdate, bool, usize)> {
+        #[cfg(feature = "external-sources")]
+        self.session_manager
+            .persistence_manager()
+            .assert_native_history_mutation(session_storage_path, session_id)
+            .await?;
         let workspace = self.local_revert_workspace(session_id).await?;
         let snapshot_manager =
             crate::service::snapshot::get_or_create_snapshot_manager(&workspace.id, None)
@@ -8809,6 +8830,11 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
         Vec<String>,
         Vec<String>,
     )> {
+        #[cfg(feature = "external-sources")]
+        self.session_manager
+            .persistence_manager()
+            .assert_native_history_mutation(session_storage_path, session_id)
+            .await?;
         let workspace = self.local_revert_workspace(session_id).await?;
         let persistence = self.session_manager.persistence_manager();
         let current = persistence
@@ -9061,6 +9087,11 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
         turn_id: Option<&str>,
         history: Option<Option<usize>>,
     ) -> OpenBitFunResult<(Vec<DialogTurnData>, Option<usize>)> {
+        #[cfg(feature = "external-sources")]
+        self.session_manager
+            .persistence_manager()
+            .assert_relay_history_supported(storage, session_id)
+            .await?;
         let _mutation = self
             .session_manager
             .acquire_session_mutation(session_id)
@@ -16493,6 +16524,110 @@ mod tests {
             Err(error) => error,
         };
         assert!(error.to_string().contains("candidate_unavailable"));
+    }
+
+    #[tokio::test]
+    async fn legacy_imported_primary_branches_resolve_real_turn_modes() {
+        use crate::agentic::persistence::SessionBranchRequest;
+        use openbitfun_services_core::session::{
+            DialogTurnData, DialogTurnKind, OfflineSessionBundle, OfflineSessionImportStore,
+            SessionBranchBoundary, SessionMetadata, TurnStatus, UserMessageData,
+        };
+
+        let temp = tempfile::tempdir().unwrap();
+        let project = temp.path().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let workspace =
+            crate::service::workspace::legacy_compat::register_local_fixture_blocking(&project);
+        let paths = Arc::new(PathManager::with_user_root_for_tests(
+            temp.path().join("user"),
+        ));
+        let root = paths.project_sessions_dir(&workspace.root_path);
+        let persistence = PersistenceManager::new(paths).unwrap();
+        let store = OfflineSessionImportStore::new(&root);
+        for ecosystem in ["codex", "zcode"] {
+            let id = format!("legacy-{ecosystem}-branch");
+            let turn_id = format!("{id}-turn-0");
+            let metadata: SessionMetadata = serde_json::from_value(serde_json::json!({
+                "session_id": id, "session_name": "Existing native branch", "agent_type": "primary", "model_name": "primary",
+                "created_at": 1, "last_active_at": 2, "turn_count": 1, "message_count": 1, "tool_call_count": 0, "status": "completed",
+                "workspace_id": workspace.id, "workspace_path": workspace.root_path,
+                "project_workspace_id": workspace.id, "project_workspace_path": workspace.root_path,
+                "custom_metadata": {"externalBranchOf": {"sessionId": "source-view", "ecosystemId": ecosystem, "sourceSessionId": "source", "contentVersion": "pinned"}}
+            })).unwrap();
+            let mut turn = DialogTurnData::new_with_kind(
+                DialogTurnKind::UserDialog,
+                turn_id.clone(),
+                0,
+                id.clone(),
+                Some("primary".into()),
+                UserMessageData {
+                    id: format!("{id}-user"),
+                    content: "Preserved imported question".into(),
+                    timestamp: 1,
+                    metadata: None,
+                },
+            );
+            turn.status = TurnStatus::Completed;
+            store
+                .write_bundle_atomic(&OfflineSessionBundle {
+                    metadata,
+                    turns: vec![turn],
+                })
+                .await
+                .unwrap();
+            let metadata_path = root.join(&id).join("metadata.json");
+            let before = std::fs::read(&metadata_path).unwrap();
+            let restored = persistence
+                .load_session(&workspace.root_path, &id)
+                .await
+                .unwrap();
+
+            let admitted = ConversationCoordinator::resolve_session_agent_for_turn(
+                &restored,
+                &restored.agent_type,
+                &None,
+            )
+            .await
+            .expect("legacy native branches must pass the same mode admission as a message send");
+            assert_eq!(admitted.runtime_agent_key, "Standard");
+            assert_eq!(restored.config.model_id.as_deref(), Some("primary"));
+            assert_eq!(std::fs::read(&metadata_path).unwrap(), before);
+
+            let branch = persistence
+                .branch_session(
+                    &workspace.root_path,
+                    &SessionBranchRequest {
+                        source_session_id: id.clone(),
+                        source_turn_id: turn_id,
+                        boundary: SessionBranchBoundary::ThroughTurn,
+                    },
+                )
+                .await
+                .unwrap();
+            let continued = persistence
+                .load_session(&workspace.root_path, &branch.session_id)
+                .await
+                .unwrap();
+            let admitted = ConversationCoordinator::resolve_session_agent_for_turn(
+                &continued,
+                &continued.agent_type,
+                &None,
+            )
+            .await
+            .expect("forking an existing legacy branch must retain a valid runtime mode");
+            assert_eq!(admitted.runtime_agent_key, "Standard");
+            let copied = store
+                .load_bundle(&branch.session_id)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                copied.turns[0].user_message.content,
+                "Preserved imported question"
+            );
+            assert_eq!(copied.turns[0].agent_type.as_deref(), Some("primary"));
+        }
     }
 
     #[tokio::test]

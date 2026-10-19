@@ -37,12 +37,14 @@ interface AuxPaneProps {
   externalToolbar?: boolean;
   isSceneActive?: boolean;
   terminalResizeSuspended?: boolean;
+  /** The hosting pane is being resized; width-derived measurement waits for it to settle. */
+  resizeSuspended?: boolean;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
 }
 
 const AuxPane = forwardRef<AuxPaneRef, AuxPaneProps>(
-  ({ workspacePath, externalToolbar = false, isSceneActive = true, terminalResizeSuspended = false, isFullscreen = false, onToggleFullscreen }, ref) => {
+  ({ workspacePath, externalToolbar = false, isSceneActive = true, terminalResizeSuspended = false, resizeSuspended = false, isFullscreen = false, onToggleFullscreen }, ref) => {
     const { t } = useI18n('components');
     const activeSessionId = useSyncExternalStore(
       flowChatStore.subscribe.bind(flowChatStore),
@@ -177,6 +179,7 @@ const AuxPane = forwardRef<AuxPaneRef, AuxPaneProps>(
           onInteraction={handleInteraction}
           onBeforeClose={handleBeforeClose}
           terminalResizeSuspended={terminalResizeSuspended}
+          resizeSuspended={resizeSuspended}
           missionControlEnabled={false}
           emptyState={
             <div

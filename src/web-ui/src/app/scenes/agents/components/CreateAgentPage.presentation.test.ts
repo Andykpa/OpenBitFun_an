@@ -39,12 +39,13 @@ describe('CreateAgentPage presentation contract', () => {
 
     expect(source).toContain('data-openbitfun-part="contextPreview"');
     expect(source).toContain('onClick={() => toggleContextSection(section)}');
-    expect(source).toContain("aria-describedby={fieldId('runtime-context-preview')}");
+    expect(source).toContain("aria-describedby={`${fieldId('runtime-context-preview')}");
     expect(source).toContain('value={prompt}');
   });
 
-  it('uses the home-page content frame and a single column on both surfaces', () => {
+  it('keeps the page content frame and delegates guided layout to the design system', () => {
     const stylesheet = readLocalFile('./CreateAgentPage.scss');
+    const source = readLocalFile('./CreateAgentPage.tsx');
 
     expect(stylesheet).toContain(
       'grid-template-columns: minmax(0, 1fr);',
@@ -64,5 +65,9 @@ describe('CreateAgentPage presentation contract', () => {
     expect(stylesheet).toMatch(
       /@media \(max-width: 480px\)[\s\S]*\.th-create-panel__identity-fields[\s\S]*grid-template-columns: minmax\(0, 1fr\);/,
     );
+    expect(source).toContain('<SetupWizard');
+    expect(source).toContain("contentMode={step === 1 ? 'contained' : 'scroll'}");
+    expect(stylesheet).not.toContain('th-create-page__guide');
+    expect(stylesheet).not.toContain('th-create-dialog__header');
   });
 });

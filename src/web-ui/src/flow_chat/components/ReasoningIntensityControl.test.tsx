@@ -65,9 +65,13 @@ describe('ReasoningIntensityControl', () => {
     container.remove();
   });
 
-  it('leaves the entire background non-interactive and expands only advertised choices in place', async () => {
+  it('omits the decorative background and expands only advertised choices in place', async () => {
     await render([preset('medium'), preset('xhigh')]);
     expect(container.querySelector('input[type="range"]')).toBeNull();
+    expect(container.querySelector('.openbitfun-reasoning-control__backdrop')).toBeNull();
+    for (const part of ['reasoningSliderSky', 'reasoningSliderNebula', 'reasoningSliderAurora']) {
+      expect(container.querySelector(`[data-openbitfun-part="${part}"]`)?.closest('[hidden]')).not.toBeNull();
+    }
     await act(async () => {
       control().dispatchEvent(new Event('pointerdown', { bubbles: true }));
       control().dispatchEvent(new Event('pointerup', { bubbles: true }));

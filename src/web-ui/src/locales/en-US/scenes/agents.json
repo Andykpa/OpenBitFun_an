@@ -42,8 +42,8 @@
       },
       "Creative": {
         "name": "$t(shared:agents.Creative)",
-        "purpose": "Create apps, shape your experience",
-        "description": "Focuses on apps and interfaces, turning ideas into usable features by creating MiniApps and customizing OpenBitFun in natural language."
+        "purpose": "Create content and apps, shape your experience",
+        "description": "Turns ideas into finished work in natural language: motion videos, slide decks, prototypes, and web pages crafted with creative skills loaded on demand, plus MiniApps and a customized OpenBitFun."
       }
     }
   },
@@ -282,8 +282,24 @@
     "deleteSuccess": "Deleted \"{{name}}\"",
     "deleteFailed": "Delete failed: ",
     "form": {
+      "wizard": {
+        "navigation": "Creation steps",
+        "progress": "{{current}} / {{total}}",
+        "next": "Next",
+        "back": "Back",
+        "basicsTitle": "Define how it collaborates",
+        "basicsDescription": "You assign work directly to agents; other agents delegate tasks to subagents. User-level agents work across projects, while project-level agents apply only to the current project.",
+        "promptTitle": "Set consistent working rules",
+        "promptDescription": "These instructions guide every task. Clear decision criteria and completion conditions help keep its approach and results consistent.",
+        "toolsTitle": "Set its action boundaries",
+        "toolsDescription": "Tools determine the actions it can perform. Enable only the capabilities needed for its tasks; tool calls remain subject to the current permission policy.",
+        "loadingTools": "Loading available tools…",
+        "toolsLoadFailed": "Could not load tools from the current device. Please retry.",
+        "retry": "Retry",
+        "noTools": "No selectable tools are available. The default tool configuration will be used."
+      },
       "createThroughChatHint": "You can also describe what you need in a conversation and ask an Agent to create a custom Agent for you.",
-      "title": "Create Custom Agent",
+      "title": "Create agent",
       "subtitle": "Create an Agent or SubAgent with its own prompt, tools, and runtime context policy.",
       "titleEdit": "Edit Custom Agent",
       "subtitleEdit": "Change display name, description, system prompt, tools, and runtime context policy.",
@@ -309,7 +325,7 @@
       "descPlaceholder": "Briefly describe what this agent does",
       "descRequired": "Description is required",
       "prompt": "System Prompt",
-      "promptPlaceholder": "Enter the system prompt that defines this agent's behavior...\n\nSupported placeholders\n{PERSONA}: SOUL.md/USER.md/IDENTITY.md\n{LANGUAGE_PREFERENCE}: Language preference\n{FILE_REFERENCES}: File and image reference guidance",
+      "promptPlaceholder": "Enter the agent's system prompt",
       "promptRequired": "System prompt is required",
       "readonly": "Readonly mode",
       "model": "Model",
@@ -385,6 +401,6 @@
     "Standard": "Clear guidance and a complete toolkit support coding as well as everyday work such as handling information and creating content.",
     "Ultimate": "Multiple agents work in parallel, with independent review for complex projects and large-scale changes.",
     "Minimal": "Minimal prompting and a focused tool set give next-generation flagship models room to excel at coding and other tasks.",
-    "Creative": "Create MiniApps and customize the interface in natural language, shaping OpenBitFun around the way you work."
+    "Creative": "Create videos, decks, prototypes, and web pages with creative skills, or build MiniApps and customize the interface in natural language."
   }
 }

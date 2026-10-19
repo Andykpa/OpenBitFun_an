@@ -203,6 +203,10 @@ pub struct AppConfig {
     /// Defaults for opt-in managed Git worktrees.
     #[serde(default)]
     pub worktrees: WorktreeSettings,
+    /// Opt-in discovery of external session history on the serving host.
+    /// Unknown ecosystem keys survive upgrades; only installed readers consume them.
+    #[serde(default)]
+    pub external_session_discovery: HashMap<String, bool>,
 }
 
 /// An explicit empty source list stays empty; defaults apply only to absent settings.
@@ -384,7 +388,7 @@ pub struct AppLoggingConfig {
     /// Allowed values: trace, debug, info, warn, error, off.
     pub level: String,
     /// Whether diagnostic logs may include sensitive troubleshooting payloads.
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub include_sensitive_diagnostics: bool,
     /// Whether the local UI records detailed Flow Chat viewport diagnostics.
     #[serde(default)]
@@ -1932,6 +1936,7 @@ impl Default for AppConfig {
             close_button_behavior: default_close_button_behavior(),
             hooks: AgentHooksConfig::default(),
             worktrees: WorktreeSettings::default(),
+            external_session_discovery: HashMap::new(),
         }
     }
 }
@@ -1941,7 +1946,7 @@ impl Default for AppLoggingConfig {
         Self {
             // Set to Debug in early development for easier diagnostics
             level: "debug".to_string(),
-            include_sensitive_diagnostics: true,
+            include_sensitive_diagnostics: false,
             flow_chat_diagnostics: false,
             model_exchange_tracing: ModelExchangeTracingConfig::default(),
         }
@@ -3766,13 +3771,13 @@ mod tests {
     }
 
     #[test]
-    fn app_logging_defaults_to_sensitive_diagnostics_enabled() {
+    fn app_logging_defaults_to_sensitive_diagnostics_disabled() {
         let config: AppLoggingConfig = serde_json::from_value(serde_json::json!({
             "level": "trace"
         }))
         .expect("logging config without sensitive preference should deserialize");
 
-        assert!(config.include_sensitive_diagnostics);
+        assert!(!config.include_sensitive_diagnostics);
         assert!(!config.flow_chat_diagnostics);
         assert_eq!(
             config.model_exchange_tracing.mode,
@@ -4230,5 +4235,27 @@ mod user_question_timeout_tests {
                 value
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod external_session_discovery_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_configuration_stays_opted_out_and_unknown_agent_preferences_round_trip() {
+        let mut legacy = serde_json::to_value(AppConfig::default()).unwrap();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("external_session_discovery");
+        legacy["language"] = serde_json::json!("en-US");
+        let old: AppConfig = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(old.external_session_discovery.is_empty());
+        assert_eq!(old.language, "en-US");
+        legacy["external_session_discovery"] =
+            serde_json::json!({"codex": true, "zcode": false, "future-agent": true});
+        let config: AppConfig = serde_json::from_value(legacy.clone()).unwrap();
+        assert_eq!(serde_json::to_value(config).unwrap(), legacy);
     }
 }

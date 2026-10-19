@@ -8,11 +8,11 @@
  * - Supports 'primary' | 'fast' | specific model IDs
  */
 
-import { subscribeOverlayInteraction, createOverlayPortal, LoadingState, Menu, MenuItem, MenuList, MenuSection, MenuSeparator, OverflowText, Spinner } from '@openbitfun/ui';
+import { createOverlayPortal, useDismissibleLayer, Button, IconButton, Input, LoadingState, Menu, MenuItem, MenuList, MenuPopover, MenuSection, MenuSeparator, OverflowText, ScrollArea, Spinner } from '@openbitfun/ui';
 import React, { useState, useEffect, useId, useRef, useCallback, useLayoutEffect, useMemo, useSyncExternalStore } from 'react';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
 import { getActiveSurfaceScope, onSurfaceActivated } from '@/infrastructure/peer-device/deviceSurface';
-import { Zap } from 'lucide-react';
+import { Gem, LayoutGrid, Rocket, Zap } from 'lucide-react';
 import { useI18n } from '@/infrastructure/i18n';
 import { configManager } from '@/infrastructure/config/services/ConfigManager';
 import { agentAPI } from '@/infrastructure/api/service-api/AgentAPI';
@@ -41,6 +41,7 @@ import { quickActions } from '@/shared/services/ide-control';
 import {
   buildContextUsageTooltip,
   buildModelSelectorTooltipDetails,
+  formatCompactTokenCount,
   type ContextUsageSource,
   type ModelSelectorTooltipDetails,
 } from '../utils/tokenUsageDisplay';
@@ -48,7 +49,7 @@ import { createLogger } from '@/shared/utils/logger';
 import { getModelSelectorDropdownLayout } from './modelSelectorDropdownPosition';
 import { AcpModeSelector } from './AcpModeSelector';
 import { ReasoningIntensityControl } from './ReasoningIntensityControl';
-import { isAutomaticReasoningPreset, reasoningPresetChoices, reasoningSelectionLabel, resolveReasoningPresetChoice } from './reasoningPresetPresentation';
+import { reasoningPresetChoices, reasoningSelectionLabel, resolveReasoningPresetChoice } from './reasoningPresetPresentation';
 import {
   getRecentReasoningPreset,
   setRecentReasoningPreset,
@@ -63,6 +64,7 @@ import {
 } from '@/infrastructure/config/services/modelCategory';
 import {
   resolveModelSelection,
+  resolveModelReference,
   resolveModelMaxTokens,
   type ModelAvailabilityStatus,
 } from '../utils/modelResolution';
@@ -143,8 +145,6 @@ interface ModelInfo {
   id: string;
   /** User-defined configuration name (AIModelConfig.name). */
   configName: string;
-  /** Optional label used by symbolic selectors such as Primary and Fast. */
-  displayName?: string;
   /** Actual model identifier (AIModelConfig.model_name). */
   modelName: string;
   providerName: string;
@@ -164,6 +164,25 @@ interface ProviderGroupInfo {
 
 type ModelSelectorPanel = 'models' | 'providers';
 type ModelSelectorLevelDirection = 'none' | 'forward' | 'back';
+
+const ModelSelectorQuickAction = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  label: string;
+  icon: React.ReactNode;
+  selected: boolean;
+}>(function ModelSelectorQuickAction({ label, icon, selected, ...props }, ref) {
+  const actionProps = { ...props, 'aria-label': label, 'aria-pressed': selected };
+  return selected ? (
+    <Button
+      {...actionProps}
+      ref={ref}
+      size="xs"
+      variant="quiet"
+      leadingIcon={<Icon name="check-line" size="sm" aria-hidden className="openbitfun-model-selector__action-selected-check" />}
+    >
+      {label}
+    </Button>
+  ) : <IconButton {...actionProps} ref={ref} size="xs" icon={icon} />;
+});
 
 const ModelSelectorTooltipContent: React.FC<{ details: ModelSelectorTooltipDetails }> = ({ details }) => (
   <div className="openbitfun-model-selector__tooltip">
@@ -207,10 +226,9 @@ const isSpecialModel = (value: string): value is 'primary' | 'fast' => {
 function resolveConcreteModelId(
   modelId: string,
   defaultModels: DefaultModelsConfig,
+  models: readonly AIModelConfig[],
 ): string | undefined {
-  if (modelId === 'primary') return defaultModels.primary ?? undefined;
-  if (modelId === 'fast') return defaultModels.fast ?? defaultModels.primary ?? undefined;
-  return modelId || undefined;
+  return resolveModelReference(models, modelId, defaultModels)?.id;
 }
 
 const formatContextWindow = (contextWindow?: number): string | null => {
@@ -251,7 +269,7 @@ const buildResolvedModelTooltipText = (
 
 const getModelDisplayLabel = (model: ModelInfo | null, fallback: string): string => {
   if (!model) return fallback;
-  return model.displayName || model.modelName || model.configName || fallback;
+  return model.modelName || model.configName || fallback;
 };
 
 const getModelTooltipText = (model: ModelInfo | null, fallback: string): string => {
@@ -331,7 +349,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   disabled = false,
   disabledReason,
 }) => {
-  const { t } = useI18n('flow-chat');
+  const { t, formatNumber } = useI18n('flow-chat');
   const deviceSurfaceScope = useSyncExternalStore(onSurfaceActivated, getActiveSurfaceScope, getActiveSurfaceScope);
   const modelSelectionScopeKey = deviceSurfaceScope.key('model-selector', currentMode, sessionId);
   const modelSelectionScopeRef = useRef(modelSelectionScopeKey);
@@ -356,11 +374,22 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   const [activeProviderKey, setActiveProviderKey] = useState<string | null>(null);
   /** Providers and models use detail views within the selection panel. */
   const [activePanel, setActivePanel] = useState<ModelSelectorPanel | null>(null);
+  const [modelSearchQuery, setModelSearchQuery] = useState('');
+  const [modelSearchExpanded, setModelSearchExpanded] = useState(false);
+  const [modelProviderFilter, setModelProviderFilter] = useState('');
+  const [providerFilterOpen, setProviderFilterOpen] = useState(false);
   const [modelsFromSummary, setModelsFromSummary] = useState(false);
   /** Direction of navigation within the card. */
   const [levelDirection, setLevelDirection] = useState<ModelSelectorLevelDirection>('none');
   const [loading, setLoading] = useState(false);
   const [reasoningLoading, setReasoningLoading] = useState(false);
+  const [contextEdit, setContextEdit] = useState<{ modelId: string; scopeKey: string } | null>(null);
+  const [contextDraft, setContextDraft] = useState('');
+  const [contextError, setContextError] = useState<string | null>(null);
+  const contextSaveRef = useRef<symbol | null>(null);
+  const contextInputRef = useRef<HTMLInputElement>(null);
+  const contextFieldRef = useRef<HTMLButtonElement>(null);
+  const restoreContextFocusRef = useRef(false);
   const [preSessionReasoningSelection, setPreSessionReasoningSelection] = useState<{
     modelId: string;
     presetId: string | undefined;
@@ -376,6 +405,10 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   const portalDropdownRef = useRef<HTMLDivElement>(null);
   const modelFieldRef = useRef<HTMLButtonElement>(null);
   const providerFieldRef = useRef<HTMLButtonElement>(null);
+  const searchActionRef = useRef<HTMLButtonElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const focusModelSearchRef = useRef(false);
+  const providerFilterButtonRef = useRef<HTMLButtonElement>(null);
   const focusPanelOnOpenRef = useRef(false);
   const focusSummaryOnReturnRef = useRef<ModelSelectorPanel | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -387,6 +420,10 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     setPreSessionReasoningSelection(null);
     setDropdownOpen(false);
     setActivePanel(null);
+    setModelSearchQuery('');
+    setModelSearchExpanded(false);
+    setModelProviderFilter('');
+    setProviderFilterOpen(false);
   }, [deviceSurfaceScope.epoch]);
 
   useEffect(() => {
@@ -475,7 +512,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       return false;
     }
   }, []);
-  
+
   useEffect(() => {
     void loadConfigData();
     const unsubscribe = configManager.onConfigChange((path) => {
@@ -577,26 +614,17 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       }
     });
   }, [acpClientId, isAcpSession, loadAcpOptions, sessionId]);
-  
-  useEffect(() => {
-    let removeOverlayMousedown0: (() => void) | undefined;
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (dropdownRef.current && !dropdownRef.current.contains(target)
-          && !portalDropdownRef.current?.contains(target)) {
-        setDropdownOpen(false);
-        setKeyboardNavigationOpen(false);
-      }
-    };
 
-    if (dropdownOpen) {
-      removeOverlayMousedown0 = subscribeOverlayInteraction(portalDropdownRef, 'mousedown', handleClickOutside);
-    }
-
-    return () => {
-      removeOverlayMousedown0?.();
-    };
-  }, [dropdownOpen]);
+  useDismissibleLayer({
+    enabled: dropdownOpen,
+    layerRef: portalDropdownRef,
+    branchRefs: [dropdownRef],
+    dismissOnEscape: false,
+    onDismiss: () => {
+      setDropdownOpen(false);
+      setKeyboardNavigationOpen(false);
+    },
+  });
 
   const acpAvailableModels = useMemo((): ModelInfo[] => {
     if (!isAcpSession || !acpOptions) return [];
@@ -664,7 +692,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   const externalLocalDefaultModelId = useMemo((): string | undefined => {
     if (!externalSelection?.includeLocalCatalog) return undefined;
     const configured = modeDefaultModelId?.trim() || modeModel;
-    const concrete = resolveConcreteModelId(configured, defaultModels);
+    const concrete = resolveConcreteModelId(configured, defaultModels, allModels);
     return concrete && allModels.some(model => model.id === concrete && isSelectableTextChatModel(model))
       ? concrete
       : undefined;
@@ -712,7 +740,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     () => resolveAcpModeState(acpOptions?.configOptions ?? []),
     [acpOptions?.configOptions],
   );
-  
+
   const getCurrentModelId = useCallback((): string => {
     const resolution = resolveModelSelection({
       models: allModels,
@@ -729,7 +757,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     if (!modelId) return null;
 
     if (modelId === 'primary' || modelId === 'fast') {
-      const actualModelId = resolveConcreteModelId(modelId, defaultModels);
+      const actualModelId = resolveConcreteModelId(modelId, defaultModels, allModels);
       if (!actualModelId) return null;
 
       const model = allModels.find(m => m.id === actualModelId && isSelectableTextChatModel(m));
@@ -738,7 +766,6 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       return {
         id: modelId,
         configName: model.name,
-        displayName: modelId === 'primary' ? t('modelSelector.primaryModel') : t('modelSelector.fastModel'),
         modelName: model.model_name,
         providerName: getProviderDisplayName(model),
         provider: model.provider,
@@ -759,8 +786,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       contextWindow: model.context_window,
       maxOutputTokens: model.max_tokens,
     };
-  }, [getCurrentModelId, allModels, defaultModels, t]);
-  
+  }, [getCurrentModelId, allModels, defaultModels]);
+
   const availableModels = useMemo((): ModelInfo[] => {
     return filterSelectableTextChatModels(allModels)
       .map(m => ({
@@ -804,6 +831,19 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
 
     return groups;
   }, [acpAvailableModels, availableModels, externalAvailableModels, externalSelection, isAcpSession]);
+
+  const modelSearchTerms = useMemo(
+    () => modelSearchQuery.trim().toLowerCase().split(/\s+/).filter(Boolean),
+    [modelSearchQuery],
+  );
+  const searchedModels = useMemo(() => {
+    const groups = providerGroups.some(group => group.key === modelProviderFilter)
+      ? providerGroups.filter(group => group.key === modelProviderFilter) : providerGroups;
+    return groups.flatMap(group => group.models).filter(model => {
+      const text = [model.modelName, model.configName, model.providerName, model.id].join(' ').toLowerCase();
+      return modelSearchTerms.every(term => text.includes(term));
+    });
+  }, [modelProviderFilter, modelSearchTerms, providerGroups]);
 
   const nativeModelResolution = useMemo(
     () => resolveModelSelection({
@@ -965,7 +1005,9 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     const firstItem = menu?.querySelector<HTMLButtonElement>(
       'button[role="menuitemradio"]:not(:disabled), button[role="menuitem"]:not(:disabled)',
     );
-    (preferredItem ?? firstItem)?.focus({ preventScroll: true });
+    const target = preferredItem ?? firstItem ?? searchInputRef.current ?? searchActionRef.current;
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }, []);
 
   const resetDropdownNavigation = useCallback(() => {
@@ -974,10 +1016,20 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     setActiveProviderKey(null);
     setModelsFromSummary(false);
     setActivePanel(null);
+    setModelSearchQuery('');
+    setModelSearchExpanded(false);
+    focusModelSearchRef.current = false;
+    setModelProviderFilter('');
+    setProviderFilterOpen(false);
     setLevelDirection('none');
   }, []);
 
   const openPanel = useCallback((kind: ModelSelectorPanel, moveFocus: boolean) => {
+    setModelSearchQuery('');
+    setModelSearchExpanded(false);
+    focusModelSearchRef.current = false;
+    setModelProviderFilter('');
+    setProviderFilterOpen(false);
     focusPanelOnOpenRef.current = moveFocus;
     focusSummaryOnReturnRef.current = null;
     setActiveProviderKey(null);
@@ -998,10 +1050,6 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     setActivePanel(null);
     setLevelDirection('back');
   }, [activePanel]);
-
-  const openPanelFromClick = useCallback((kind: ModelSelectorPanel) => {
-    openPanel(kind, true);
-  }, [openPanel]);
 
   const openProviderLevel = useCallback((providerKey: string, fromSummary = false) => {
     setActiveProviderKey(providerKey);
@@ -1032,7 +1080,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   }, [activeProviderGroup, activeProviderKey, closeProviderLevel, dropdownOpen, activePanel]);
 
   const currentNativeModelId = getCurrentModelId();
-  const concreteModelId = resolveConcreteModelId(currentNativeModelId, defaultModels);
+  const concreteModelId = resolveConcreteModelId(currentNativeModelId, defaultModels, allModels);
   const currentModelId = externalSelection ? externalCurrentModelId
     : isAcpSession ? acpOptions?.currentModelId || acpAvailableModels[0]?.id || ''
       : currentNativeModelId;
@@ -1102,15 +1150,12 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     || (isAcpSession && !externalSelection && acpOptionsLoadState === 'loading');
   const hasReasoningSettings = orderedReasoningPresets.length > 0;
   const hasSettingsPanel = hasReasoningSettings || isNativeModelSelection;
-  const automaticReasoning = (selectedReasoningDescriptor && isAutomaticReasoningPreset(selectedReasoningDescriptor))
-    || (!selectedReasoningDescriptor && (!isAcpSession || Boolean(externalSelection)));
   useEffect(() => {
     if (!dropdownOpen) return;
     if (!hasSettingsPanel && !activePanel) {
-      openPanel('models', keyboardNavigationOpen);
+      openPanel('models', true);
     }
-  }, [dropdownOpen, hasSettingsPanel, isNativeModelSelection,
-    keyboardNavigationOpen, activePanel, openPanel]);
+  }, [dropdownOpen, hasSettingsPanel, isNativeModelSelection, activePanel, openPanel]);
 
   // Calculate the portalled dropdown position relative to the trigger button.
   useLayoutEffect(() => {
@@ -1174,7 +1219,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   }, [concreteModelId, externalSelection, isAcpSession, selectedReasoningPreset, targetIsSubagent]);
 
   const recentPresetForModel = useCallback((modelId: string): string | undefined => {
-    const resolvedModelId = resolveConcreteModelId(modelId, defaultModels);
+    const resolvedModelId = resolveConcreteModelId(modelId, defaultModels, allModels);
     if (!resolvedModelId) return undefined;
     const projection = modelCatalog?.models.find(model => model.id === resolvedModelId)?.reasoning;
     if (projection?.status !== 'known') return undefined;
@@ -1182,8 +1227,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     return projection.presets?.some(preset => preset.id === recentPreset)
       ? recentPreset
       : undefined;
-  }, [defaultModels, modelCatalog]);
-  
+  }, [allModels, defaultModels, modelCatalog]);
+
   const handleSelectModel = useCallback(async (modelId: string) => {
     if (disabled || externalSelection?.disabled || loading || reasoningLoading || selectionPreference.pending) return false;
     setLoading(true);
@@ -1284,11 +1329,11 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       }
       setRecentManualModel(modelSelectionScopeKey, modelId);
       setPreSessionReasoningSelection({
-        modelId: resolveConcreteModelId(modelId, defaultModels) ?? modelId,
+        modelId: resolveConcreteModelId(modelId, defaultModels, allModels) ?? modelId,
         presetId: nextReasoningPreset,
       });
       if (sessionId) {
-        setRecentReasoningPreset(resolveConcreteModelId(modelId, defaultModels) ?? modelId, nextReasoningPreset);
+        setRecentReasoningPreset(resolveConcreteModelId(modelId, defaultModels, allModels) ?? modelId, nextReasoningPreset);
       }
 
       log.info('Mode model updated', { mode: currentMode, modelId });
@@ -1605,18 +1650,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     resetDropdownNavigation,
   ]);
 
-  const handlePanelTriggerKeyDown = useCallback((
-    kind: ModelSelectorPanel,
-    event: React.KeyboardEvent<HTMLButtonElement>,
-  ) => {
-    if (event.key !== 'ArrowRight') return;
-    event.preventDefault();
-    event.stopPropagation();
-    openPanel(kind, true);
-  }, [openPanel]);
-
   const handleDropdownKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.defaultPrevented) return;
+    if (event.defaultPrevented || !event.currentTarget.contains(event.target as Node)) return;
 
     if (event.key === 'Escape') {
       event.preventDefault();
@@ -1637,7 +1672,17 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   }, [openPanel]);
 
   const handlePanelKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.defaultPrevented) return;
+    if (event.defaultPrevented || !event.currentTarget.contains(event.target as Node)) return;
+
+    if (activePanel === 'models' && searchInputRef.current && event.key === 'ArrowUp') {
+      const firstModel = portalDropdownRef.current?.querySelector('button[data-testid="chat-model-selector-option"]:not(:disabled)');
+      if (event.target === firstModel) {
+        event.preventDefault();
+        event.stopPropagation();
+        searchInputRef.current?.focus({ preventScroll: true });
+        return;
+      }
+    }
 
     if (event.key === 'Escape' || event.key === 'ArrowLeft') {
       event.preventDefault();
@@ -1685,7 +1730,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       const firstItem = menu?.querySelector<HTMLButtonElement>(
         'button[role="menuitemradio"]:not(:disabled), button[role="menuitem"]:not(:disabled)',
       );
-      (selectedItem ?? firstItem)?.focus();
+      (selectedItem ?? modelFieldRef.current ?? firstItem)?.focus();
     });
 
     return () => window.cancelAnimationFrame(frameId);
@@ -1708,6 +1753,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       }
       return;
     }
+    if (modelInformationLoading) return;
     const providerLevelChanged = (activePanel === 'models' || activePanel === 'providers')
       && previousProviderKey !== activeProviderKey;
     if (!focusPanelOnOpenRef.current && !providerLevelChanged) return;
@@ -1723,7 +1769,9 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       const firstModel = menu.querySelector<HTMLButtonElement>(
         'button[role="menuitemradio"]:not(:disabled)',
       );
-      (selectedModel ?? firstModel)?.focus();
+      const target = selectedModel ?? firstModel;
+      target?.focus({ preventScroll: true });
+      target?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
       return;
     }
 
@@ -1746,6 +1794,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     activePanel,
     loading,
     reasoningLoading,
+    modelInformationLoading,
   ]);
 
   useEffect(() => {
@@ -1753,7 +1802,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       triggerRef.current?.focus();
     }
   }, [dropdownOpen, keyboardNavigationOpen]);
-  
+
   const resolvedContextUsageSource: ContextUsageSource =
     contextUsageSource ?? (isAcpSession ? 'acp_context' : 'agent_prompt');
   const displayedModel = externalSelection ? externalCurrentModel
@@ -1776,13 +1825,99 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     ? t('modelSelector.modelSettings')
     : getModelDisplayLabel(displayedModel, getAvailabilityLabel(displayedAvailability.status, t));
   const settingsModelLabel = displayedModel?.modelName || modelLabel;
-  const displayedProviderGroup = providerGroups.find(group => group.key === selectedProviderKey);
-  const openCurrentProviderModels = () => {
+  const settingsModelRowLabel = t('modelSelector.model');
+  const openModelChoices = () => {
     if (disabled || loading || externalSelection?.disabled) return;
     openPanel('models', true);
-    if (displayedProviderGroup) openProviderLevel(displayedProviderGroup.key, true);
   };
   const isSelectionPanel = activePanel === 'models' || activePanel === 'providers';
+  const isModelPicker = activePanel === 'models' && !activeProviderGroup;
+  const selectedProviderFilter = providerGroups.find(group => group.key === modelProviderFilter);
+  const pickerDisabled = disabled || loading || reasoningLoading || selectionPreference.pending || Boolean(externalSelection?.disabled);
+  const contextCapacity = displayedModel?.contextWindow || (isAcpSelection ? acpOptions?.contextUsage?.size : undefined) || maxTokens;
+  const contextCapacityLabel = contextCapacity > 0
+    ? formatCompactTokenCount(contextCapacity) : t('modelSelector.home.unknownContext');
+  const canEditContext = isNativeModelSelection && allModels.some(model => model.id === concreteModelId && isSelectableTextChatModel(model));
+  const contextErrorId = `${menuId}-context-error`;
+  useEffect(() => {
+    setContextEdit(null);
+    setContextError(null);
+    if (contextSaveRef.current) {
+      contextSaveRef.current = null;
+      setLoading(false);
+    }
+  }, [modelSelectionScopeKey, deviceSurfaceScope.epoch]);
+  useEffect(() => {
+    if (!dropdownOpen || activePanel || contextEdit?.modelId !== concreteModelId) {
+      setContextEdit(null);
+      setContextError(null);
+    }
+  }, [activePanel, concreteModelId, contextEdit?.modelId, dropdownOpen]);
+  useLayoutEffect(() => {
+    if (contextEdit) {
+      contextInputRef.current?.focus({ preventScroll: true });
+      contextInputRef.current?.select();
+    } else if (restoreContextFocusRef.current) {
+      restoreContextFocusRef.current = false;
+      contextFieldRef.current?.focus({ preventScroll: true });
+    }
+  }, [contextEdit]);
+  const saveContext = async () => {
+    if (pickerDisabled || contextSaveRef.current || !contextEdit || !canEditContext
+      || contextEdit.scopeKey !== modelSelectionScopeKey || contextEdit.modelId !== concreteModelId) return;
+    const capacity = Number(contextDraft.trim());
+    if (!Number.isSafeInteger(capacity) || capacity < 32_000 || capacity > 2_000_000) {
+      setContextError(t('modelSelector.home.contextInvalid', { min: formatNumber(32_000), max: formatNumber(2_000_000) }));
+      return;
+    }
+    const operation = Symbol('save-context');
+    contextSaveRef.current = operation;
+    const scope = getActiveSurfaceScope();
+    setLoading(true);
+    setContextError(null);
+    try {
+      const models = await configManager.updateConfig<AIModelConfig[]>('ai.models', current => {
+        scope.assertCurrent('update model context window');
+        if (!current.some(model => model.id === contextEdit.modelId && isSelectableTextChatModel(model))) {
+          throw new Error('Selected context model is no longer available');
+        }
+        return current.map(model => model.id === contextEdit.modelId ? { ...model, context_window: capacity } : model);
+      });
+      scope.assertCurrent('update model context window');
+      if (modelSelectionScopeRef.current !== modelSelectionScopeKey) return;
+      ++configLoadRequestRef.current;
+      setConfigEpoch(scope.epoch);
+      setAllModels(models);
+      const store = FlowChatStore.getInstance();
+      const session = sessionId ? store.getState().sessions.get(sessionId) : undefined;
+      if (sessionId && session && resolveConcreteModelId(session.config.modelName ?? currentNativeModelId, defaultModels, models) === contextEdit.modelId) {
+        store.updateSessionMaxContextTokens(sessionId, capacity);
+      }
+      restoreContextFocusRef.current = true;
+      setContextEdit(null);
+    } catch (error) {
+      if (!scope.isCurrent() || modelSelectionScopeRef.current !== modelSelectionScopeKey) return;
+      log.error('Failed to update model context window', { modelId: contextEdit.modelId, error });
+      setContextError(t('modelSelector.home.contextSaveFailed'));
+    } finally {
+      if (contextSaveRef.current === operation) {
+        contextSaveRef.current = null;
+        setLoading(false);
+      }
+    }
+  };
+  const collapseModelSearch = () => {
+    setModelSearchQuery('');
+    setModelProviderFilter('');
+    setProviderFilterOpen(false);
+    focusModelSearchRef.current = true;
+    setModelSearchExpanded(false);
+  };
+  useLayoutEffect(() => {
+    if (!dropdownOpen || !isModelPicker || !focusModelSearchRef.current) return;
+    focusModelSearchRef.current = false;
+    (modelSearchExpanded ? searchInputRef.current : searchActionRef.current)?.focus({ preventScroll: true });
+  }, [dropdownOpen, isModelPicker, modelSearchExpanded]);
   const acpModeLabel = acpMode?.option.options.find(option => option.value === acpMode.currentValue)?.name
     ?? acpMode?.currentValue ?? '';
   const targetTooltip = buildContextUsageTooltip({
@@ -1809,6 +1944,72 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       </MenuItem>
     </Tooltip>
   ) : null;
+
+  const contextControl = contextEdit ? (
+    <div className="openbitfun-model-selector__context-editor">
+      <div className="openbitfun-model-selector__settings-row openbitfun-model-selector__context-row">
+        <label htmlFor={`${menuId}-context-input`}>{t('modelSelector.home.context')}</label>
+        <Input
+          ref={contextInputRef}
+          id={`${menuId}-context-input`}
+          data-testid="chat-model-selector-context-input"
+          className="openbitfun-model-selector__context-input"
+          size="xs"
+          inputMode="numeric"
+          aria-label={t('modelSelector.home.contextTokens')}
+          aria-describedby={contextError ? contextErrorId : undefined}
+          invalid={Boolean(contextError)}
+          disabled={pickerDisabled}
+          value={contextDraft}
+          onValueChange={value => { setContextDraft(value); setContextError(null); }}
+          onKeyDown={event => {
+            event.stopPropagation();
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              void saveContext();
+            } else if (event.key === 'Escape' && !loading) {
+              event.preventDefault();
+              restoreContextFocusRef.current = true;
+              setContextEdit(null);
+              setContextError(null);
+            }
+          }}
+        />
+        <IconButton
+          className="openbitfun-model-selector__context-save"
+          data-testid="chat-model-selector-context-save"
+          aria-label={t('modelSelector.home.saveContext')}
+          icon={loading ? <Spinner size="xs" /> : <Icon name="check-line" size="sm" aria-hidden />}
+          size="xs"
+          shape="circle"
+          variant="fill"
+          disabled={pickerDisabled}
+          onClick={() => { void saveContext(); }}
+        />
+      </div>
+      {contextError && <div id={contextErrorId} className="openbitfun-model-selector__context-error" role="alert">{contextError}</div>}
+    </div>
+  ) : (
+    <Tooltip content={t(canEditContext ? 'modelSelector.home.editContext' : 'modelSelector.home.contextReadOnly')}>
+      <MenuItem
+        ref={contextFieldRef}
+        className="openbitfun-model-selector__settings-row"
+        data-testid="chat-model-selector-settings-context"
+        aria-label={`${t('modelSelector.home.context')}: ${contextCapacityLabel}`}
+        metadata={<OverflowText>{contextCapacityLabel}</OverflowText>}
+        shortcut={canEditContext ? <Icon name="chevron-right" size="sm" aria-hidden /> : undefined}
+        disabled={pickerDisabled || !canEditContext}
+        onClick={() => {
+          if (pickerDisabled || !canEditContext || !concreteModelId) return;
+          setContextDraft(contextCapacity > 0 ? String(contextCapacity) : '300000');
+          setContextError(null);
+          setContextEdit({ modelId: concreteModelId, scopeKey: modelSelectionScopeKey });
+        }}
+      >
+        {t('modelSelector.home.context')}
+      </MenuItem>
+    </Tooltip>
+  );
 
   const fallbackTooltip = t('modelSelector.primaryModelDesc');
   const tooltipDetails = buildModelSelectorTooltipDetails({
@@ -1852,7 +2053,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
               setKeyboardNavigationOpen(event.detail === 0);
               if (isAcpSelection && !modelInformationLoading) void loadAcpOptions();
               if (!hasSettingsPanel) {
-                openPanel('models', event.detail === 0);
+                openPanel('models', true);
               }
             } else if (event.detail !== 0) {
               setKeyboardNavigationOpen(false);
@@ -1867,6 +2068,15 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
           }
          data-openbitfun-component="model-selector" data-openbitfun-part="trigger" data-openbitfun-state={dropdownOpen ? 'open' : undefined}>
           {modelInformationLoading && <Spinner size="xs" />}
+          {isNativeModelSelection && isSpecialModel(currentModelId) && (
+            <Icon
+              glyph={currentModelId === 'primary' ? Gem : Rocket}
+              size="xs"
+              aria-hidden
+              data-testid="chat-model-selector-default-icon"
+              data-model-role={currentModelId}
+            />
+          )}
           <OverflowText className="openbitfun-model-selector__name" data-openbitfun-component="model-selector" data-openbitfun-part="name">
              {modelLabel}
           </OverflowText>
@@ -1924,6 +2134,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
             data-menu-level={activeProviderGroup ? 'provider' : isSelectionPanel ? activePanel : 'settings'}
             data-model-mode="manual"
             data-native-selection={isNativeModelSelection ? 'true' : undefined}
+            data-model-picker={isModelPicker || undefined}
             aria-busy={modelInformationLoading || undefined}
             aria-hidden={!dropdownOpen}
             {...(!dropdownOpen ? { inert: '' } : {})}
@@ -1939,6 +2150,205 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                 role="status"
               >
                 <LoadingState size="sm">{t('modelSelector.status.loading')}</LoadingState>
+              </div>
+            ) : isModelPicker ? (
+              <div
+                id={`${menuId}-search`}
+                className="openbitfun-model-selector__picker"
+                data-testid="chat-model-selector-options"
+                data-panel-kind={activePanel}
+              >
+                <ScrollArea className="openbitfun-model-selector__picker-results" data-testid="chat-model-selector-results">
+                  <ModelSelectorMenuLevel direction={levelDirection}>
+                    {providerGroups.length === 0 ? renderUnavailableModelMenu(displayedAvailability,
+                      isNativeModelSelection || Boolean(externalSelection?.includeLocalCatalog && !externalSelectionIsUnavailable))
+                      : searchedModels.length === 0 ? (
+                        <MenuItem className="openbitfun-model-selector__search-empty" disabled data-testid="chat-model-selector-search-empty">
+                          {t('modelSelector.noSearchResults')}
+                        </MenuItem>
+                      ) : searchedModels.map(model => {
+                        const isSelected = (isNativeModelSelection ? concreteModelId : currentModelId) === model.id;
+                        const providerMatched = modelSearchTerms.some(term => model.providerName.toLowerCase().includes(term));
+                        return (
+                          <Tooltip key={model.id} content={buildModelMetaText(model)} placement="right">
+                            <MenuItem
+                              className={isSelected ? 'openbitfun-model-selector__option--selected' : undefined}
+                              role="menuitemradio"
+                              checked={isSelected}
+                              data-testid="chat-model-selector-option"
+                              data-model-id={model.id}
+                              data-model-name={model.modelName}
+                              data-selected={isSelected ? 'true' : 'false'}
+                              data-openbitfun-component="model-selector"
+                              data-openbitfun-part="option"
+                              data-openbitfun-state={isSelected ? 'selected' : undefined}
+                              shortcut={isSelected ? <Icon name="check-line" size="sm" aria-hidden className="openbitfun-model-selector__option-selected-check" /> : undefined}
+                              disabled={disabled || loading || reasoningLoading || externalSelection?.disabled}
+                              onClick={() => handleSelectModelFromMenu(model.id)}
+                            >
+                              {model.modelName}{providerMatched && <span className="openbitfun-model-selector__option-provider"> {model.providerName}</span>}
+                            </MenuItem>
+                          </Tooltip>
+                        );
+                      })}
+                  </ModelSelectorMenuLevel>
+                </ScrollArea>
+                <div className="openbitfun-model-selector__picker-footer" data-testid="chat-model-selector-actions">
+                  <div className="openbitfun-model-selector__picker-actions" data-search-expanded={modelSearchExpanded}>
+                    {(modelSearchExpanded || isNativeModelSelection) && (
+                      <div className="openbitfun-model-selector__quick-actions-slot">
+                        {modelSearchExpanded ? (
+                          <Tooltip content={t('modelSelector.collapseSearch')}>
+                            <IconButton
+                              className="openbitfun-model-selector__grid-action"
+                              data-testid="chat-model-selector-show-actions"
+                              aria-label={t('modelSelector.collapseSearch')}
+                              size="xs"
+                              icon={<Icon glyph={LayoutGrid} size="sm" aria-hidden />}
+                              disabled={pickerDisabled}
+                              onClick={collapseModelSearch}
+                            />
+                          </Tooltip>
+                        ) : (
+                          <div className="openbitfun-model-selector__quick-actions" data-testid="chat-model-selector-quick-actions">
+                            {(['primary', 'fast'] as const).map(modelId => {
+                              const model = resolveModelReference(allModels, modelId, defaultModels);
+                              const label = t(modelId === 'primary' ? 'modelSelector.primaryModel' : 'modelSelector.fastModel');
+                              const isSelected = currentModelId === modelId;
+                              const tooltip = model
+                                ? [label, model.model_name, formatContextWindow(model.context_window)].filter(Boolean).join(' · ')
+                                : `${label} · ${t('modelSelector.modelNotConfigured')}`;
+                              return (
+                                <Tooltip key={modelId} content={tooltip}>
+                                  <ModelSelectorQuickAction
+                                    data-testid={`chat-model-selector-${modelId}-action`}
+                                    data-model-id={modelId}
+                                    data-model-name={model?.model_name}
+                                    label={label}
+                                    selected={isSelected}
+                                    icon={modelId === 'primary'
+                                      ? <Icon glyph={Gem} size="sm" aria-hidden /> : <Icon glyph={Rocket} size="sm" aria-hidden />}
+                                    disabled={!model || pickerDisabled}
+                                    onClick={() => handleSelectModelFromMenu(modelId)}
+                                  />
+                                </Tooltip>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {(modelSearchExpanded || isNativeModelSelection) && (
+                      <span className="openbitfun-model-selector__actions-divider" data-testid="chat-model-selector-actions-divider" aria-hidden />
+                    )}
+                    <div className="openbitfun-model-selector__search-slot">
+                      {modelSearchExpanded ? (
+                        <Input
+                          ref={searchInputRef}
+                          id={`${menuId}-search-input`}
+                          className="openbitfun-model-selector__search-input"
+                          data-testid="chat-model-selector-search-input"
+                          type="search"
+                          size="sm"
+                          shape="pill"
+                          leading={<Icon name="search" size="xs" aria-hidden />}
+                          trailing={(
+                            <Tooltip content={selectedProviderFilter
+                              ? `${t('modelSelector.filterProvider')} · ${selectedProviderFilter.providerName}`
+                              : t('modelSelector.filterProvider')}>
+                              <IconButton
+                                ref={providerFilterButtonRef}
+                                className="openbitfun-model-selector__provider-filter"
+                                data-testid="chat-model-selector-provider-filter"
+                                aria-label={t('modelSelector.filterProvider')}
+                                aria-haspopup="menu"
+                                aria-expanded={providerFilterOpen}
+                                aria-controls={providerFilterOpen ? `${menuId}-provider-filter` : undefined}
+                                aria-pressed={Boolean(selectedProviderFilter)}
+                                size="xs"
+                                icon={<Icon name="filter" size="sm" aria-hidden />}
+                                disabled={pickerDisabled || providerGroups.length === 0}
+                                onClick={() => setProviderFilterOpen(open => !open)}
+                                onKeyDown={event => {
+                                  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  setProviderFilterOpen(true);
+                                }}
+                              />
+                            </Tooltip>
+                          )}
+                          aria-label={t('modelSelector.searchModels')}
+                          placeholder={t('modelSelector.searchPlaceholder')}
+                          autoComplete="off"
+                          spellCheck={false}
+                          value={modelSearchQuery}
+                          disabled={pickerDisabled}
+                          onValueChange={setModelSearchQuery}
+                          onKeyDown={event => {
+                            event.stopPropagation();
+                            if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+                            if (event.key === 'Escape') {
+                              event.preventDefault();
+                              collapseModelSearch();
+                            } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                              event.preventDefault();
+                              const items = portalDropdownRef.current?.querySelectorAll<HTMLButtonElement>(
+                                'button[data-testid="chat-model-selector-option"]:not(:disabled)',
+                              );
+                              const item = event.key === 'ArrowUp' ? items?.[items.length - 1] : items?.[0];
+                              item?.focus({ preventScroll: true });
+                              item?.scrollIntoView?.({ block: 'nearest' });
+                            } else if (event.key === 'Enter') {
+                              event.preventDefault();
+                              if (searchedModels[0]) void handleSelectModelFromMenu(searchedModels[0].id);
+                            }
+                          }}
+                        />
+                      ) : (
+                        <Tooltip content={t('modelSelector.searchModels')}>
+                          <IconButton
+                            ref={searchActionRef}
+                            data-testid="chat-model-selector-search-toggle"
+                            aria-label={t('modelSelector.searchModels')}
+                            aria-expanded={false}
+                            size="xs"
+                            icon={<Icon name="search" size="sm" aria-hidden />}
+                            disabled={pickerDisabled}
+                            onClick={() => {
+                              focusModelSearchRef.current = true;
+                              setModelSearchExpanded(true);
+                            }}
+                          />
+                        </Tooltip>
+                      )}
+                    </div>
+                    <MenuPopover
+                      id={`${menuId}-provider-filter`}
+                      data-testid="chat-model-selector-provider-filter-menu"
+                      aria-label={t('modelSelector.filterProvider')}
+                      anchorRef={providerFilterButtonRef}
+                      ownerRef={providerFilterButtonRef}
+                      placement="top"
+                      inlineSize="content"
+                      open={dropdownOpen && modelSearchExpanded && providerFilterOpen && !pickerDisabled}
+                      onClose={() => setProviderFilterOpen(false)}
+                      items={[
+                        {
+                          id: 'all-providers', label: t('modelSelector.allProviders'),
+                          role: 'menuitemradio', checked: !selectedProviderFilter,
+                          onSelect: () => setModelProviderFilter(''),
+                        },
+                        ...providerGroups.map(group => ({
+                          id: group.key, label: group.providerName,
+                          role: 'menuitemradio' as const, checked: selectedProviderFilter?.key === group.key,
+                          onSelect: () => setModelProviderFilter(group.key),
+                        })),
+                      ]}
+                    />
+                  </div>
+                  {acpFastModeItem}
+                </div>
               </div>
             ) : isSelectionPanel ? (
               <div data-testid="chat-model-selector-options" data-panel-kind={activePanel}>
@@ -1974,39 +2384,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                       <MenuSeparator />
                     </>
                   )}
-                  {(externalSelection || isAcpSession) && activePanel === 'models' && !activeProviderGroup ? (
-                    <>
-                      {showModelChoices && (
-                        <MenuSection title={externalSelection
-                          ? `${t('modelSelector.modelSelection')} · ${externalSelection.providerLabel}`
-                          : `${t('modelSelector.modelSelection')} · ${acpClientId} ACP`}>
-                          {(externalSelection ? externalAvailableModels : acpAvailableModels).length === 0
-                            ? renderUnavailableModelMenu(displayedAvailability,
-                              Boolean(externalSelection?.includeLocalCatalog && !externalSelectionIsUnavailable))
-                            : (externalSelection ? externalAvailableModels : acpAvailableModels).map(model => (
-                              <Tooltip key={model.id} content={buildModelMetaText(model)} placement="right">
-                                <MenuItem
-                                  role="menuitemradio"
-                                  checked={currentModelId === model.id}
-                                  data-testid="chat-model-selector-option"
-                                  data-model-id={model.id}
-                                  data-model-name={model.modelName}
-                                  data-selected={currentModelId === model.id ? 'true' : 'false'}
-                                  data-openbitfun-component="model-selector"
-                                  data-openbitfun-part="option"
-                                  data-openbitfun-state={currentModelId === model.id ? 'selected' : undefined}
-                                  metadata={currentModelId === model.id ? <Icon name="check-line" size="sm" aria-hidden /> : null}
-                                  onClick={() => handleSelectModelFromMenu(model.id)}
-                                >
-                                  {model.modelName}
-                                </MenuItem>
-                              </Tooltip>
-                            ))}
-                        </MenuSection>
-                      )}
-                      {!hasSettingsPanel && acpFastModeItem}
-                    </>
-                  ) : activeProviderGroup ? (
+                  {activeProviderGroup ? (
                     <>
                       <MenuItem
                         data-testid="chat-model-selector-back"
@@ -2025,6 +2403,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                         return (
                           <Tooltip key={model.id} content={buildModelMetaText(model)} placement="right">
                             <MenuItem
+                              className={isSelected ? 'openbitfun-model-selector__option--selected' : undefined}
                               role="menuitemradio"
                               checked={isSelected}
                               data-testid="chat-model-selector-option"
@@ -2034,7 +2413,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                               data-openbitfun-component="model-selector"
                               data-openbitfun-part="option"
                               data-openbitfun-state={isSelected ? 'selected' : undefined}
-                              metadata={isSelected ? <Icon name="check-line" size="sm" aria-hidden /> : null}
+                              metadata={isSelected ? <Icon name="check-line" size="sm" aria-hidden className="openbitfun-model-selector__option-selected-check" /> : null}
                               onClick={() => handleSelectModelFromMenu(model.id)}
                             >
                               {model.modelName}
@@ -2088,8 +2467,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
               <NativeModelSelectionPanel
                 key={modelSelectionScopeKey}
                 models={allModels}
-                primary={allModels.find(model => model.id === defaultModels.primary && isSelectableTextChatModel(model))}
-                fast={allModels.find(model => model.id === (defaultModels.fast ?? defaultModels.primary) && isSelectableTextChatModel(model))}
+                primary={resolveModelReference(allModels, 'primary', defaultModels) ?? undefined}
+                fast={resolveModelReference(allModels, 'fast', defaultModels) ?? undefined}
                 selected={allModels.find(model => model.id === concreteModelId)}
                 selectedId={currentNativeModelId}
                 modelLabel={settingsModelLabel}
@@ -2108,20 +2487,23 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                 onSelect={modelId => { void handleSelectModelFromMenu(modelId); }}
                 modelRef={modelFieldRef}
                 providerRef={providerFieldRef}
-                onBrowse={openCurrentProviderModels}
-                onProviders={() => openPanelFromClick('providers')}
+                onBrowse={openModelChoices}
+                onProviders={() => openPanel('providers', true)}
                 onSettings={handleOpenModelSettings}
                 onClose={() => { setDropdownOpen(false); triggerRef.current?.focus({ preventScroll: true }); }}
                 onSaved={() => { void loadConfigData(); }}
               >
-                {hasReasoningSettings && <div data-reasoning-mode={automaticReasoning ? 'auto' : 'manual'}><ReasoningIntensityControl
-                  key={`${sessionId ?? ''}:${currentModelId}`}
-                  presets={catalogReasoningPresets}
-                  selectedPreset={selectedReasoningDescriptor}
-                  allowDefaultReset active={dropdownOpen}
-                  disabled={disabled || loading || reasoningLoading}
-                  onSelect={handleSelectReasoningPresetFromControl}
-                /></div>}
+                <MenuList className="openbitfun-model-selector__settings-general">
+                  {contextControl}
+                  {hasReasoningSettings && <ReasoningIntensityControl
+                    key={`${sessionId ?? ''}:${currentModelId}`}
+                    presets={catalogReasoningPresets}
+                    selectedPreset={selectedReasoningDescriptor}
+                    allowDefaultReset active={dropdownOpen}
+                    disabled={pickerDisabled}
+                    onSelect={handleSelectReasoningPresetFromControl}
+                  />}
+                </MenuList>
               </NativeModelSelectionPanel>
             ) : (
               <MenuSection
@@ -2133,82 +2515,53 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                   data-has-model={showModelChoices}
                   data-has-reasoning={hasReasoningSettings}
                 >
-                  {((showModelChoices) || hasReasoningSettings) && (
-                    <div
-                      className="openbitfun-model-selector__model-summary"
-                    >
-                      {showModelChoices && (
-                        <MenuList
-                          className="openbitfun-model-selector__model-field"
-                          data-openbitfun-component="model-selector"
-                          data-openbitfun-part="selectionSummary"
+                  <MenuList className="openbitfun-model-selector__settings-general">
+                    {contextControl}
+                    {hasReasoningSettings && (
+                      <ReasoningIntensityControl
+                        key={`${sessionId ?? ''}:${currentModelId}`}
+                        presets={catalogReasoningPresets}
+                        selectedPreset={isAcpSelection ? effectiveReasoningDescriptor : selectedReasoningDescriptor}
+                        allowDefaultReset={!isAcpSelection}
+                        presentation="settings-row"
+                        active={dropdownOpen}
+                        disabled={pickerDisabled}
+                        onSelect={handleSelectReasoningPresetFromControl}
+                      />
+                    )}
+                  </MenuList>
+                  {showModelChoices && (
+                    <>
+                      <MenuSeparator />
+                      <MenuList
+                        className="openbitfun-model-selector__settings-model-section"
+                        data-openbitfun-component="model-selector"
+                        data-openbitfun-part="selectionSummary"
+                      >
+                        <MenuItem
+                          ref={modelFieldRef}
+                          className="openbitfun-model-selector__settings-row"
+                          data-testid="chat-model-selector-settings-model"
+                          data-model-menu-target="models"
+                          aria-label={`${settingsModelRowLabel}: ${settingsModelLabel}`}
+                          metadata={<OverflowText data-testid="chat-model-selector-settings-model-value">{settingsModelLabel}</OverflowText>}
+                          shortcut={<Icon name="chevron-right" size="sm" aria-hidden />}
+                          onClick={openModelChoices}
+                          onKeyDown={event => {
+                            if (event.key !== 'ArrowRight') return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            openModelChoices();
+                          }}
+                          disabled={pickerDisabled}
                         >
-                          <MenuItem data-overflow-trigger
-                            ref={modelFieldRef}
-                            className="openbitfun-model-selector__model-control"
-                            labelBehavior="static"
-                            data-testid="chat-model-selector-settings-model"
-                            data-model-menu-target="models"
-                            aria-label={`${t('modelSelector.model')}: ${settingsModelLabel}`}
-                            onClick={openCurrentProviderModels}
-                            onKeyDown={event => {
-                              if (event.key !== 'ArrowRight') return;
-                              event.preventDefault();
-                              event.stopPropagation();
-                              openCurrentProviderModels();
-                            }}
-                            disabled={disabled || loading || externalSelection?.disabled}
-                          >
-                            <OverflowText className="openbitfun-model-selector__model-name">
-                              {settingsModelLabel}
-                            </OverflowText>
-                          </MenuItem>
-                        </MenuList>
-                      )}
-                      {hasReasoningSettings && (
-                        <div
-                          className="openbitfun-model-selector__reasoning-control"
-                          data-reasoning-mode={automaticReasoning ? 'auto' : 'manual'}
-                        >
-                          <ReasoningIntensityControl
-                            key={`${sessionId ?? ''}:${currentModelId}`}
-                            presets={catalogReasoningPresets}
-                            selectedPreset={isAcpSelection ? effectiveReasoningDescriptor : selectedReasoningDescriptor}
-                            allowDefaultReset={!isAcpSelection}
-                            active={dropdownOpen}
-                            disabled={disabled || loading || reasoningLoading || externalSelection?.disabled}
-                            onSelect={handleSelectReasoningPresetFromControl}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(showModelChoices && displayedModel?.providerName) && (
-                    <MenuList
-                      className="openbitfun-model-selector__mode-footer"
-                    >
-                      {showModelChoices && displayedModel?.providerName && (
-                        <MenuItem data-overflow-trigger
-                          ref={providerFieldRef}
-                          className="openbitfun-model-selector__provider-control"
-                          labelBehavior="static"
-                          data-testid="chat-model-selector-settings-provider"
-                          data-model-menu-target="providers"
-                          data-provider-key={displayedProviderGroup?.key}
-                          disabled={disabled || loading || externalSelection?.disabled || providerGroups.length === 0}
-                          onClick={() => openPanelFromClick('providers')}
-                          onKeyDown={event => handlePanelTriggerKeyDown('providers', event)}
-                        >
-                          <OverflowText className="openbitfun-model-selector__model-provider">
-                            {displayedModel.providerName}
-                          </OverflowText>
+                          {settingsModelRowLabel}
                         </MenuItem>
-                      )}
-                    </MenuList>
+                      </MenuList>
+                    </>
                   )}
-                </MenuList>
 
-                {acpFastModeItem}
+                </MenuList>
               </MenuSection>
             )}
           </Menu>,
