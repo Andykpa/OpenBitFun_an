@@ -25,6 +25,7 @@ pub mod appearance;
 mod builtin_browser_host;
 pub mod computer_use;
 pub mod crash_diagnostics;
+pub mod desktop_cards;
 mod embedded_relay_host;
 pub mod frontend_workbench;
 pub mod logging;
@@ -1099,6 +1100,11 @@ pub async fn run() {
             openbitfun_webdriver::maybe_start(app_handle.clone());
             builtin_browser_host::install(app_handle.clone());
             openbitfun_control_host::install(app_handle.clone());
+            if !miniapp_background {
+                if let Err(error) = desktop_cards::install(&app_handle) {
+                    log::warn!("Desktop cards unavailable: {}", error);
+                }
+            }
             startup_trace.record_elapsed_step(
                 "native_setup",
                 "maybe_start_webdriver",
@@ -1245,6 +1251,10 @@ pub async fn run() {
             move |window, event| {
                 #[cfg(target_os = "windows")]
                 window_webview_geometry::handle_event(window, event);
+                if window.label().starts_with(desktop_cards::DESKTOP_CARD_WINDOW_PREFIX) {
+                    desktop_cards::handle_window_event(window, event);
+                    return;
+                }
                 if window.label() == "main"
                     && !MAIN_WINDOW_USES_TRANSIENT_GEOMETRY.load(Ordering::SeqCst)
                     && matches!(event, tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_))
@@ -1458,6 +1468,13 @@ pub async fn run() {
             appearance::show_agent_companion_desktop_pet,
             appearance::hide_agent_companion_desktop_pet,
             appearance::resize_agent_companion_desktop_pet,
+            desktop_cards::commands::desktop_card_list,
+            desktop_cards::commands::desktop_card_get,
+            desktop_cards::commands::desktop_card_set_visible,
+            desktop_cards::commands::desktop_card_delete,
+            desktop_cards::commands::desktop_card_refresh,
+            desktop_cards::commands::desktop_card_set_checklist_item,
+            desktop_cards::commands::desktop_card_set_always_on_top,
             list_agent_companion_pets,
             import_agent_companion_pet_package,
             delete_agent_companion_pet_package,

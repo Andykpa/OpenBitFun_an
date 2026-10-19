@@ -819,7 +819,7 @@ fn development_frontend_url(
     base.join(path).map_err(|error| error.to_string())
 }
 
-fn app_url(app: &tauri::AppHandle, path: &str) -> WebviewUrl {
+pub(crate) fn app_url(app: &tauri::AppHandle, path: &str) -> WebviewUrl {
     if use_development_frontend() {
         match development_frontend_url(app.config().build.dev_url.as_ref(), path) {
             Ok(url) => {
