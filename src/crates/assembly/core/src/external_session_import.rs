@@ -7,6 +7,7 @@ pub use lifecycle::{list_removed_external_sessions, restore_removed_external_ses
 
 use openbitfun_claude_code_adapter::session::ClaudeCodeSessionReader;
 use openbitfun_codex_adapter::session::CodexSessionReader;
+use openbitfun_cursor_adapter::session::CursorSessionReader;
 use openbitfun_dsh_adapter::session::DshSessionReader;
 use openbitfun_opencode_adapter::session::OpenCodeSessionReader;
 use openbitfun_pi_adapter::session::PiSessionReader;
@@ -47,6 +48,7 @@ fn codex_reader() -> &'static CodexSessionReader {
 #[derive(Clone, Copy)]
 enum ImportSource {
     Codex,
+    Cursor,
     Zcode,
     ClaudeCode,
     OpenCode,
@@ -58,6 +60,7 @@ impl ImportSource {
     fn from_ecosystem(id: &str) -> ExternalSourceOperationResult<Self> {
         match id {
             "codex" => Ok(Self::Codex),
+            "cursor" => Ok(Self::Cursor),
             "zcode" => Ok(Self::Zcode),
             "claude-code" => Ok(Self::ClaudeCode),
             "opencode" => Ok(Self::OpenCode),
@@ -82,6 +85,7 @@ impl ImportSource {
     fn name(self) -> &'static str {
         match self {
             Self::Codex => "Codex",
+            Self::Cursor => "Cursor",
             Self::Zcode => "Zcode",
             Self::ClaudeCode => "Claude Code",
             Self::OpenCode => "OpenCode",
@@ -93,6 +97,7 @@ impl ImportSource {
     fn format(self) -> &'static str {
         match self {
             Self::Codex => "codex-rollout-jsonl",
+            Self::Cursor => "cursor-session-history",
             Self::Zcode => "zcode-session-sqlite",
             Self::ClaudeCode => "claude-code-transcript-jsonl",
             Self::OpenCode => "opencode-session-sqlite",
@@ -104,6 +109,7 @@ impl ImportSource {
     fn revision(self) -> &'static str {
         match self {
             Self::Codex => openbitfun_codex_adapter::session::SOURCE_REVISION,
+            Self::Cursor => openbitfun_cursor_adapter::session::SOURCE_REVISION,
             Self::Zcode => openbitfun_zcode_adapter::session::SOURCE_REVISION,
             Self::ClaudeCode => openbitfun_claude_code_adapter::session::SOURCE_REVISION,
             Self::OpenCode => openbitfun_opencode_adapter::session::SOURCE_REVISION,
@@ -118,6 +124,8 @@ impl ImportSource {
                 codex_reader().read_candidate(candidate, ExternalSessionImportMode::Full)
             }
             Self::Zcode => ZcodeSessionReader::default()
+                .read_candidate(candidate, ExternalSessionImportMode::Full),
+            Self::Cursor => CursorSessionReader::default()
                 .read_candidate(candidate, ExternalSessionImportMode::Full),
             Self::ClaudeCode => ClaudeCodeSessionReader::default()
                 .read_candidate(candidate, ExternalSessionImportMode::Full),
@@ -135,6 +143,7 @@ impl ImportSource {
     ) -> Result<openbitfun_product_domains::session_import::ExternalSessionCatalog, String> {
         match self {
             Self::Codex => codex_reader().discover_all(),
+            Self::Cursor => CursorSessionReader::default().discover_all(),
             Self::Zcode => ZcodeSessionReader::default().discover_all(),
             Self::ClaudeCode => ClaudeCodeSessionReader::default().discover_all(),
             Self::OpenCode => OpenCodeSessionReader::default().discover_all(),

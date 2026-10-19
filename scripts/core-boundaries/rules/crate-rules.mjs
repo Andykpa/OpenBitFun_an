@@ -9,6 +9,7 @@ const agentRuntimeIpcForbiddenDeps = [
   'openbitfun-ai-adapters',
   'openbitfun-claude-code-adapter',
   'openbitfun-codex-adapter',
+  'openbitfun-cursor-adapter',
   'openbitfun-zcode-adapter',
   'openbitfun-core',
   'openbitfun-core-types',
@@ -62,6 +63,7 @@ export const noCoreDependencyCrates = [
   'product-domains',
   'claude-code-adapter',
   'codex-adapter',
+  'cursor-adapter',
   'zcode-adapter',
   'dsh-adapter',
   'opencode-adapter',
@@ -158,6 +160,7 @@ export const forbiddenManifestDependencyRules = [
   ...[
     ['openbitfun-claude-code-adapter', 'claude-code-adapter'],
     ['openbitfun-codex-adapter', 'codex-adapter'],
+    ['openbitfun-cursor-adapter', 'cursor-adapter'],
     ['openbitfun-zcode-adapter', 'zcode-adapter'],
     ['openbitfun-pi-adapter', 'pi-adapter'],
   ].map(([dependencyName, crateName]) => ({

@@ -44,7 +44,7 @@ Codex 与 DeepSeek Harness 中受支持的安全声明，并在用户显式确�
 
 | 内容与生态 | 此页发现范围 | 原生副本导入 | 使用与限制 |
 |---|---|---|---|
-| Session：Codex、Zcode、Claude Code、OpenCode、Pi、DeepSeek Harness | 本地 Desktop 按工作区自动发现已保存会话 | 打开来源时刷新只读历史，首次发送创建独立原生分支；可移除和重新添加来源 | 各 adapter 读取原生存储；Remote workspace、Peer、IM 和 Detached Dispatch 的来源续聊入口未提供 |
+| Session：Codex、Zcode、Claude Code、OpenCode、Pi、DeepSeek Harness、Cursor | 本地 Desktop 按工作区自动发现已保存会话 | 打开来源时刷新只读历史，首次发送创建独立原生分支；可移除和重新添加来源 | 各 adapter 读取原生存储；Remote workspace、Peer、IM 和 Detached Dispatch 的来源续聊入口未提供 |
 | Skill：Claude Code、Codex、OpenCode、Pi、DSH | 已接入各自受支持目录/文件子集；不代表完整包或动态配置解析 | 本地 Desktop 可复制受支持格式；按主机导入版本保留旧格式路径 | 未导入外部 Skill 不进入原生运行目录；导入后由 Skill owner 选择 |
 | MCP：Claude Code、Codex、OpenCode、DSH | 已接入安全声明子集；Pi 没有 provider | 本地 Desktop、根 CLI 可规划并复制；副本默认禁用 | 原生连接状态由 MCP owner 确认；前三类另有持续兼容路径，DSH 发现不意味着 DSH 持续运行兼容 |
 | Hook：五种生态 | 静态来源和事件声明 | 仅 Claude Code/Codex 的受支持同步 command，经审阅导入 | 目录本身不执行；原生 Hook 仍受开关控制；Pi/DSH/OpenCode 目录只读 |
@@ -112,6 +112,26 @@ OpenCode 的 `providerID` / `modelID` 与兼容存储的旧拼写均可读取；
 四种新增来源复用同一原生索引、缓存与续聊分叉路径。验证包含各真实安装 Agent 产生的两轮会话、
 文件读写及失败工具记录，以及生产 reader → 来源缓存 → 原生分支持久化回读；模拟测试覆盖旧主机能力门禁。
 这些本机验证不代表 SSH、Peer、IM 或 Detached Dispatch 的实机验证。
+
+### Cursor 会话来源
+
+`adapters/cursor-adapter::session` 只读 Cursor CLI 的 `chats/<workspace-hash>/<id>/store.db`。
+配置根遵循 `CURSOR_CONFIG_DIR`、`XDG_CONFIG_HOME/cursor`、`~/.cursor` 优先级。
+基线为实装 CLI `2026.10.16-e3cb207` 的 v1 SQLite：元数据指定当前 root，读取可达 JSON 消息及摘要归档，
+不扫描未引用 blob，不把旧分支和运行时上下文合并为人类轮次。源工具 ID、参数、结果和错误状态保留。
+Desktop 基线来自本机 3.17.8 的保存代码：`User/globalStorage/state.vscdb` 中的 composer/bubble，
+按保存的 header 顺序读取并兼容旧 inline conversation。未知必需结构或缺失引用明确失败。
+默认 Desktop 根为系统的 Cursor 用户数据目录；OpenBitFun 的 `OPENBITFUN_CURSOR_USER_DATA_DIR` 可覆盖它。
+
+`CURSOR_DATA_DIR/projects`（缺省 `~/.cursor/projects`）的 JSONL 仅作无数据库来源时的回退；
+缺少结果的调用保持中断并显示提示。Desktop 保存时移除的结果内容和未完整缓存的云端历史明确说明。
+仅有 `.txt` 的旧纯文本记录报告格式不支持，不猜测其中的工具边界。
+不从项目目录 slug 反推工作区路径；无明确本地路径、远程 URI 或多工作区元数据无法匹配时给出诊断。
+复用同一开关、工作区来源筛选、不可变缓存和原生分叉流程；旧主机先经只读操作验证来源支持。
+工具参数只在现有 Web UI 卡片边界投影，原始持久化数据不改写，历史不会启动 Cursor 或执行来源工具。
+
+验证区分真实 CLI 两轮会话及生产 reader/缓存/原生分支持久化回读，与 Desktop 格式和 WAL 的合成用例。
+Desktop GUI、SSH、Peer、IM 和 Detached Dispatch 尚无本次实机验证。
 
 ### Zcode 会话来源与原生副本
 

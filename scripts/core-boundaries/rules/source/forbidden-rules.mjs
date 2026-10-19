@@ -4194,6 +4194,15 @@ export const forbiddenContentUnderRules = [
   },
   {
     path: 'src',
+    reason: 'Cursor session adapter imports are limited to the session import composition root',
+    patterns: [{
+      regex: /\b(?:use\s+openbitfun_cursor_adapter\b|extern\s+crate\s+openbitfun_cursor_adapter\b|openbitfun_cursor_adapter::)/,
+      allowPaths: ['src/crates/assembly/core/src/external_session_import.rs'],
+      message: 'Cursor history must be composed through the existing session import owner',
+    }],
+  },
+  {
+    path: 'src',
     reason: 'Claude Code declarative source adapter imports are limited to its fixtures and composition roots',
     patterns: [{
       regex: /\b(?:use\s+openbitfun_claude_code_adapter\b|extern\s+crate\s+openbitfun_claude_code_adapter\b|openbitfun_claude_code_adapter::)/,

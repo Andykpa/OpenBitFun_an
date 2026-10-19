@@ -686,6 +686,58 @@ mod tests {
         .unwrap();
         let viewed = snapshot(&root, id, false).await.unwrap().unwrap();
         assert_eq!(viewed.turns.len(), original.turns.len());
+        for (source, viewed) in original.turns.iter().zip(&viewed.turns) {
+            use openbitfun_product_domains::session_import::ExternalSessionItem;
+            let source_tools: Vec<_> = source
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    ExternalSessionItem::Tool {
+                        id,
+                        name,
+                        input,
+                        result,
+                        success,
+                    } => Some((id, name, input, result, success)),
+                    _ => None,
+                })
+                .collect();
+            let viewed_tools: Vec<_> = viewed
+                .model_rounds
+                .iter()
+                .flat_map(|round| &round.tool_items)
+                .collect();
+            assert_eq!(source_tools.len(), viewed_tools.len());
+            for ((id, name, input, result, success), viewed) in
+                source_tools.into_iter().zip(viewed_tools)
+            {
+                assert_eq!(id, &viewed.tool_call.id);
+                assert_eq!(name, &viewed.tool_name);
+                assert_eq!(input, &viewed.tool_call.input);
+                assert_eq!(
+                    result.as_ref(),
+                    viewed.tool_result.as_ref().map(|result| &result.result)
+                );
+                if let (Some(expected), Some(actual)) = (success, &viewed.tool_result) {
+                    assert_eq!(*expected, actual.success);
+                }
+            }
+            let source_text: Vec<_> = source
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    ExternalSessionItem::Text { text } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect();
+            let viewed_text: Vec<_> = viewed
+                .model_rounds
+                .iter()
+                .flat_map(|round| &round.text_items)
+                .map(|item| item.content.as_str())
+                .collect();
+            assert_eq!(source_text, viewed_text);
+        }
         assert_eq!(
             viewed
                 .turns
@@ -735,6 +787,7 @@ mod tests {
         );
         for (before, after) in viewed.turns.iter().zip(&native.turns) {
             assert_eq!(before.user_message.content, after.user_message.content);
+            assert_eq!(before.model_rounds.len(), after.model_rounds.len());
             assert_eq!(
                 after.user_message.metadata.as_ref().unwrap()["importedFrom"],
                 ecosystem

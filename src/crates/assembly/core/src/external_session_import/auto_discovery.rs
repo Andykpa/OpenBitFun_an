@@ -38,6 +38,7 @@ async fn enabled_sources() -> Result<Vec<String>, String> {
         "opencode",
         "pi",
         "deepseek-harness",
+        "cursor",
     ]
     .into_iter()
     .filter(|source| settings.get(*source) == Some(&true))
