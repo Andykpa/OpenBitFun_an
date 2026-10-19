@@ -3,6 +3,7 @@
  * Shows the active model and allows quick switching.
  *
  * Config linkage:
+ * - Primary/fast role editors update ai.default_models independently.
  * - Model selection is shared across all future mode sessions through
  *   ai.agent_model_defaults.mode. Delegated subagents keep separate defaults.
  * - Supports 'primary' | 'fast' | specific model IDs
@@ -22,7 +23,7 @@ import {
 } from '@/infrastructure/api/service-api/AIApi';
 import { ACPClientAPI, type AcpSessionOptions } from '@/infrastructure/api/service-api/ACPClientAPI';
 import { getProviderDisplayName, getProviderGroupKey } from '@/infrastructure/config/services/modelConfigs';
-import type { AIModelConfig, AgentModelDefaultsConfig, DefaultModelsConfig } from '@/infrastructure/config/types';
+import type { AIModelConfig, AgentModelDefaultsConfig, DefaultModelsConfig, SubagentModelSelection } from '@/infrastructure/config/types';
 import { Tooltip, Icon } from '@openbitfun/ui';
 import { RetainedMountBoundary } from '@/shared/presence';
 import { notificationService } from '@/shared/notification-system';
@@ -70,7 +71,7 @@ import {
 } from '../utils/modelResolution';
 import { setRecentManualModel } from '../utils/manualModelSelection';
 import { useModelSelectionScope } from '../hooks/useModelSelectionScope';
-import { NativeModelSelectionPanel } from './NativeModelSelectionPanel';
+import { NativeModelSelectionPanel, type ModelRole } from './NativeModelSelectionPanel';
 import './ModelSelector.scss';
 
 const log = createLogger('ModelSelector');
@@ -78,6 +79,7 @@ const ACP_SESSION_OPTIONS_TIMEOUT_MS = 65_000;
 const MODEL_SELECTOR_EXIT_DURATION_MS = 100;
 const EMPTY_MODELS: AIModelConfig[] = [];
 const EMPTY_DEFAULT_MODELS: DefaultModelsConfig = {};
+const DEFAULT_SUBAGENT_SELECTION: SubagentModelSelection = { kind: 'fixed', model_id: 'fast' };
 
 export interface ExternalModelSelection {
   models: string[];
@@ -364,6 +366,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   const defaultModels = configEpoch === deviceSurfaceScope.epoch ? loadedDefaults : EMPTY_DEFAULT_MODELS;
   const [loadedModeModel, setModeModel] = useState('primary');
   const modeModel = configEpoch === deviceSurfaceScope.epoch ? loadedModeModel : 'primary';
+  const [loadedSubagentSelection, setSubagentSelection] = useState<SubagentModelSelection>(DEFAULT_SUBAGENT_SELECTION);
+  const subagentSelection = configEpoch === deviceSurfaceScope.epoch ? loadedSubagentSelection : DEFAULT_SUBAGENT_SELECTION;
   const [configState, setConfigLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
   const configLoadState = configEpoch === deviceSurfaceScope.epoch ? configState : 'loading';
   const [acpOptions, setAcpOptions] = useState<AcpSessionOptions | null>(null);
@@ -374,6 +378,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   const [activeProviderKey, setActiveProviderKey] = useState<string | null>(null);
   /** Providers and models use detail views within the selection panel. */
   const [activePanel, setActivePanel] = useState<ModelSelectorPanel | null>(null);
+  const [advancedScopeKey, setAdvancedScopeKey] = useState<string | null>(null);
   const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [modelSearchExpanded, setModelSearchExpanded] = useState(false);
   const [modelProviderFilter, setModelProviderFilter] = useState('');
@@ -382,6 +387,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   /** Direction of navigation within the card. */
   const [levelDirection, setLevelDirection] = useState<ModelSelectorLevelDirection>('none');
   const [loading, setLoading] = useState(false);
+  const roleSaveRef = useRef<symbol | null>(null);
   const [reasoningLoading, setReasoningLoading] = useState(false);
   const [contextEdit, setContextEdit] = useState<{ modelId: string; scopeKey: string } | null>(null);
   const [contextDraft, setContextDraft] = useState('');
@@ -415,6 +421,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   const menuId = useId();
 
   useEffect(() => {
+    roleSaveRef.current = null;
     setLoading(false);
     setReasoningLoading(false);
     setPreSessionReasoningSelection(null);
@@ -493,6 +500,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       setAllModels(models);
       setDefaultModels(defaultModelsData);
       setModeModel(agentModelDefaults?.mode?.trim() || 'primary');
+      setSubagentSelection(agentModelDefaults?.subagents?.default ?? DEFAULT_SUBAGENT_SELECTION);
       setConfigLoadState('ready');
 
       if (requestId !== configLoadRequestRef.current || !scope.isCurrent()) return false;
@@ -504,7 +512,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     } catch (error) {
       if (requestId !== configLoadRequestRef.current || !scope.isCurrent()) return false;
       if (configEpochRef.current !== scope.epoch) {
-        setAllModels([]); setDefaultModels({}); setModeModel('primary');
+        setAllModels([]); setDefaultModels({}); setModeModel('primary'); setSubagentSelection(DEFAULT_SUBAGENT_SELECTION);
       }
       setConfigEpoch(scope.epoch);
       setConfigLoadState('error');
@@ -1011,6 +1019,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   }, []);
 
   const resetDropdownNavigation = useCallback(() => {
+    setAdvancedScopeKey(null);
     focusSummaryOnReturnRef.current = null;
     focusPanelOnOpenRef.current = false;
     setActiveProviderKey(null);
@@ -1385,6 +1394,38 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     if (selected && hasSettingsPanel) closePanel(true);
     return selected;
   }, [closePanel, handleSelectModel, hasSettingsPanel, modelSelectionScopeKey]);
+
+  const handleConfigureRoleModel = useCallback(async (role: ModelRole, modelId: string | null) => {
+    if (!canRememberSelection || disabled || loading || reasoningLoading || selectionPreference.pending
+      || configLoadState !== 'ready' || roleSaveRef.current) return false;
+    if (modelId === null ? role !== 'fast' : !allModels.some(model => model.id === modelId && isSelectableTextChatModel(model))) return false;
+    const scope = getActiveSurfaceScope();
+    const selectionKey = modelSelectionScopeKey;
+    const operation = Symbol('configure-role-model');
+    roleSaveRef.current = operation;
+    setLoading(true);
+    try {
+      // Update the shared role binding only. Session selections and per-agent
+      // overrides have separate owners and must not be rewritten with it.
+      const defaults = await configManager.updateConfig<DefaultModelsConfig>('ai.default_models', current => ({
+        ...current, [role]: modelId,
+      }));
+      if (!scope.isCurrent()) return false;
+      setDefaultModels(defaults);
+      return modelSelectionScopeRef.current === selectionKey;
+    } catch (error) {
+      if (scope.isCurrent()) {
+        log.error('Failed to update model role configuration', { role, error });
+        notificationService.error(t('modelSelector.roles.saveFailed'));
+      }
+      return false;
+    } finally {
+      if (roleSaveRef.current === operation) {
+        roleSaveRef.current = null;
+        if (scope.isCurrent()) setLoading(false);
+      }
+    }
+  }, [allModels, canRememberSelection, configLoadState, disabled, loading, modelSelectionScopeKey, reasoningLoading, selectionPreference.pending, t]);
 
   const handleSelectReasoningPreset = useCallback(async (presetId: string | null) => {
     if (
@@ -2158,6 +2199,13 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                 data-testid="chat-model-selector-options"
                 data-panel-kind={activePanel}
               >
+                {isNativeModelSelection && <div className="native-model-selection__override-heading">
+                  <Button size="sm" variant="text" leadingIcon={<Icon name="chevron-left" size="xs" />}
+                    data-testid="chat-model-selector-override-back" onClick={() => closePanel(true)}>
+                    {t(canRememberSelection ? 'modelSelector.roles.mainOverride' : 'modelSelector.roles.sessionModel')}
+                  </Button>
+                  <span className="native-model-selection__support">{t(selectionPreference.scope === 'remember' ? 'modelSelector.scope.remember' : 'modelSelector.scope.session')}</span>
+                </div>}
                 <ScrollArea className="openbitfun-model-selector__picker-results" data-testid="chat-model-selector-results">
                   <ModelSelectorMenuLevel direction={levelDirection}>
                     {providerGroups.length === 0 ? renderUnavailableModelMenu(displayedAvailability,
@@ -2475,6 +2523,12 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                 scope={selectionPreference.scope}
                 canRemember={canRememberSelection}
                 hasSession={Boolean(sessionId)}
+                canConfigureDefaults={canRememberSelection}
+                advancedOpen={advancedScopeKey === modelSelectionScopeKey}
+                onAdvancedOpenChange={open => setAdvancedScopeKey(open ? modelSelectionScopeKey : null)}
+                fastUsesPrimary={!allModels.some(model => model.id === defaultModels.fast && isSelectableTextChatModel(model))}
+                subagentSelection={subagentSelection}
+                subagentModel={subagentSelection.kind === 'fixed' ? resolveModelReference(allModels, subagentSelection.model_id, defaultModels) ?? undefined : undefined}
                 disabled={disabled || loading || reasoningLoading || selectionPreference.pending || configLoadState !== 'ready'}
                 onScopeChange={scope => {
                   void selectionPreference.changeScope(scope).catch(error => {
@@ -2484,11 +2538,9 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                     void loadConfigData();
                   });
                 }}
-                onSelect={modelId => { void handleSelectModelFromMenu(modelId); }}
+                onConfigureModel={handleConfigureRoleModel}
                 modelRef={modelFieldRef}
-                providerRef={providerFieldRef}
                 onBrowse={openModelChoices}
-                onProviders={() => openPanel('providers', true)}
                 onSettings={handleOpenModelSettings}
                 onClose={() => { setDropdownOpen(false); triggerRef.current?.focus({ preventScroll: true }); }}
                 onSaved={() => { void loadConfigData(); }}

@@ -16,6 +16,7 @@ import { agentAPI } from '@/infrastructure/api/service-api/AgentAPI';
 import { quickActions } from '@/shared/services/ide-control';
 import type { AIModelCatalog } from '@/infrastructure/api/service-api/AIApi';
 import type { AIModelConfig, DefaultModelsConfig } from '@/infrastructure/config/types';
+import { modelBillingBinding, withModelBilling } from '@/infrastructure/config/services/modelBilling';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -149,10 +150,16 @@ describe('ModelSelector provider levels', () => {
 
   const openMenu = async () => openModelList();
 
+  const openAdvanced = async () => {
+    const toggle = document.body.querySelector<HTMLButtonElement>('[data-testid="model-selection-advanced"]');
+    if (toggle?.getAttribute('aria-expanded') === 'false') await act(async () => toggle.click());
+  };
+
   const openModelList = async () => {
     if (container.querySelector('[data-testid="chat-model-selector-btn"]')?.getAttribute('aria-expanded') !== 'true') {
       await openSettingsMenu();
     }
+    await openAdvanced();
     const entry = document.body.querySelector<HTMLButtonElement>(
       '[data-testid="chat-model-selector-settings-model"]',
     );
@@ -291,6 +298,7 @@ describe('ModelSelector provider levels', () => {
       { ...model('image-model', 'Images', 'image-provider', 'https://images.test'), category: 'multimodal', capabilities: ['image_understanding'] },
     ]);
     await openModelList();
+    expect(document.body.querySelector('[data-testid="chat-model-selector-override-back"]')?.textContent).toBe('modelSelector.roles.mainOverride');
     await act(async () => searchTrigger().click());
     expect(document.activeElement).toBe(searchInput());
     expect(document.body.querySelectorAll('[data-testid="chat-model-selector-option"]')).toHaveLength(3);
@@ -509,12 +517,12 @@ describe('ModelSelector provider levels', () => {
 
     await act(async () => resolveCatalog({ version: 1, models: [] }));
     await act(async () => { vi.advanceTimersToNextFrame(); });
-    const modelField = menu.querySelector('[data-testid="chat-model-selector-settings-model"]');
+    const modelField = menu.querySelector('[data-testid="model-selection-config-primary"]');
     expect(loadingState()).toBeNull();
     expect(modelField?.textContent).toContain('acme-fast-native');
     expect(trigger.hasAttribute('aria-busy')).toBe(false);
     expect(menu.hasAttribute('aria-busy')).toBe(false);
-    expect(document.activeElement).toBe(menu.querySelector('[data-testid="model-selection-primary"]'));
+    expect(document.activeElement).toBe(modelField);
   });
 
   it.each(['configuration', 'catalog'])('leaves loading when the %s request fails', async source => {
@@ -532,14 +540,14 @@ describe('ModelSelector provider levels', () => {
     await act(async () => rejectLoad(new Error('Host offline')));
     expect(document.body.querySelector('[data-testid="chat-model-selector-loading"]')).toBeNull();
     expect(container.querySelector('[data-testid="chat-model-selector-btn"]')?.hasAttribute('aria-busy')).toBe(false);
-    const modelField = document.body.querySelector('[data-testid="chat-model-selector-settings-model"]');
-    expect(modelField?.textContent).toContain(source === 'configuration'
+    expect(container.querySelector('[data-testid="chat-model-selector-btn"]')?.textContent).toContain(source === 'configuration'
       ? 'modelSelector.status.loadError' : 'acme-fast-native');
   });
 
   it('preserves model information during a catalog refresh', async () => {
     await renderSelector();
     await openSettingsMenu();
+    await openAdvanced();
     const modelField = document.body.querySelector('[data-testid="chat-model-selector-settings-model"]');
     let resolveCatalog!: (catalog: AIModelCatalog) => void;
     aiApiMocks.getModelCatalog.mockReturnValueOnce(new Promise<AIModelCatalog>(resolve => {
@@ -557,7 +565,7 @@ describe('ModelSelector provider levels', () => {
     expect(document.body.querySelector('[data-testid="chat-model-selector-settings-model"]')).toBe(modelField);
   });
 
-  it('opens a settings homepage with context, effort and model rows', async () => {
+  it('keeps context and effort visible while hiding the main override in advanced options', async () => {
     flowChatStoreMocks.sessions.set('session-a', {
       config: {
         agentType: 'Standard',
@@ -591,12 +599,16 @@ describe('ModelSelector provider levels', () => {
     expect(Array.from(settings!.querySelectorAll('[data-testid]'))
       .map(element => element.getAttribute('data-testid'))
       .filter(id => ['chat-model-selector-settings-fast', 'chat-model-selector-settings-context', 'chat-model-selector-settings-reasoning', 'chat-model-selector-settings-model'].includes(id!)))
-      .toEqual(['chat-model-selector-settings-model', 'chat-model-selector-settings-context', 'chat-model-selector-settings-reasoning']);
+      .toEqual(['chat-model-selector-settings-context', 'chat-model-selector-settings-reasoning']);
+    expect(settings?.querySelector('[data-testid="model-selection-scope"]')).toBeNull();
+    expect(settings?.querySelector('[data-testid="model-selection-override-summary"]')?.textContent).toBe('modelSelector.roles.activeOverride');
+    await openAdvanced();
     expect(settings?.querySelector('[data-testid="model-selection-scope"]')).not.toBeNull();
     expect(settings?.querySelector(
       '[data-testid="chat-model-selector-settings-model"]',
     )?.textContent).toContain('umbra-main-native');
-    expect(settings?.querySelector('[data-testid="chat-model-selector-settings-provider"]')).not.toBeNull();
+    expect(settings?.querySelector('[data-testid="chat-model-selector-settings-provider"]')).toBeNull();
+    expect(settings?.querySelector('[data-testid="model-selection-role-config"]')).not.toBeNull();
     expect(settings?.querySelector('[data-testid="chat-model-selector-settings-mode"]')).toBeNull();
     expect(optionsPanel()).toBeNull();
     expect(settings?.querySelector(
@@ -628,14 +640,17 @@ describe('ModelSelector provider levels', () => {
   it.each([
     ['primary', 'modelSelector.primaryModel', 'acme-fast-native'],
     ['fast', 'modelSelector.fastModel', 'umbra-main-native'],
-  ])('shows the concrete %s model and its selected role on the homepage', async (selection, label, modelName) => {
+  ])('shows the %s main-session choice separately from the two role configurations', async (selection, label, modelName) => {
     await renderSelector(CATALOG_MODELS, selection);
     await openSettingsMenu();
+    await openAdvanced();
     const row = document.body.querySelector('[data-testid="chat-model-selector-settings-model"]')!;
-    expect(row.textContent).toBe(modelName);
-    const role = document.body.querySelector(`[data-testid="model-selection-${selection}"]`)!;
-    expect(role.getAttribute('aria-checked')).toBe('true');
-    expect(role.textContent).toBe(`${label}${modelName}`);
+    expect(row.textContent).toContain(modelName);
+    expect(row.textContent).toContain(selection === 'primary' ? 'modelSelector.roles.followPrimary' : 'modelSelector.roles.useFast');
+    const role = document.body.querySelector(`[data-testid="model-selection-config-${selection}"]`)!;
+    expect(role.hasAttribute('aria-checked')).toBe(false);
+    expect(role.textContent).toContain(label);
+    expect(role.textContent).toContain(modelName);
     expect(document.body.querySelector('[data-testid="chat-model-selector-settings-fast-row"]')).toBeNull();
     expect(document.body.querySelector('input[type="checkbox"]')).toBeNull();
   });
@@ -742,6 +757,7 @@ describe('ModelSelector provider levels', () => {
   it.each(['primary', 'fast', 'acme-deep'])('shows concrete models above the default shortcut actions for %s', async modelId => {
     await renderSelector(CATALOG_MODELS, modelId);
     await openSettingsMenu();
+    await openAdvanced();
 
     const modelControl = () => document.body.querySelector<HTMLButtonElement>(
       '[data-testid="chat-model-selector-settings-model"]',
@@ -982,11 +998,11 @@ describe('ModelSelector provider levels', () => {
     await act(async () => modeOption('smart')!.click());
     expect(document.body.querySelector('[data-testid="model-selection-smart-preview"]')).not.toBeNull();
     expect(document.body.querySelector('[data-testid="model-selection-smart-primary"]')?.textContent).toContain('acme-fast-native');
-    expect(document.body.querySelector('[data-testid="model-selection-smart-fast"]')?.textContent).toContain('umbra-main-native');
+    expect(document.body.querySelector('[data-testid="model-selection-smart-economy"]')?.textContent).toContain('umbra-main-native');
     expect(document.body.textContent).toContain('modelSelector.modes.previewStatus');
     expect(document.body.querySelector('[data-testid="model-selection-scope"]')).toBeNull();
     expect(document.body.querySelector('[data-testid="model-billing-summary"]')).not.toBeNull();
-    expect(document.body.querySelector('[data-testid="model-selection-primary"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="model-selection-config-primary"]')).toBeNull();
     expect(configManager.setConfig).not.toHaveBeenCalled();
     expect(configManager.updateConfig).not.toHaveBeenCalled();
     expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
@@ -994,15 +1010,171 @@ describe('ModelSelector provider levels', () => {
 
     await act(async () => modeOption('manual')!.click());
     expect(document.body.querySelector('[data-testid="model-selection-smart-preview"]')).toBeNull();
-    expect(document.body.querySelector('[data-testid="model-selection-primary"]')).not.toBeNull();
+    expect(document.body.querySelector('[data-testid="model-selection-config-primary"]')).not.toBeNull();
     expect(configManager.setConfig).not.toHaveBeenCalled();
     expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
   });
 
-  const openRolePicker = async (role: 'primary' | 'fast') => {
+  const openRolePicker = async (role: 'primary' | 'economy') => {
     await act(async () => document.body.querySelector<HTMLButtonElement>(`[data-testid="model-selection-smart-${role}"]`)!.click());
   };
   const roleOption = (id: string) => document.body.querySelector<HTMLButtonElement>(`[data-testid="model-selection-role-option"][data-model-id="${id}"]`);
+
+  const openRoleConfiguration = async (role: 'primary' | 'fast') => {
+    await act(async () => document.body.querySelector<HTMLButtonElement>(`[data-testid="model-selection-config-${role}"]`)!.click());
+  };
+
+  it('collapses advanced overrides without changing models and resets the disclosure when reopened', async () => {
+    await renderSelector(); await openSettingsMenu();
+    expect(document.body.querySelector('[data-testid="model-selection-session-override"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="model-selection-override-summary"]')).toBeNull();
+    await openAdvanced();
+    expect(document.body.querySelector('[data-testid="model-selection-scope"]')?.textContent).toBe('modelSelector.scope.remember');
+    await openModelList();
+    await act(async () => modelOption('acme-deep')!.click());
+    const toggle = document.body.querySelector<HTMLButtonElement>('[data-testid="model-selection-advanced"]')!;
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(document.activeElement).toBe(document.body.querySelector('[data-testid="chat-model-selector-settings-model"]'));
+    expect(configManager.setConfig).toHaveBeenCalledExactlyOnceWith('ai.agent_model_defaults.mode', 'acme-deep');
+    await act(async () => toggle.click());
+    expect(document.body.querySelector('[data-testid="model-selection-session-override"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="model-selection-override-summary"]')).not.toBeNull();
+    await openAdvanced();
+    await openSettingsMenu(); await openSettingsMenu();
+    expect(document.body.querySelector('[data-testid="model-selection-advanced"]')?.getAttribute('aria-expanded')).toBe('false');
+    expect(configManager.setConfig).toHaveBeenCalledOnce();
+    expect(configManager.updateConfig).not.toHaveBeenCalled();
+  });
+
+  it('keeps a subagent’s own model selection directly accessible without global roles or advanced options', async () => {
+    flowChatStoreMocks.sessions.set('subagent-a', { config: { modelName: 'umbra-main' } });
+    await renderSelector(CATALOG_MODELS, 'primary', 'subagent-a');
+    await act(async () => root.render(<ModelSelector currentMode="Standard" sessionId="subagent-a" isSubagentSession />));
+    await openSettingsMenu();
+    expect(document.body.querySelector('[data-testid="model-selection-role-config"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="model-selection-advanced"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="chat-model-selector-settings-model"]')).not.toBeNull();
+    expect(document.body.querySelector('[data-testid="model-selection-scope"]')).toBeNull();
+    await openModelList();
+    await act(async () => modelOption('acme-deep')!.click());
+    expect(flowChatStoreMocks.sessions.get('subagent-a')?.config.modelName).toBe('acme-deep');
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+    expect(configManager.updateConfig).not.toHaveBeenCalled();
+  });
+
+  it.each(['unknown', 'higher'] as const)('uses economy billing copy in smart mode and fast billing copy in manual mode: %s', async pricing => {
+    const models = pricing === 'unknown' ? CATALOG_MODELS : CATALOG_MODELS.map((model, index) => withModelBilling(model, {
+      version: 1, kind: 'api', currency: 'CNY', input: index + 1, output: index + 1,
+      source: 'Fixture rates', account: '', updatedAt: '2026-10-19T00:00:00Z', binding: modelBillingBinding(model),
+    }));
+    await renderSelector(models); await openSettingsMenu();
+    await act(async () => modeOption('smart')!.click());
+    expect(document.body.querySelector('[data-testid="model-selection-smart-economy"]')?.textContent).toContain('modelSelector.economyModel');
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-testid="model-billing-toggle"]')!.click());
+    const billing = () => document.body.querySelector('[data-testid="model-billing-summary"]')!;
+    expect(billing().textContent).toContain(pricing === 'unknown' ? 'billing.economyIncomplete' : 'billing.economyHigher');
+    expect(billing().textContent).not.toContain('billing.fastHigher');
+    if (pricing === 'higher') expect(billing().textContent).toContain('billing.economyEstimate');
+    await act(async () => modeOption('manual')!.click());
+    expect(billing().textContent).toContain(pricing === 'unknown' ? 'billing.incomplete' : 'billing.fastHigher');
+    expect(billing().textContent).not.toContain('billing.economyHigher');
+    expect(configManager.updateConfig).not.toHaveBeenCalled();
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+  });
+
+  it.each(['primary', 'fast'] as const)('edits the %s role without replacing the main session or subagent defaults', async role => {
+    const defaults = { primary: 'acme-fast', fast: 'umbra-main', image_understanding: 'vision-model' };
+    flowChatStoreMocks.sessions.set('session-a', { config: { modelName: 'umbra-main', reasoningPreset: 'high' } });
+    await renderSelector(CATALOG_MODELS, 'umbra-main', 'session-a', defaults);
+    await openSettingsMenu();
+    const roles = document.body.querySelector('[data-testid="model-selection-role-config"]')!;
+    expect(roles.querySelectorAll('[role="menuitem"]')).toHaveLength(2);
+    expect(roles.querySelectorAll('[role="menuitemradio"]')).toHaveLength(0);
+    expect(document.body.querySelector('[data-testid="chat-model-selector-settings-provider"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="model-selection-session-override"]')).toBeNull();
+    vi.mocked(configManager.updateConfig).mockResolvedValueOnce({ ...defaults, [role]: 'acme-deep' });
+    await openRoleConfiguration(role);
+    expect(document.body.textContent).toContain('modelSelector.roles.saveHint');
+    expect(document.body.textContent).not.toContain('modelSelector.picker.previewHint');
+    await act(async () => roleOption('acme-deep')!.click());
+    expect(configManager.updateConfig).toHaveBeenCalledExactlyOnceWith('ai.default_models', expect.any(Function));
+    const updater = vi.mocked(configManager.updateConfig).mock.calls[0][1];
+    expect(await updater(defaults)).toEqual({ ...defaults, [role]: 'acme-deep' });
+    expect(document.body.querySelector(`[data-testid="model-selection-config-${role}"]`)?.textContent).toContain('acme-deep-native');
+    expect(document.activeElement).toBe(document.body.querySelector(`[data-testid="model-selection-config-${role}"]`));
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+    expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
+    expect(flowChatStoreMocks.sessions.get('session-a')?.config).toEqual({ modelName: 'umbra-main', reasoningPreset: 'high' });
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-testid="model-billing-toggle"]')!.click());
+    expect(document.body.querySelector('[data-testid="model-billing-summary"]')?.textContent).toContain('acme-deep-native');
+    expect(document.body.querySelector('[data-testid="model-billing-summary"]')?.textContent).toContain('umbra-main-native');
+  });
+
+  it('clears the fast binding to follow primary without making it a main-session choice', async () => {
+    await renderSelector(); await openSettingsMenu();
+    vi.mocked(configManager.updateConfig).mockResolvedValueOnce({ primary: 'acme-fast', fast: null });
+    await openRoleConfiguration('fast');
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-testid="model-selection-role-inherit"]')!.click());
+    expect(await vi.mocked(configManager.updateConfig).mock.calls[0][1]({ primary: 'acme-fast', fast: 'umbra-main' }))
+      .toEqual({ primary: 'acme-fast', fast: null });
+    expect(document.body.querySelector('[data-testid="model-selection-config-fast"]')?.textContent).toContain('modelSelector.roles.followPrimary');
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+    expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
+    await openRoleConfiguration('fast');
+    expect(document.body.querySelector('[data-testid="model-selection-role-inherit"]')?.getAttribute('aria-checked')).toBe('true');
+    expect(roleOption('acme-fast')?.getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('retains the configured role after a failed save and allows retry', async () => {
+    await renderSelector(); await openSettingsMenu();
+    vi.mocked(configManager.updateConfig).mockRejectedValueOnce(new Error('Host unavailable'));
+    await openRoleConfiguration('fast');
+    await act(async () => roleOption('acme-deep')!.click());
+    expect(document.body.querySelector('[data-testid="model-selection-role-picker"]')).not.toBeNull();
+    expect(roleOption('umbra-main')?.getAttribute('aria-checked')).toBe('true');
+    expect(roleOption('acme-deep')?.disabled).toBe(false);
+    expect(notificationStore.getState().notificationHistory.some(item => item.message === 'modelSelector.roles.saveFailed')).toBe(true);
+    vi.mocked(configManager.updateConfig).mockResolvedValueOnce({ primary: 'acme-fast', fast: 'acme-deep' });
+    await act(async () => roleOption('acme-deep')!.click());
+    expect(document.body.querySelector('[data-testid="model-selection-config-fast"]')?.textContent).toContain('acme-deep-native');
+    expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
+  });
+
+  it.each([{ kind: 'inherit' }, { kind: 'fixed', model_id: 'acme-deep' }])('shows a separately configured subagent default without rewriting it: %j', async selection => {
+    await renderSelector();
+    vi.mocked(configManager.getConfigs).mockResolvedValue({
+      'ai.models': CATALOG_MODELS,
+      'ai.default_models': { primary: 'acme-fast', fast: 'umbra-main' },
+      'ai.agent_model_defaults': { mode: 'primary', subagents: { default: selection } },
+    });
+    await act(async () => flowChatStoreMocks.configChangeListeners.forEach(listener => listener('ai.agent_model_defaults')));
+    await openSettingsMenu();
+    expect(document.body.querySelector('[data-testid="model-selection-subagent-policy"]')?.textContent).toBe('modelSelector.roles.subagentOverride');
+    expect(document.body.querySelector('[data-testid="model-selection-config-fast"]')?.textContent).toContain('modelSelector.roles.fastAvailable');
+    expect(document.body.querySelector('[data-testid="model-selection-config-fast"]')?.textContent).not.toContain('modelSelector.roles.fastPurpose');
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+    expect(configManager.updateConfig).not.toHaveBeenCalled();
+  });
+
+  it('does not let a completed local role save replace the selected peer configuration', async () => {
+    await renderSelector(); await openSettingsMenu();
+    let finishSave!: (defaults: DefaultModelsConfig) => void;
+    vi.mocked(configManager.updateConfig).mockReturnValueOnce(new Promise(resolve => { finishSave = resolve; }));
+    await openRoleConfiguration('primary');
+    await act(async () => roleOption('acme-deep')!.click());
+    expect(roleOption('umbra-main')?.disabled).toBe(true);
+    vi.mocked(configManager.getConfigs).mockResolvedValue({
+      'ai.models': [model('peer-model', 'Peer', 'provider-peer', 'https://peer.test/v1')],
+      'ai.default_models': { primary: 'peer-model' },
+      'ai.agent_model_defaults': { mode: 'primary' },
+    });
+    await act(async () => activateSurface('peer-role-config'));
+    await openSettingsMenu();
+    await act(async () => finishSave({ primary: 'acme-deep', fast: 'umbra-main' }));
+    expect(document.body.querySelector('[data-testid="model-selection-config-primary"]')?.textContent).toContain('peer-model-native');
+    expect(document.body.textContent).not.toContain('acme-deep-native');
+    expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
+  });
 
   it('chooses each smart preview role inline and updates billing without changing actual models', async () => {
     flowChatStoreMocks.sessions.set('session-a', { config: { modelName: 'umbra-main', reasoningPreset: 'high' } });
@@ -1015,17 +1187,20 @@ describe('ModelSelector provider levels', () => {
     expect(document.body.querySelector('[data-testid="model-selection-role-picker"]')).toBeNull();
     expect(document.body.querySelector('[data-testid="model-selection-smart-primary"]')?.textContent).toContain('acme-deep-native');
     expect(document.activeElement).toBe(document.body.querySelector('[data-testid="model-selection-smart-primary"]'));
-    await openRolePicker('fast');
+    await openRolePicker('economy');
     await act(async () => roleOption('acme-fast')!.click());
-    expect(document.activeElement).toBe(document.body.querySelector('[data-testid="model-selection-smart-fast"]'));
+    expect(document.activeElement).toBe(document.body.querySelector('[data-testid="model-selection-smart-economy"]'));
     await act(async () => document.body.querySelector<HTMLButtonElement>('[data-testid="model-billing-toggle"]')!.click());
     const billing = document.body.querySelector('[data-testid="model-billing-summary"]')!;
     expect(billing.textContent).toContain('acme-deep-native');
     expect(billing.textContent).toContain('acme-fast-native');
     expect(billing.textContent).not.toContain('umbra-main-native');
     await act(async () => modeOption('manual')!.click());
-    expect(document.body.querySelector('[data-testid="model-selection-primary"]')?.textContent).toContain('acme-fast-native');
-    expect(document.body.querySelector('[data-testid="model-selection-fast"]')?.textContent).toContain('umbra-main-native');
+    expect(document.body.querySelector('[data-testid="model-selection-config-primary"]')?.textContent).toContain('acme-fast-native');
+    expect(document.body.querySelector('[data-testid="model-selection-config-fast"]')?.textContent).toContain('umbra-main-native');
+    await openRoleConfiguration('primary');
+    expect(roleOption('acme-fast')?.getAttribute('aria-checked')).toBe('true');
+    expect(roleOption('acme-deep')?.getAttribute('aria-checked')).toBe('false');
     expect(configManager.setConfig).not.toHaveBeenCalled();
     expect(configManager.updateConfig).not.toHaveBeenCalled();
     expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
@@ -1059,14 +1234,14 @@ describe('ModelSelector provider levels', () => {
   it('returns from the inline role picker with Escape while retaining the smart preview', async () => {
     await renderSelector(); await openSettingsMenu();
     await act(async () => modeOption('smart')!.click());
-    await openRolePicker('fast');
+    await openRolePicker('economy');
     const search = document.body.querySelector<HTMLInputElement>('[aria-label="modelSelector.picker.search"]')!;
     await act(async () => search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, isComposing: true })));
     expect(document.body.querySelector('[data-testid="model-selection-role-picker"]')).not.toBeNull();
     await act(async () => search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
     expect(document.body.querySelector('[data-testid="model-selection-role-picker"]')).toBeNull();
     expect(modeOption('smart')?.getAttribute('aria-pressed')).toBe('true');
-    expect(document.activeElement).toBe(document.body.querySelector('[data-testid="model-selection-smart-fast"]'));
+    expect(document.activeElement).toBe(document.body.querySelector('[data-testid="model-selection-smart-economy"]'));
     expect(container.querySelector('[data-testid="chat-model-selector-btn"]')?.getAttribute('aria-expanded')).toBe('true');
   });
 
@@ -1169,6 +1344,7 @@ describe('ModelSelector provider levels', () => {
   });
 
   const chooseSaveScope = async (scope: 'session' | 'remember') => {
+    await openAdvanced();
     await act(async () => document.body.querySelector<HTMLButtonElement>('[data-testid="model-selection-scope"]')!.click());
     const choice = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'))
       .find(button => button.textContent === `modelSelector.scope.${scope}`)!;
@@ -1181,7 +1357,7 @@ describe('ModelSelector provider levels', () => {
     await renderSelector(CATALOG_MODELS, 'umbra-main', 'session-a');
     await openSettingsMenu();
     await chooseSaveScope('session');
-    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-testid="chat-model-selector-settings-provider"]')!.click());
+    await openModelList();
     await openProvider('provider-acme');
     await act(async () => modelOption('acme-deep')!.click());
     expect(agentAPI.updateSessionModel).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'session-a', modelName: 'acme-deep' }));
@@ -1209,6 +1385,7 @@ describe('ModelSelector provider levels', () => {
   it('dismisses the nested scope menu with Escape while retaining the model picker', async () => {
     await renderSelector(CATALOG_MODELS, 'primary', 'session-a');
     await openSettingsMenu();
+    await openAdvanced();
     const scopeButton = document.body.querySelector<HTMLButtonElement>('[data-testid="model-selection-scope"]')!;
     await act(async () => scopeButton.click());
     expect(scopeButton.getAttribute('aria-expanded')).toBe('true');
@@ -1585,6 +1762,7 @@ describe('ModelSelector provider levels', () => {
 
     await renderSelector(CATALOG_MODELS, 'primary', 'session-a');
     await openSettingsMenu();
+    await openAdvanced();
     const modelRow = document.body.querySelector<HTMLButtonElement>(
       '[data-testid="chat-model-selector-settings-model"]',
     );
@@ -1637,6 +1815,7 @@ describe('ModelSelector provider levels', () => {
     });
     await renderSelector(CATALOG_MODELS, 'primary', 'session-a');
     await openSettingsMenu();
+    await openAdvanced();
     const modelRow = document.body.querySelector<HTMLButtonElement>(
       '[data-testid="chat-model-selector-settings-model"]',
     );

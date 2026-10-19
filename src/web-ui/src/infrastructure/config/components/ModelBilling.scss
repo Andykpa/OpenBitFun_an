@@ -1,4 +1,13 @@
 .model-billing {
+  &, &__editor {
+    color: var(--openbitfun-color-content-primary);
+    font-family: var(--openbitfun-type-label-md-font-family);
+    font-size: var(--openbitfun-type-label-md-font-size);
+    font-weight: var(--openbitfun-type-label-md-font-weight);
+    line-height: var(--openbitfun-type-action-row-line-height);
+    letter-spacing: var(--openbitfun-type-label-md-letter-spacing);
+  }
+
   padding-block: var(--openbitfun-space-3);
   border-top: 1px solid var(--openbitfun-color-border-subtle);
 
@@ -6,8 +15,11 @@
   &__compact-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--openbitfun-space-2); }
   &__compact-status {
     color: var(--openbitfun-color-content-secondary);
-    font-size: var(--openbitfun-type-body-sm-font-size);
-    line-height: var(--openbitfun-type-body-sm-line-height);
+    font-family: var(--openbitfun-type-body-xs-font-family);
+    font-size: var(--openbitfun-type-body-xs-font-size);
+    font-weight: var(--openbitfun-type-body-xs-font-weight);
+    line-height: var(--openbitfun-type-body-xs-line-height);
+    letter-spacing: var(--openbitfun-type-body-xs-letter-spacing);
   }
   &[data-comparison='fastHigher'] &__compact-status { color: var(--openbitfun-color-status-warning-content); }
 
@@ -18,13 +30,35 @@
     gap: var(--openbitfun-space-3);
   }
   &__identity { display: grid; min-width: 0; gap: var(--openbitfun-space-1); }
-  &__hint, &__identity small {
+  &__heading strong, &__model-title {
+    font-family: var(--openbitfun-type-heading-card-font-family);
+    font-size: var(--openbitfun-type-heading-card-font-size);
+    font-weight: var(--openbitfun-type-heading-card-font-weight);
+    line-height: var(--openbitfun-type-heading-card-line-height);
+    letter-spacing: var(--openbitfun-type-heading-card-letter-spacing);
+    overflow-wrap: anywhere;
+  }
+  &__hint, &__identity small, &__warning {
     color: var(--openbitfun-color-content-secondary);
-    font-size: var(--openbitfun-type-body-sm-font-size);
-    line-height: var(--openbitfun-type-body-sm-line-height);
+    font-family: var(--openbitfun-type-body-xs-font-family);
+    font-size: var(--openbitfun-type-body-xs-font-size);
+    font-weight: var(--openbitfun-type-body-xs-font-weight);
+    line-height: var(--openbitfun-type-body-xs-line-height);
+    letter-spacing: var(--openbitfun-type-body-xs-letter-spacing);
   }
   &__hint, &__warning { margin: var(--openbitfun-space-2) 0; overflow-wrap: anywhere; }
-  &__warning { color: var(--openbitfun-color-status-warning-content); font-size: var(--openbitfun-type-body-sm-font-size); }
+  &__warning { color: var(--openbitfun-color-status-warning-content); }
   &__details, &__editor { display: grid; gap: var(--openbitfun-space-3); }
-  &__field { display: grid; gap: var(--openbitfun-space-2); }
+  &__field {
+    display: grid;
+    gap: var(--openbitfun-space-2);
+
+    > span {
+      font-family: var(--openbitfun-type-label-selected-font-family);
+      font-size: var(--openbitfun-type-label-selected-font-size);
+      font-weight: var(--openbitfun-type-label-selected-font-weight);
+      line-height: var(--openbitfun-type-label-selected-line-height);
+      letter-spacing: var(--openbitfun-type-label-selected-letter-spacing);
+    }
+  }
 }

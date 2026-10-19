@@ -63,7 +63,7 @@ export function ModelBillingDetails({ model, onClose, onSaved }: Props) {
     <DialogHeader><DialogHeading><DialogTitle>{t('billing.details')}</DialogTitle></DialogHeading><DialogClose disabled={saving} /></DialogHeader>
     <DialogBody>
       <div className="model-billing__editor" data-testid="model-billing-editor" data-openbitfun-component="model-billing" data-openbitfun-part="editor">
-        <strong>{model.model_name} · {model.name}</strong>
+        <strong className="model-billing__model-title">{model.model_name} · {model.name}</strong>
         <p className="model-billing__hint">{t('billing.quoteHint')}</p>
         {unsupported && <p className="model-billing__warning" role="alert">{t('billing.unsupported')}</p>}
         {saved && !isModelBillingCurrent(model, saved) && <p className="model-billing__warning" role="status">{t('billing.stale')}</p>}

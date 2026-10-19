@@ -750,12 +750,15 @@
     "comparable": "Prices are compared at the same example usage. Actual charges depend on the request and your account.",
     "incomplete": "Actual prices are not fully known. Primary and fast describe roles, not which costs less.",
     "estimate": "Primary {{primary}} · Fast {{fast}}",
-    "workload": "Example per request: {{input}} input + {{output}} output tokens, with no cache hits. Cached tokens are part of input. Excludes cache writes, routing and other fees; this is not a bill.",
     "noPolicy": "These details are advisory. They do not enforce a budget or authorize paid fallback.",
     "unsupported": "This saved billing format is not supported. The original record is preserved; update the app before editing it.",
     "compactHigher": "Fast costs more · Estimate",
     "compactCurrency": "Different currencies",
     "compactComparable": "View cost estimates",
-    "compactUnknown": "Pricing unconfirmed"
+    "compactUnknown": "Pricing unconfirmed",
+    "economyHigher": "For this example, the economy model costs more than the primary model. Check the channel rates or choose another economy model.",
+    "economyIncomplete": "Actual prices are not yet confirmed. Economy describes the goal of reducing cost; savings depend on channel rates and your account’s charges.",
+    "economyEstimate": "Primary {{primary}} · Economy {{fast}}",
+    "compactEconomyHigher": "Economy costs more · Estimate"
   }
 }
