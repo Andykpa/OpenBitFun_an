@@ -80,20 +80,25 @@ async fn fetch_http(
     for (name, value) in headers {
         request = request.header(name.as_str(), value.as_str());
     }
-    let response = request
+    let mut response = request
         .send()
         .await
         .map_err(|error| format!("Request failed: {error}"))?;
     let status = response.status();
-    let bytes = response
-        .bytes()
+    // Read in chunks so an oversized body is rejected before it is buffered.
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
         .await
-        .map_err(|error| format!("Failed to read response: {error}"))?;
-    if bytes.len() > MAX_RESPONSE_BYTES {
-        return Err(format!(
-            "Response is larger than {} KiB",
-            MAX_RESPONSE_BYTES / 1024
-        ));
+        .map_err(|error| format!("Failed to read response: {error}"))?
+    {
+        if bytes.len() + chunk.len() > MAX_RESPONSE_BYTES {
+            return Err(format!(
+                "Response is larger than {} KiB",
+                MAX_RESPONSE_BYTES / 1024
+            ));
+        }
+        bytes.extend_from_slice(&chunk);
     }
     let body = String::from_utf8_lossy(&bytes);
     if !status.is_success() {
