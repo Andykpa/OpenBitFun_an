@@ -58,6 +58,7 @@ node --test src/mobile-web/tests/background-delivery-browser.test.mjs # quiet ex
 pnpm --dir src/mobile-web run test:host-queue # idempotent outbox and real browser close/reopen
 pnpm --dir src/mobile-web run test:host-stream # HostStream reader: hints, reconnects, host restart, unsupported hosts; catalog subscription; next-input suggestions
 pnpm --dir src/mobile-web run test:prompt-suggestion-browser # Real composer and stream projection: compact/wide, original text, offline/sending gates, no automatic submission
+pnpm --dir src/mobile-web run test:rollback-browser # Real chat edit/rollback sheets: full-width fields, long text, live resize, reduced viewport, cancel without host mutations
 pnpm --dir src/mobile-web run test:account-login # account login without an online desktop
 pnpm --dir src/mobile-web run test:account-browser # real Chrome tabs, persistence, migration, races; simulated Relay
 pnpm --dir src/mobile-web run test:images # image preparation and upload limits
