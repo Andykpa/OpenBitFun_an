@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "27ffaabb62f18c434a4ca5691c827a2cce75f9184e03b30bff65a7384151dfd8",
-  "count": 214,
+  "catalogDigest": "b38c5c0e4fe52b6f8052917fafe65cf7c2f807514f8a164f616a13234d5df003",
+  "count": 215,
   "reasonCounts": {
     "externalAuth": 4,
     "secretEntry": 5,
     "unstructuredInteraction": 182,
-    "visualSelection": 23
+    "visualSelection": 24
   },
   "entries": [
     {
@@ -2520,6 +2520,24 @@
         "command:hide_agent_companion_desktop_pet",
         "command:resize_agent_companion_desktop_pet",
         "command:show_main_window"
+      ]
+    },
+    {
+      "capabilityId": "feature.desktop-cards",
+      "itemId": "drag-restore",
+      "titleZh": "拖动卡片到桌面任意位置；关闭 OpenBitFun 时卡片消失，重新打开后按原位置恢复",
+      "titleEn": "Drag cards anywhere on the desktop; they disappear when OpenBitFun closes and return to the same positions when it reopens",
+      "reasonCode": "visualSelection",
+      "reasonZh": "卡片位置由用户在桌面上直接拖动决定，没有可以代替视觉摆放的结构化命令；智能体只说明操作方式，摆放保留给用户。",
+      "reasonEn": "Card positions are chosen by dragging directly on the desktop, and no structured command can replace that visual placement; the Agent explains the interaction and leaves placement to the user.",
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "application.pet",
+        "sectionId": "desktop-cards"
+      },
+      "evidence": [
+        "source:src/web-ui/src/app/components/DesktopCard/DesktopCardWindow.tsx#startDesktopCardWindowDrag",
+        "source:src/apps/desktop/src/desktop_cards/store.rs#cards.json"
       ]
     },
     {

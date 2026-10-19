@@ -1,11 +1,11 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "27ffaabb62f18c434a4ca5691c827a2cce75f9184e03b30bff65a7384151dfd8",
-  "commandCount": 678,
+  "catalogDigest": "b38c5c0e4fe52b6f8052917fafe65cf7c2f807514f8a164f616a13234d5df003",
+  "commandCount": 685,
   "coverage": {
-    "commandCount": 678,
-    "documentedCommandCount": 628,
+    "commandCount": 685,
+    "documentedCommandCount": 635,
     "implementationCommandCount": 50,
     "implementationDigest": "1dc90be1a699f521e7faee78c128d6332ef0806daccb389b288fbe2fa3fd3c2c"
   },
@@ -2107,6 +2107,118 @@
       "sourceFile": "src/apps/desktop/src/api/subagent_api.rs",
       "signature": "fn delete_subagent( state: State<'_, AppState>, request: DeleteSubagentRequest, ) -> Result<(), String>",
       "remoteWorkspacePolicy": "LegacyUnaudited"
+    },
+    {
+      "id": "desktop_card_delete",
+      "moduleId": "commands",
+      "capabilityId": "feature.desktop-cards",
+      "capabilityIds": [
+        "feature.desktop-cards"
+      ],
+      "documentedItemIds": [
+        "feature.desktop-cards:home-management"
+      ],
+      "visibility": "documented",
+      "rustPath": "desktop_cards::commands::desktop_card_delete",
+      "sourceFile": "src/apps/desktop/src/desktop_cards/commands.rs",
+      "signature": "fn desktop_card_delete( cards: State<'_, Arc<DesktopCards>>, request: DesktopCardIdRequest, ) -> Result<(), String>",
+      "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "desktop_card_get",
+      "moduleId": "commands",
+      "capabilityId": "feature.desktop-cards",
+      "capabilityIds": [
+        "feature.desktop-cards"
+      ],
+      "documentedItemIds": [
+        "feature.desktop-cards:card-actions"
+      ],
+      "visibility": "documented",
+      "rustPath": "desktop_cards::commands::desktop_card_get",
+      "sourceFile": "src/apps/desktop/src/desktop_cards/commands.rs",
+      "signature": "fn desktop_card_get( cards: State<'_, Arc<DesktopCards>>, request: DesktopCardIdRequest, ) -> Result<DesktopCardRecord, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "desktop_card_list",
+      "moduleId": "commands",
+      "capabilityId": "feature.desktop-cards",
+      "capabilityIds": [
+        "feature.desktop-cards"
+      ],
+      "documentedItemIds": [
+        "feature.desktop-cards:home-management"
+      ],
+      "visibility": "documented",
+      "rustPath": "desktop_cards::commands::desktop_card_list",
+      "sourceFile": "src/apps/desktop/src/desktop_cards/commands.rs",
+      "signature": "fn desktop_card_list( cards: State<'_, Arc<DesktopCards>>, request: DesktopCardListRequest, ) -> Result<Value, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "desktop_card_refresh",
+      "moduleId": "commands",
+      "capabilityId": "feature.desktop-cards",
+      "capabilityIds": [
+        "feature.desktop-cards"
+      ],
+      "documentedItemIds": [
+        "feature.desktop-cards:card-actions"
+      ],
+      "visibility": "documented",
+      "rustPath": "desktop_cards::commands::desktop_card_refresh",
+      "sourceFile": "src/apps/desktop/src/desktop_cards/commands.rs",
+      "signature": "fn desktop_card_refresh( cards: State<'_, Arc<DesktopCards>>, request: DesktopCardIdRequest, ) -> Result<DesktopCardRecord, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "desktop_card_set_always_on_top",
+      "moduleId": "commands",
+      "capabilityId": "feature.desktop-cards",
+      "capabilityIds": [
+        "feature.desktop-cards"
+      ],
+      "documentedItemIds": [
+        "feature.desktop-cards:card-actions"
+      ],
+      "visibility": "documented",
+      "rustPath": "desktop_cards::commands::desktop_card_set_always_on_top",
+      "sourceFile": "src/apps/desktop/src/desktop_cards/commands.rs",
+      "signature": "fn desktop_card_set_always_on_top( cards: State<'_, Arc<DesktopCards>>, request: DesktopCardAlwaysOnTopRequest, ) -> Result<DesktopCardRecord, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "desktop_card_set_checklist_item",
+      "moduleId": "commands",
+      "capabilityId": "feature.desktop-cards",
+      "capabilityIds": [
+        "feature.desktop-cards"
+      ],
+      "documentedItemIds": [
+        "feature.desktop-cards:card-actions"
+      ],
+      "visibility": "documented",
+      "rustPath": "desktop_cards::commands::desktop_card_set_checklist_item",
+      "sourceFile": "src/apps/desktop/src/desktop_cards/commands.rs",
+      "signature": "fn desktop_card_set_checklist_item( cards: State<'_, Arc<DesktopCards>>, request: DesktopCardChecklistItemRequest, ) -> Result<DesktopCardRecord, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "desktop_card_set_visible",
+      "moduleId": "commands",
+      "capabilityId": "feature.desktop-cards",
+      "capabilityIds": [
+        "feature.desktop-cards"
+      ],
+      "documentedItemIds": [
+        "feature.desktop-cards:home-management"
+      ],
+      "visibility": "documented",
+      "rustPath": "desktop_cards::commands::desktop_card_set_visible",
+      "sourceFile": "src/apps/desktop/src/desktop_cards/commands.rs",
+      "signature": "fn desktop_card_set_visible( cards: State<'_, Arc<DesktopCards>>, request: DesktopCardSetVisibleRequest, ) -> Result<DesktopCardRecord, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
     },
     {
       "id": "dispatch_answer",
