@@ -35,9 +35,9 @@ replacing the destination cancels the request instead of recreating its tab.
 Git opens and bottom-terminal opens keep their explicitly selected inline host.
 
 WorkbenchLayout owns one SplitView for the header and both content regions.
-It also owns resize suspension: its context reaches session scenes in either
-pane, and the canvas receives the same state. Transcripts retain their last
-published width throughout a drag and the two-frame layout settle window;
+It also owns resize suspension: its context reaches session scenes and promoted
+content views in either pane, and the canvas receives the same state. Transcripts
+retain their last published width throughout a drag and the two-frame layout settle window;
 composer layout pauses only during the drag. SplitView uses its observer-cached
 bounds for pointer moves and queued paint frames, so a container resize updates
 drag constraints without a synchronous layout read in the pointer handlers.

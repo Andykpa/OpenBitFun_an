@@ -10,8 +10,10 @@ import { useI18n } from '@/infrastructure/i18n';
 import { useSceneStore } from '../stores/sceneStore';
 import { getActiveSurfaceId } from '@/infrastructure/peer-device/deviceSurface';
 import { useShortcut } from '@/infrastructure/hooks/useShortcut';
+import { useWorkbenchResize } from './workbenchResize';
 
 export default function ContentResourceView({ resourceId, isActive }: { resourceId: string; isActive: boolean }) {
+  const { measurementSuspended } = useWorkbenchResize();
   const focused = useSceneStore(state => state.activeTabId === `content:${resourceId}`);
   const resource = useContentResourceStore(state => state.resources[resourceId]);
   const update = useContentResourceStore(state => state.update);
@@ -47,6 +49,7 @@ export default function ContentResourceView({ resourceId, isActive }: { resource
     <EditorDocumentContext.Provider value={document}>
       <ResourceFileContext.Provider value={document}>
       <FlexiblePanel content={resource.content} workspacePath={resource.scope.workspacePath} isActive={isActive}
+        resizeSuspended={measurementSuspended} terminalResizeSuspended={measurementSuspended}
         onContentChange={content => {
           if (content) {
             // Buffers belong to EditorDocument. Keep file presentation updates out of the tab store's hot path.
