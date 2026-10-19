@@ -291,7 +291,7 @@ preserve omitted source fields and existing app storage when updating.
 Open a disposable local workspace in Desktop and select an app under External Import.
 Use test content or reversible imported copies. Category discovery coverage is independent of copy import and execution support.
 
-For Codex, Zcode, Claude Code, OpenCode, Pi and DeepSeek Harness, enable **Automatically discover sessions** in Ecosystem
+For Codex, Zcode, Claude Code, OpenCode, Pi, DeepSeek Harness and Cursor, enable **Automatically discover sessions** in Ecosystem
 Compatibility. Opening a local workspace adds a lightweight index of all matching
 source sessions to its regular list, including startup-restored workspace lists. A
 small source label identifies imported history. Use **Session source** in the
@@ -302,6 +302,17 @@ controls to see more; switching sources starts folded again.
 Preferences are stored on the serving host; workspace filters are scoped by device
 and workspace. Older hosts display an unavailable switch. SSH workspace discovery
 is explicitly unsupported and never reads controller-side history.
+Cursor reads CLI snapshots under `CURSOR_CONFIG_DIR/chats` (otherwise
+`XDG_CONFIG_HOME/cursor/chats` or `~/.cursor/chats`) and Desktop's local
+`Cursor/User/globalStorage/state.vscdb`. Set `OPENBITFUN_CURSOR_USER_DATA_DIR` on
+the OpenBitFun host for a custom Desktop profile. CLI JSONL transcripts under
+`CURSOR_DATA_DIR/projects` (default `~/.cursor/projects`) are a fallback and can
+lack tool results. Desktop can also omit saved file contents. These gaps are shown
+as source warnings; missing snapshot references fail explicitly. Workspace paths
+come from stored metadata, never reconstructed from lossy directory names.
+Plaintext-only `.txt` transcripts report an unsupported-format warning.
+Cursor's Read, Write, StrReplace and Shell records use existing read-only cards;
+unmatched tool contracts retain their full data in the generic card.
 Claude Code reads `CLAUDE_CONFIG_DIR` (default `~/.claude`), preserves the selected
 conversation branch and available pre-compaction history, and excludes subagent
 transcripts. Its imported tool records use the existing read-only tool cards.

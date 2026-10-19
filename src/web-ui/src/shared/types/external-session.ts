@@ -1,6 +1,7 @@
 /** Source identities for imported, non-executable session history. */
 export const EXTERNAL_SESSION_NAMES = {
   codex: 'Codex',
+  cursor: 'Cursor',
   zcode: 'Zcode',
   'claude-code': 'Claude Code',
   opencode: 'OpenCode',

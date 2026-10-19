@@ -119,8 +119,9 @@ OpenCode 的 `providerID` / `modelID` 与兼容存储的旧拼写均可读取；
 配置根遵循 `CURSOR_CONFIG_DIR`、`XDG_CONFIG_HOME/cursor`、`~/.cursor` 优先级。
 基线为实装 CLI `2026.10.16-e3cb207` 的 v1 SQLite：元数据指定当前 root，读取可达 JSON 消息及摘要归档，
 不扫描未引用 blob，不把旧分支和运行时上下文合并为人类轮次。源工具 ID、参数、结果和错误状态保留。
-Desktop 基线来自本机 3.17.8 的保存代码：`User/globalStorage/state.vscdb` 中的 composer/bubble，
-按保存的 header 顺序读取并兼容旧 inline conversation。未知必需结构或缺失引用明确失败。
+Desktop 基线为本机 3.17.8 的真实保存会话：读取 `User/globalStorage/state.vscdb` 中的 composer/bubble，
+按保存的 header 顺序读取，并在同一 SQLite 快照内从可选的 `composerHeaders` 表读取工作区身份。
+兼容缺少该表的旧数据库及 inline conversation；未知必需结构或缺失引用明确失败。
 默认 Desktop 根为系统的 Cursor 用户数据目录；OpenBitFun 的 `OPENBITFUN_CURSOR_USER_DATA_DIR` 可覆盖它。
 
 `CURSOR_DATA_DIR/projects`（缺省 `~/.cursor/projects`）的 JSONL 仅作无数据库来源时的回退；
@@ -130,8 +131,11 @@ Desktop 基线来自本机 3.17.8 的保存代码：`User/globalStorage/state.vs
 复用同一开关、工作区来源筛选、不可变缓存和原生分叉流程；旧主机先经只读操作验证来源支持。
 工具参数只在现有 Web UI 卡片边界投影，原始持久化数据不改写，历史不会启动 Cursor 或执行来源工具。
 
-验证区分真实 CLI 两轮会话及生产 reader/缓存/原生分支持久化回读，与 Desktop 格式和 WAL 的合成用例。
-Desktop GUI、SSH、Peer、IM 和 Detached Dispatch 尚无本次实机验证。
+验证包含真实 CLI 两轮会话及生产 reader/缓存/原生分支持久化回读，以及 Desktop 格式和 WAL 的合成用例。
+Windows 本机实机验证覆盖 Cursor Desktop 3.17.8 的两轮、八次工具调用会话，在 OpenBitFun 中完成
+会话发现、来源筛选、Read/Glob/终端卡片、预期失败提示、原生分支续聊和冷重启回读；源数据库文件哈希保持不变。
+`edit_file_v2` 的存储参数包含内容引用，保留现有通用卡片。续聊首个模型回复声称但未执行写入，
+明确重试后实际执行原生 Write/Read，并校验文件内容。SSH、Peer、IM 和 Detached Dispatch 尚无实机验证。
 
 ### Zcode 会话来源与原生副本
 

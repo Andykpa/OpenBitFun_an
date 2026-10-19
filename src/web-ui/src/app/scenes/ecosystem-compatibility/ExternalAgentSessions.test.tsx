@@ -72,7 +72,7 @@ describe('external session automatic discovery toggle', () => {
     expect(toggle().checked).toBe(false);
   });
 
-  it.each(['claude-code', 'opencode', 'pi', 'deepseek-harness'] as const)('verifies %s support on the serving host before saving a preference', async source => {
+  it.each(['claude-code', 'opencode', 'pi', 'deepseek-harness', 'cursor'] as const)('verifies %s support on the serving host before saving a preference', async source => {
     await render(source);
     expect(mocks.listRemoved).toHaveBeenCalledWith(source);
     expect(container.textContent).toContain(EXTERNAL_SESSION_NAMES[source]);
@@ -80,7 +80,7 @@ describe('external session automatic discovery toggle', () => {
     expect(mocks.setConfig).toHaveBeenCalledWith(`app.external_session_discovery.${source}`, true);
   });
 
-  it.each(['claude-code', 'opencode', 'pi', 'deepseek-harness'] as const)('does not enable %s on an older host that accepts arbitrary settings keys', async source => {
+  it.each(['claude-code', 'opencode', 'pi', 'deepseek-harness', 'cursor'] as const)('does not enable %s on an older host that accepts arbitrary settings keys', async source => {
     mocks.listRemoved.mockRejectedValue({ code: 'unsupported' });
     await render(source);
     expect(toggle().disabled).toBe(true);

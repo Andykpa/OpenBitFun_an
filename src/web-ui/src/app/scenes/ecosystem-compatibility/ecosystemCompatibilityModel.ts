@@ -201,7 +201,7 @@ export const ECOSYSTEM_PRODUCT_SPECS: readonly EcosystemProductSpec[] = [
     sessionImport: 'opencode',
     searchTerms: ['open code', 'agent', 'command', 'tool', 'mcp', 'acp'],
   },
-  { id: 'cursor', name: 'Cursor', ecosystemId: 'cursor', searchTerms: ['.cursor', 'skills'] },
+  { id: 'cursor', name: 'Cursor', ecosystemId: 'cursor', sessionImport: 'cursor', searchTerms: ['.cursor', 'skills', 'sessions', 'history'] },
 ] as const;
 
 function sourcePairKey(providerId: string, sourceId: string): string {

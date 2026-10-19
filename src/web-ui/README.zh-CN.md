@@ -212,7 +212,9 @@ API Key 模型继续使用原有请求配置。
 在本地 Desktop 打开一个临时工作区，从“外部导入”选择对应应用。只使用测试内容或可撤销的副本。
 类别的“可发现”表示已接入受支持格式；“暂未支持”及其说明仅表示暂时无法在此页查看该类别内容，不代表产品其他入口不支持该能力。
 
-Codex、Zcode、Claude Code、OpenCode、Pi 和 DeepSeek Harness 分别提供会话自动发现开关，默认关闭。开启后，打开工作区会在服务主机后台为归属于该工作区的所有受支持会话建立轻量索引。
+Codex、Zcode、Claude Code、OpenCode、Pi、DeepSeek Harness 和 Cursor 分别提供会话自动发现开关，默认关闭。开启后，打开工作区会在服务主机后台为归属于该工作区的所有受支持会话建立轻量索引。
+
+Cursor 读取 CLI 的 `CURSOR_CONFIG_DIR/chats`（否则使用 `XDG_CONFIG_HOME/cursor/chats` 或 `~/.cursor/chats`）以及 Desktop 本地 `Cursor/User/globalStorage/state.vscdb`。自定义 Desktop 用户数据目录可在 OpenBitFun 主机设置 `OPENBITFUN_CURSOR_USER_DATA_DIR`。`CURSOR_DATA_DIR/projects`（缺省 `~/.cursor/projects`）内的 JSONL 是回退来源，可能缺少工具结果；Desktop 也可能在保存时省略文件内容，页面会提示这些缺失。工作区路径只取明确的来源元数据，不从有损目录名反推。Read、Write、StrReplace、Shell 复用现有只读卡片，未匹配的工具保留完整数据并使用通用卡片。
 Claude Code 读取 `CLAUDE_CONFIG_DIR`（缺省 `~/.claude`），按父消息链保留当前分支与仍存在的压缩前历史，排除子代理会话；工具记录复用现有只读卡片。
 OpenCode 读取 `XDG_DATA_HOME/opencode/opencode.db`（缺省 `~/.local/share/opencode/opencode.db`），包含已提交的 WAL 和待执行的撤销边界。
 Pi 读取 `PI_CODING_AGENT_DIR`（缺省 `~/.pi/agent`）及明确配置的绝对会话目录，兼容 v1/v2/v3 日志并保留当前分支和已保存的上下文编辑。
