@@ -3,6 +3,7 @@ import { GripHorizontal } from 'lucide-react';
 import React, { useRef, useState, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import { useI18n } from '@/infrastructure/i18n';
 import { useApp } from '../../hooks/useApp';
+import { useWorkbenchResize } from '../../workbench/workbenchResize';
 import ChatPane from './ChatPane';
 import BottomTerminalPane from './BottomTerminalPane';
 import { collapseSessionBottomTerminalPane, expandSessionBottomTerminalPane } from './sessionPanelLayout';
@@ -29,6 +30,7 @@ const SessionScene: React.FC<SessionSceneProps> = ({ workspacePath, isEntering =
   const { t } = useI18n('flow-chat');
   const { state, updateBottomTerminalPanelHeight } = useApp();
   const pane = useSessionPaneLayout();
+  const workbenchResize = useWorkbenchResize();
   const [isDraggingBottom, setIsDraggingBottom] = useState(false);
   const [isHoveringBottom, setIsHoveringBottom] = useState(false);
   const [isBottomTerminalPanelTransitioning, setIsBottomTerminalPanelTransitioning] = useState(false);
@@ -42,7 +44,7 @@ const SessionScene: React.FC<SessionSceneProps> = ({ workspacePath, isEntering =
   const currentBottomHeight = state.layout.bottomTerminalPanelHeight || BOTTOM_TERMINAL_PANEL_CONFIG.COMFORTABLE_DEFAULT;
   const isTerminalDockedBottom = terminalPanelPosition === 'bottom';
   const isBottomHidden = state.layout.bottomTerminalPanelCollapsed;
-  const isDragging = isDraggingBottom;
+  const isDragging = isDraggingBottom || workbenchResize.resizing;
   const bottomTerminalPanelMode = isBottomHidden ? 'collapsed'
     : getPanelDisplayMode(currentBottomHeight, BOTTOM_TERMINAL_PANEL_CONFIG);
 
@@ -193,6 +195,7 @@ const SessionScene: React.FC<SessionSceneProps> = ({ workspacePath, isEntering =
           data-openbitfun-scene="session" data-openbitfun-part="chat">
           <ChatPane width={0} isFullscreen={false} isSceneActive={isActive}
             isDragging={isDragging} workspacePath={workspacePath} showChatInput
+            resizeSuspended={workbenchResize.measurementSuspended}
             isRightPanelOpen={pane.mode !== 'chat-only'} onToggleRightPanel={pane.toggleContent} />
         </div>
       </div>
