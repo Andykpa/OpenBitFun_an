@@ -70,6 +70,15 @@ export function importedToolCardName(item: ImportedToolIdentity): NativeCardName
       return undefined;
     }
   }
+  if (item.importedSource === 'pi') {
+    if (name === 'find') return 'Glob';
+    // A native Edit card represents one replacement. Keep multi-edit records
+    // readable in the existing generic card instead of showing a partial diff.
+    if (name === 'edit') {
+      const edits = inputRecord(item.toolCall?.input).edits;
+      if (Array.isArray(edits) && edits.length !== 1) return undefined;
+    }
+  }
   return nativeNames.get(name.toLowerCase());
 }
 
@@ -125,7 +134,7 @@ export function projectImportedToolItem(item: FlowToolItem): FlowToolItem {
   const error = status === 'error'
     ? [...new Set([item.toolResult?.error, output].filter(Boolean))].join('\n\n') || undefined
     : item.toolResult?.error;
-  const path = text(input.file_path) || text(input.path) || text(input.absolute_path);
+  const path = text(input.file_path) || text(input.filePath) || text(input.path) || text(input.absolute_path);
   let nativeInput: unknown = card && Object.keys(input).length > 0 ? input : rawInput;
   let nativeResult: unknown = rawResult;
   switch (card) {
@@ -143,6 +152,15 @@ export function projectImportedToolItem(item: FlowToolItem): FlowToolItem {
       break;
     case 'Read': case 'Write': case 'Edit':
       nativeInput = { ...input, file_path: path };
+      if (card === 'Edit' && ('oldString' in input || 'newString' in input || 'replaceAll' in input)) nativeInput = { ...input, file_path: path,
+        old_string: typeof input.old_string === 'string' ? input.old_string : text(input.oldString),
+        new_string: typeof input.new_string === 'string' ? input.new_string : text(input.newString),
+        replace_all: input.replace_all ?? input.replaceAll,
+      };
+      if (card === 'Edit' && item.importedSource === 'pi') {
+        const edit = Array.isArray(input.edits) ? record(input.edits[0]) : input;
+        nativeInput = { ...input, file_path: path, old_string: text(edit.oldText), new_string: text(edit.newText) };
+      }
       break;
     case 'view_image':
       nativeInput = { ...input, path };

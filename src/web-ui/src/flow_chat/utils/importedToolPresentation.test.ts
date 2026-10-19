@@ -15,6 +15,25 @@ function item(toolName: string, input: unknown, result: unknown, importedSource:
 }
 
 describe('imported tool projection to native cards', () => {
+  it('uses native cards for Pi file search and compatible edits, retaining all multi-edit data', () => {
+    expect(importedToolCardName(item('find', { pattern: '*.ts' }, 'a.ts', 'pi'))).toBe('Glob');
+    for (const input of [{ path: '/a', oldText: 'before', newText: '' },
+      { path: '/a', edits: [{ oldText: 'before', newText: '' }] }]) {
+      expect(projectEffectiveToolItem(item('edit', input, 'updated', 'pi')).toolCall.input)
+        .toMatchObject({ file_path: '/a', old_string: 'before', new_string: '' });
+    }
+    const multi = item('edit', { path: '/a', edits: [{ oldText: 'a', newText: 'b' }, { oldText: 'c', newText: 'd' }] }, 'updated', 'pi');
+    expect(importedToolCardName(multi)).toBeUndefined();
+    expect(projectEffectiveToolItem(multi).toolCall.input).toEqual(multi.toolCall.input);
+  });
+  it('projects OpenCode camel-case paths and empty edits through existing native cards', () => {
+    const tool = item('edit', { filePath: '/project/a.ts', oldString: 'remove', newString: '', replaceAll: false }, 'Updated', 'opencode');
+    const before = JSON.stringify(tool);
+    expect(importedToolCardName(tool)).toBe('Edit');
+    expect(projectEffectiveToolItem(tool).toolCall.input).toMatchObject({ file_path: '/project/a.ts', old_string: 'remove', new_string: '', replace_all: false });
+    expect(JSON.stringify(tool)).toBe(before);
+    expect(projectEffectiveToolItem(item('read', { filePath: '/project/a.ts' }, 'body', 'opencode')).toolCall.input.file_path).toBe('/project/a.ts');
+  });
   it.each([
     ['exec', 'RunCode'], ['functions.exec', 'RunCode'], ['exec_command', 'ExecCommand'],
     ['functions.shell_command', 'ExecCommand'], ['shell', 'ExecCommand'], ['write_stdin', 'WriteStdin'],

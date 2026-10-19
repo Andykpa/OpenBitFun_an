@@ -3,6 +3,7 @@ import { removeBtwSessionFromAgentCanvas } from '@/app/components/panels/content
 import { resolveLegacySessionWorkspace } from '@/infrastructure/api/service-api/legacyWorkspaceCompatibility';
 import { projectUserQuestionTiming } from '../utils/userQuestionTiming';
 import { externalHistoryFromMetadata } from '../utils/externalHistory';
+import { isExternalSessionEcosystem } from '@/shared/types/external-session';
 /**
  * Flow Chat global state store
  * Prevents state loss when components remount
@@ -9180,7 +9181,7 @@ export class FlowChatStore {
               id: tool.id,
               type: 'tool' as const,
               toolName: tool.toolName,
-              importedSource: metadata?.importedFrom === 'codex' || metadata?.importedFrom === 'zcode'
+              importedSource: isExternalSessionEcosystem(metadata?.importedFrom)
                 ? metadata.importedFrom : undefined,
               toolCall: tool.toolCall,
               interruptionReason: normalizePersistedToolInterruptionReason(
