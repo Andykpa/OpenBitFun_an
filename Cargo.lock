@@ -6644,11 +6644,15 @@ dependencies = [
 name = "openbitfun-pi-adapter"
 version = "1.0.6"
 dependencies = [
+ "chrono",
  "dirs 6.0.0",
+ "hex",
  "openbitfun-product-domains",
+ "openbitfun-services-core",
  "openbitfun-static-hook-support",
  "oxc",
  "serde_json",
+ "sha2",
  "tempfile",
 ]
 
