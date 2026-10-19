@@ -6598,6 +6598,7 @@ dependencies = [
  "openbitfun-static-hook-support",
  "oxc",
  "regex",
+ "rusqlite",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -7060,11 +7061,10 @@ name = "openbitfun-zcode-adapter"
 version = "1.0.6"
 dependencies = [
  "dirs 6.0.0",
- "hex",
+ "openbitfun-opencode-adapter",
  "openbitfun-product-domains",
  "rusqlite",
  "serde_json",
- "sha2",
  "tempfile",
 ]
 

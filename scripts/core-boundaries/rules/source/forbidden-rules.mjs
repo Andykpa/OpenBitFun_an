@@ -4159,6 +4159,8 @@ export const forbiddenContentUnderRules = [
           /\b(?:use\s+openbitfun_opencode_adapter\b|extern\s+crate\s+openbitfun_opencode_adapter\b|openbitfun_opencode_adapter::)/,
         allowPaths: [
           'src/crates/adapters/opencode-adapter/tests/opencode_source_adapter.rs',
+          'src/crates/adapters/zcode-adapter/src/session.rs',
+          'src/crates/assembly/core/src/external_session_import.rs',
           'src/crates/adapters/opencode-adapter/tests/opencode_static_source_contracts/opencode_command_adapter.rs',
           'src/crates/adapters/opencode-adapter/tests/opencode_static_source_contracts/opencode_skill_roots.rs',
           'src/crates/adapters/opencode-adapter/tests/opencode_static_source_contracts/opencode_workspace_references.rs',

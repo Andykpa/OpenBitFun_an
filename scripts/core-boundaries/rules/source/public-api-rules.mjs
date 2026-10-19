@@ -284,6 +284,17 @@ function opencodeReferenceAdapterEntry(symbol, consumer) {
 }
 
 export const opencodeAdapterPublicApiEntries = [
+  {
+    symbol: 'session',
+    owner: 'OpenCode-compatible SQLite session history translator',
+    consumer: 'openbitfun-core external_session_import and the Zcode source identity adapter',
+    verification: 'OpenCode and Zcode history fixtures, committed WAL test, and installed-session follow/fork verification',
+    p0: 'read-only persisted history import through the existing native lifecycle',
+    contractSlice: contractSlices.externalSessionImportContract,
+    wireImpact: false,
+    rationale: 'both consumers use the same session/message/part protocol; path and provenance remain source-owned',
+    exit: 'remove only when an equivalent typed session reader replaces this shared format implementation',
+  },
   opencodeAdapterEntry(
     'load_opencode_package_adapter',
     'openbitfun-core managed plugin composition root and DefaultPluginRuntimeClient integration tests',
