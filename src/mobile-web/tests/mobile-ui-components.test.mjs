@@ -322,27 +322,48 @@ test('mobile transcript keeps one user bubble and projects file cards outside ma
   assert.match(markdownStyles, /\.file-card\s*\{[\s\S]*?inline-size:\s*100%;/);
 });
 
-test('mobile chat markdown configures math plugins and mobile katex display styles', async () => {
+test('mobile chat markdown lazily loads katex plugins and keeps mobile display styles', async () => {
   const markdown = await readFile(path.join(sourceDirectory, 'components/ChatMarkdown.tsx'), 'utf8');
+  const math = await readFile(path.join(sourceDirectory, 'components/MarkdownMathContent.tsx'), 'utf8');
+  const mathDelimiters = await readFile(path.join(sourceDirectory, 'components/chatMarkdownMath.ts'), 'utf8');
   const markdownStyles = await readFile(path.join(sourceDirectory, 'styles/components/markdown.scss'), 'utf8');
 
-  assert.match(markdown, /import remarkMath from 'remark-math';/);
-  assert.match(markdown, /import rehypeKatex from 'rehype-katex';/);
-  assert.match(markdown, /import 'katex\/dist\/katex\.min\.css';/);
-  assert.match(markdown, /remarkPlugins=\{\[remarkGfm,\s*remarkMath\]\}/);
-  assert.match(markdown, /rehypePlugins=\{\[\[rehypeKatex,\s*\{\s*strict:\s*false,\s*throwOnError:\s*false\s*\}\]\]\}/);
-  assert.match(markdown, /normalizeMathDelimiters/);
+  // KaTeX stays out of the chat chunk: only the math-capable renderer imports
+  // its plugins and styles, and ChatMarkdown loads it on demand.
+  assert.match(math, /import rehypeKatex from 'rehype-katex';/);
+  assert.match(math, /import remarkMath from 'remark-math';/);
+  assert.match(math, /import 'katex\/dist\/katex\.min\.css';/);
+  assert.match(math, /remarkPlugins=\{\[remarkGfm,\s*remarkMath\]\}/);
+  assert.match(math, /rehypePlugins=\{\[\[rehypeKatex,\s*\{\s*strict:\s*false,\s*throwOnError:\s*false\s*\}\]\]\}/);
+  assert.match(markdown, /import\('\.\/MarkdownMathContent'\)/);
+  assert.match(markdown, /mayContainMarkdownMath\(content\)/);
+  assert.match(markdown, /hasMath && MathRenderer/);
+  assert.doesNotMatch(markdown, /from 'remark-math'|from 'rehype-katex'|katex\.min\.css/);
+  assert.match(mathDelimiters, /export function normalizeMathDelimiters/);
+  assert.match(mathDelimiters, /export function mayContainMarkdownMath/);
 
   assert.match(markdownStyles, /\.katex-display\s*\{[\s\S]*?overflow-x:\s*auto;/);
   assert.match(markdownStyles, /\.katex-display\s*\{[\s\S]*?-webkit-overflow-scrolling:\s*touch;/);
   assert.match(markdownStyles, /\.katex\s*\{[\s\S]*?font-size:\s*1\.05em;/);
 });
 
+test('math activation ignores currency-only dollar pairs', async () => {
+  const mathDelimiters = await readFile(path.join(sourceDirectory, 'components/chatMarkdownMath.ts'), 'utf8');
+  const code = ts.transpileModule(mathDelimiters, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;
+  const { mayContainMarkdownMath: mayContain } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+
+  assert.equal(mayContain(''), false);
+  assert.equal(mayContain('plain text without math'), false);
+  assert.equal(mayContain('Cost is $5 and $10.'), false, 'currency amounts must not activate math rendering');
+  assert.equal(mayContain('Inline $x$'), true);
+  assert.equal(mayContain('Display $$E=mc^2$$'), true);
+  assert.equal(mayContain('Bracket \\(x\\)'), true);
+  assert.equal(mayContain('Bracket \\[x\\]'), true);
+});
+
 test('normalizeMathDelimiters protects code blocks and normalizes LaTeX delimiters', async () => {
-  const markdown = await readFile(path.join(sourceDirectory, 'components/ChatMarkdown.tsx'), 'utf8');
-  const fnMatch = markdown.match(/export function normalizeMathDelimiters[\s\S]*?\n\}/);
-  assert.ok(fnMatch, 'normalizeMathDelimiters function must be present');
-  const code = ts.transpileModule(fnMatch[0], { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;
+  const mathDelimiters = await readFile(path.join(sourceDirectory, 'components/chatMarkdownMath.ts'), 'utf8');
+  const code = ts.transpileModule(mathDelimiters, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;
   const { normalizeMathDelimiters: normalize } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 
   // Empty or plain text without math brackets or raw dollar blocks
@@ -357,6 +378,9 @@ test('normalizeMathDelimiters protects code blocks and normalizes LaTeX delimite
 
   // Single line $$...$$ to multi-line $$...$$
   assert.match(normalize('$$E=mc^2$$'), /\$\$\s*\nE=mc\^2\n\s*\$\$/);
+
+  // Escaped delimiters are literal text, not math.
+  assert.equal(normalize('Escaped \\\\[index\\\\] and \\\\(x\\\\)'), 'Escaped \\\\[index\\\\] and \\\\(x\\\\)');
 
   // Code fence with special replacement patterns ($$, $&, $1) and escaped characters must not be corrupted
   const codeFenceSample = 'Formula \\(x\\)\n```bash\necho $$ $1 $&\n```\nDone';
