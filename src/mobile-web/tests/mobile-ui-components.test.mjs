@@ -345,6 +345,7 @@ test('mobile chat markdown lazily loads katex plugins and keeps mobile display s
   assert.match(markdownStyles, /\.katex-display\s*\{[\s\S]*?overflow-x:\s*auto;/);
   assert.match(markdownStyles, /\.katex-display\s*\{[\s\S]*?-webkit-overflow-scrolling:\s*touch;/);
   assert.match(markdownStyles, /\.katex\s*\{[\s\S]*?font-size:\s*1\.05em;/);
+  assert.match(markdownStyles, /\.katex-error\s*\{[\s\S]*?color:\s*var\(--openbitfun-color-status-danger-content\);/);
 });
 
 test('math activation ignores currency-only dollar pairs', async () => {

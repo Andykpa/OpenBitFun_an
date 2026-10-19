@@ -389,7 +389,9 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, onFil
       .then((module) => {
         if (!cancelled) setMathRenderer(() => module.MarkdownMathContent);
       })
-      .catch(() => {});
+      .catch((error) => {
+        console.error('[ChatMarkdown] math renderer failed to load', error);
+      });
     return () => {
       cancelled = true;
     };
