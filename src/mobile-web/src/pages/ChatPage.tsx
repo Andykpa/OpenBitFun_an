@@ -655,7 +655,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
     if (!rollbackTarget || rollbackBusy || rollbackInFlightRef.current) return;
     // The host independently checks idle under its scheduling lock; this
     // presentation guard only avoids a request while this view is already busy.
-    if (isStreaming) return;
+    if (isStreaming || isSending || sendInFlightRef.current) return;
     const { message, mode } = rollbackTarget;
     const turnId = message.turn_id;
     if (!turnId) return;
@@ -697,12 +697,14 @@ const ChatPage: React.FC<ChatPageProps> = ({
         if (!isCurrentAttempt()) return;
       } else {
         const restoredText = result.composer_text ?? '';
-        setInput(restoredText);
         const restoredImages = extractValidPendingImages(message.images);
-        if (restoredImages.length > 0) {
-          setPendingImages(restoredImages);
-        }
+        // Replace the composer only when the rollback actually restored
+        // something. Replacing it with an empty draft would silently discard
+        // text the user started after opening the sheet, while keeping the old
+        // attachment set would attach unrelated images to the restored prompt.
         if (restoredText.trim() || restoredImages.length > 0) {
+          setInput(restoredText);
+          setPendingImages(restoredImages);
           setInputExpanded(true);
         }
       }
@@ -736,6 +738,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
   }, [
     captureChatTargetEpoch,
     isChatTargetCurrent,
+    isSending,
     isStreaming,
     rollbackBusy,
     rollbackDraft,
@@ -1236,7 +1239,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
       <ChatMessageActions
         deleting={deletingMsg}
         message={menuMessage}
-        streaming={isStreaming}
+        streaming={isStreaming || isSending}
         rollbackSupported={sessionMgr.supportsHostCapability('session_rollback_v1') && !isRemoteWorkspace}
         onClose={() => setMenuMessage(null)}
         onCopy={() => void handleCopyMessage()}
