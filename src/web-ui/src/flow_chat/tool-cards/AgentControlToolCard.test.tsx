@@ -2,7 +2,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { FlowToolItem, ToolCardConfig } from '../types/flow-chat';
+import type { DialogTurn, FlowToolItem, ToolCardConfig } from '../types/flow-chat';
 import {
   resolveSubagentAvatarPresentation,
   resolveSubagentNameKey,
@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   includeChildSession: true,
   locale: 'en-US',
   modelName: 'Test model',
+  childTurnStatus: 'processing' as DialogTurn['status'],
+  needsUserAttention: false,
 }));
 
 vi.mock('@/infrastructure/i18n/hooks/useI18n', () => ({
@@ -72,10 +74,11 @@ vi.mock('../store/FlowChatStore', () => ({
           title: 'SwarmWorker: inspect parser',
           createdAt: 1000,
           status: 'active',
+          needsUserAttention: mocks.needsUserAttention,
           config: { agentType: 'SwarmWorker', modelName: mocks.modelName },
           dialogTurns: [{
             id: 'child-turn',
-            status: 'processing',
+            status: mocks.childTurnStatus,
             modelRounds: [],
           }],
         });
@@ -174,6 +177,8 @@ describeWithJsdom('AgentControlToolCard', () => {
     mocks.includeChildSession = true;
     mocks.locale = 'en-US';
     mocks.modelName = 'Test model';
+    mocks.childTurnStatus = 'processing';
+    mocks.needsUserAttention = false;
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -237,6 +242,32 @@ describeWithJsdom('AgentControlToolCard', () => {
       expect(card.querySelector('[data-openbitfun-part="expandedCollapse"]')).toBeNull();
     },
   );
+
+  it('keeps a finishing child labelled Running and stops the highlight when waiting or complete', async () => {
+    await act(async () => root.render(
+      <AgentControlToolCard toolItem={agentToolItem('AgentSpawn')} config={config} sessionId="parent-session" />,
+    ));
+    const highlight = () => container.querySelector('[data-openbitfun-component="shimmer-text"]');
+    const publish = () => act(() => { mocks.listeners.forEach(listener => listener()); });
+
+    expect(highlight()?.textContent).toBe('Running');
+    mocks.childTurnStatus = 'finishing';
+    publish();
+    expect(highlight()?.textContent).toBe('Running');
+    expect(container.querySelector('[data-agent-capsule-trigger]')?.getAttribute('aria-label')).not.toContain('finishing');
+
+    mocks.needsUserAttention = true;
+    publish();
+    expect(highlight()).toBeNull();
+    mocks.needsUserAttention = false;
+    publish();
+    expect(highlight()?.textContent).toBe('Running');
+
+    mocks.childTurnStatus = 'completed';
+    publish();
+    expect(highlight()).toBeNull();
+    expect(container.querySelector('[data-openbitfun-part="agentStatus"]')).toBeNull();
+  });
 
   it('can open a historical child before its session is hydrated', async () => {
     mocks.includeChildSession = false;

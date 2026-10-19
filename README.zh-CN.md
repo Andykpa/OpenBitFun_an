@@ -12,7 +12,7 @@ OpenBitFun 是一个高度可定制的开源 Agent 工作台，让任务按你�
 
 **如果你也期待这样的 Agent，欢迎点亮 ⭐ Star，让更多人发现 OpenBitFun。**
 
-[下载体验](https://openbitfun.com/zh/download) · [Mini App 市场](https://market.openbitfun.com/miniapp/) · [参与共建](./CONTRIBUTING_CN.md)
+[下载桌面端](https://openbitfun.com/zh/download) · [移动端 Release](https://github.com/GCWing/OpenBitFun/releases?q=mobile-&expanded=true) · [Mini App 市场](https://market.openbitfun.com/miniapp/) · [参与共建](./CONTRIBUTING_CN.md)
 
 [![官网](https://img.shields.io/badge/%E5%AE%98%E7%BD%91-openbitfun.com-0b7285?style=flat-square)](https://openbitfun.com/zh)
 [![Core code: MIT](https://img.shields.io/badge/core_code-MIT-yellow?style=flat-square)](./LICENSE)
@@ -30,7 +30,7 @@ OpenBitFun 1.0.0 带来全新界面、面向不同任务的四种 Agent Harness�
 多设备协同与远程控制，让任务在桌面、手机与浏览器之间顺畅接续。
 
 **数据迁移提醒：** OpenBitFun 1.0.0 与 0.2.x 旧版数据不互通。需要迁移旧版数据时，请使用
-[OpenBitFun 数据迁移器](src/apps/data-migrator/README.zh-CN.md)，当前支持 0.2.17～0.2.19 正式版。
+[OpenBitFun 数据工具](src/apps/data-tools/README.zh-CN.md)，当前支持 0.2.17～0.2.19 正式版。
 
 ---
 

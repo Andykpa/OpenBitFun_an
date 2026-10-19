@@ -149,33 +149,35 @@ describe('shared raw-input scenario playback', () => {
     expect(preview.hasAttribute('tabindex')).toBe(false);
   });
 
-  it.each(['ExecCommand'])('%s waits for actual output and honors the original one-second grace period', (toolName) => {
-    const steps = execScenarios.find(({ id }) => id === `${toolName}-lifecycle`)!.steps;
-    const p = player();
-    p.render(steps[0]);
-    expect(container.querySelector(expandedSurface)).toBeNull();
-    p.render(steps[1]);
-    expect(container.querySelector(expandedSurface)).toBeNull();
-    p.render(steps[2]);
-    expect(container.querySelector(expandedSurface)).not.toBeNull();
-    expect(p.output.mock.lastCall?.[0].maxRows).toBe(4);
+  it.each(['ambient', 'prominent'] as const)('keeps %s Shell collapsed through live output and completion with progress in the left icon', (attention) => {
+    const steps = execScenarios.find(({ id }) => id === 'ExecCommand-lifecycle')!.steps;
+    const p = player(attention);
+    for (const step of steps.slice(0, 3)) {
+      p.render(step);
+      expect(container.querySelector(expandedSurface)).toBeNull();
+      expect(container.querySelector('[data-openbitfun-part="icon"] [data-openbitfun-part="processing"]')).not.toBeNull();
+      expect(container.querySelector('[data-openbitfun-part="statusIcon"]')).toBeNull();
+    }
     p.render(steps[3]);
-    expect(container.querySelector(expandedSurface)).not.toBeNull();
-    act(() => p.clock.advanceTo(SCENARIO_EPOCH + 1199));
-    expect(container.querySelector(expandedSurface)).not.toBeNull();
-    act(() => p.clock.advanceTo(SCENARIO_EPOCH + 1200));
     expect(container.querySelector(expandedSurface)).toBeNull();
-    expect(p.change.mock.calls.map(([open]) => open)).toEqual([true, false]);
+    expect(container.querySelector('[data-openbitfun-part="processing"]')).toBeNull();
+    expect(p.change).not.toHaveBeenCalled();
     p.toggle();
     expect(p.output.mock.lastCall?.[0].maxRows).toBe(15);
   });
 
-  it('manual choices override pending auto-collapse; replay restores defaults', () => {
+  it('preserves manual expansion through completion; replay restores the collapsed default', () => {
     const steps = execScenarios[0].steps;
     const p = player();
-    p.render(steps[2]); p.render(steps[3]); p.toggle(); p.toggle();
+    p.render(steps[2]);
+    expect(container.querySelector(expandedSurface)).toBeNull();
+    p.toggle();
+    expect(p.output.mock.lastCall?.[0].maxRows).toBe(15);
+    p.render(steps[3]);
     act(() => p.clock.advanceTo(SCENARIO_EPOCH + 1500));
     expect(container.querySelector(expandedSurface)).not.toBeNull();
+    expect(p.output.mock.lastCall?.[0].maxRows).toBe(15);
+    expect(p.change.mock.calls.map(([open]) => open)).toEqual([true]);
     p.render({ ...steps[3], at: 1500 }, 'reloaded-history');
     expect(container.querySelector(expandedSurface)).toBeNull();
   });
@@ -183,7 +185,7 @@ describe('shared raw-input scenario playback', () => {
   it('does not reopen a manually collapsed stream when additional output arrives', () => {
     const p = player();
     const step = execScenarios[0].steps[2];
-    p.render(step); p.toggle();
+    p.render(step); p.toggle(); p.toggle();
     p.render({ ...step, at: 350, item: { ...step.item, _progressLogs: ['More output'] } });
     expect(container.querySelector(expandedSurface)).toBeNull();
   });

@@ -3,6 +3,7 @@ import { UserRound } from 'lucide-react';
 import { Icon } from '../../components/Icon/Icon';
 import { OverflowText } from '../../primitives/OverflowText';
 import { Tooltip } from '../../components/Tooltip';
+import { ShimmerText } from '../../components/ShimmerText';
 import { classNames } from '../../internal/classNames';
 import type { FlowChatToolStatus } from './FlowChatToolCard';
 import { ToolCardStatusSlot } from './ToolCardStatusSlot';
@@ -63,6 +64,8 @@ export function AgentControlToolCard({
     && !['completed', 'confirmed', 'cancelled', 'rejected', 'error'].includes(status);
   const state = [failed && 'failed', confirmation && 'confirmation'].filter(Boolean).join(' ') || undefined;
   const tone = failed ? 'danger' : confirmation ? 'warning' : statusTone;
+  const running = !failed && !confirmation
+    && ['running', 'preparing', 'streaming', 'receiving'].includes(status);
   const label = [action, title, preview?.agentType, preview?.model, preview && summary, statusLabel, openAgentLabel]
     .filter(value => typeof value === 'string').join(' · ');
   const tooltipContent = preview ? (
@@ -130,7 +133,12 @@ export function AgentControlToolCard({
             <span className={styles.details}>
               <span className={styles.name}>
                 <OverflowText className={styles.title} data-openbitfun-part="agentSummary">{displayTitle}</OverflowText>
-                {statusLabel && preview ? (
+                {statusLabel && running ? (
+                  <OverflowText className={classNames(styles.status, styles.runningStatus)}
+                    behavior="marquee" data-openbitfun-part="agentStatus" data-status={status}>
+                    <ShimmerText>{statusLabel}</ShimmerText>
+                  </OverflowText>
+                ) : statusLabel && preview ? (
                   <span className={styles.statusDot} data-openbitfun-part="agentStatus"
                     data-tone={tone} data-status={status} aria-hidden="true" />
                 ) : statusLabel ? (
@@ -146,7 +154,6 @@ export function AgentControlToolCard({
                 <span className={styles.metadata}>
                   <OverflowText className={styles.agentType} data-openbitfun-part="agentType"
                     aria-label={preview.labels.agentType}>{preview.agentType}</OverflowText>
-                  <span className={styles.separator} aria-hidden="true">·</span>
                   <OverflowText className={styles.model} data-openbitfun-part="agentModel"
                     aria-label={preview.labels.model}>{preview.model}</OverflowText>
                 </span>

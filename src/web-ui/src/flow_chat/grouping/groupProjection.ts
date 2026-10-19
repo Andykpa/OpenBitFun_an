@@ -2,10 +2,10 @@ import type { VirtualItem } from '../types/flow-chat-projection';
 import type { FlowItem } from '../types/flow-chat';
 import type { FlowGroupData, ModelRoundItemGroup } from './types';
 import { getFlowGroupCategory, getFlowGroupStateIds } from './types';
-import { flowGroupPolicies, hasPendingFlowGroupClassification, joinedFlowGroupCategory, meetsFlowGroupThreshold } from './policies';
+import { canContinueFlowGroup, flowGroupPolicies, hasPendingFlowGroupClassification, joinedFlowGroupCategory, meetsFlowGroupThreshold } from './policies';
 import { flowGroupLifecycle } from './lifecycle';
 import { buildInlineFlowGroupData, getModelRoundFlowGroups, getProjectedModelRoundGroups,
-  flowGroupCompanionStart, hasModelRoundLeadingControls, isFlowGroupCompanion, projectedFlowGroup } from './roundGroups';
+  flowGroupCompanionStart, hasModelRoundLeadingControls, isFlowGroupCompanion, isModelRoundGroupingDisabled, projectedFlowGroup } from './roundGroups';
 
 function sourceGroupIds(group: FlowGroupData): readonly string[] {
   if (group.sourceGroupIds) return getFlowGroupStateIds(group);
@@ -77,7 +77,8 @@ export function projectAdjacentFlowGroups(items: readonly VirtualItem[], options
   };
   const collect = (data: FlowGroupData, update: (data: FlowGroupData) => void, remove: () => void) => {
     const continuing = owner !== undefined
-      && joinedFlowGroupCategory(getFlowGroupCategory(owner.parts[0]), getFlowGroupCategory(data)) !== undefined;
+      && joinedFlowGroupCategory(getFlowGroupCategory(owner.parts[0]), getFlowGroupCategory(data)) !== undefined
+      && canContinueFlowGroup(getFlowGroupCategory(data), owner.parts[0].allItems, data.allItems);
     if (!continuing) flush();
     const companions = pending.slice(flowGroupCompanionStart(pending.map(entry => entry.item), continuing));
     pending = [];
@@ -114,7 +115,7 @@ export function projectAdjacentFlowGroups(items: readonly VirtualItem[], options
       continue;
     }
 
-    const disabled = item.data.renderHints?.disableExploreGrouping === true;
+    const disabled = isModelRoundGroupingDisabled(item.data);
     turnComplete = options.isTurnComplete ?? item.isTurnComplete;
     if (disabled || hasModelRoundLeadingControls(item.data)) boundary();
     const index = projected.length;
@@ -133,8 +134,11 @@ export function projectAdjacentFlowGroups(items: readonly VirtualItem[], options
     groups.forEach((group, groupIndex) => {
       const remove = () => { renderedGroups[groupIndex] = undefined; changed = true; };
       if (group.type === 'critical') {
-        if (!disabled && isFlowGroupCompanion(group.item)) pending.push({ item: group.item, remove });
-        else if (!disabled && hasPendingFlowGroupClassification(group.item)) {
+        if (!disabled && isFlowGroupCompanion(group.item)) {
+          pending.push({ item: group.item, remove });
+        }
+        else if (!disabled && hasPendingFlowGroupClassification(group.item,
+          owner ? getFlowGroupCategory(owner.parts[0]) : undefined)) {
           // Keep this unresolved card native without prematurely closing its predecessor.
           flush(false);
           pending = [];

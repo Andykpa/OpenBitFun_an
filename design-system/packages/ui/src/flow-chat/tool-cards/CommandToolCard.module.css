@@ -3,23 +3,18 @@
     min-inline-size: 0;
   }
 
+  /* Seed the expansion transition with transparency instead of currentColor,
+     even while the collapsed ambient row has no visible border. */
+  .root > [data-openbitfun-attention="ambient"]:not(.expandedCard) {
+    border-color: transparent;
+  }
+
   .root > .expandedCard {
     overflow: hidden;
-    border: var(--openbitfun-border-width-default) solid var(--openbitfun-color-border-subtle);
+    border: 0;
     border-radius: var(--openbitfun-radius-lg);
     color: var(--openbitfun-color-content-primary);
-    background: transparent;
-    transition: border-color var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard);
-  }
-
-  .root > .expandedCard:is(:hover, :focus-within),
-  .root[data-openbitfun-preview-state="hover"] > .expandedCard,
-  :global([data-openbitfun-preview-state="hover"]) .root > .expandedCard {
-    border-color: var(--openbitfun-color-border-subtle);
-  }
-
-  .root > .expandedCard[data-openbitfun-state~="confirmation"] {
-    border-color: var(--openbitfun-color-status-warning-border);
+    background: color-mix(in srgb, var(--openbitfun-color-surface-tertiary) 50%, var(--openbitfun-color-surface-scene));
   }
 
   .expandedCard > [data-openbitfun-part="surface"] {
@@ -338,9 +333,4 @@
     }
   }
 
-  @media (forced-colors: active) {
-    .root > .expandedCard {
-      border-color: CanvasText;
-    }
-  }
 }

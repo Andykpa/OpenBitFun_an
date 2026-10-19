@@ -55,6 +55,46 @@ it('supports keyboard disclosure while leaving state with the host', () => {
   expect(header.getAttribute('aria-expanded')).toBe('false');
 });
 
+it('shares one file identity and keeps open-file independent from revision disclosure', () => {
+  const toggle = vi.fn();
+  const open = vi.fn();
+  const render = (expanded: boolean, count = 3) => act(() => root.render(<FlowGroup
+    expanded={expanded} itemCount={count} summary="3 edits" summaryDescription="/remote/src/App.tsx, 3 edits"
+    onExpandedChange={toggle} fileRevision={{ path: '/remote/src/App.tsx', label: 'App.tsx', countLabel: '3 edits: ',
+      expandedLabel: 'File edits: ',
+      changeSummary: { additions: 18, deletions: 6, label: '18 lines added, 6 lines removed' },
+      openFile: { label: 'Open file', onPress: open } }}><button>Revision details</button></FlowGroup>));
+  render(false);
+  const header = container.querySelector('[data-openbitfun-part="header"]');
+  const disclosure = container.querySelector<HTMLButtonElement>('[aria-expanded]')!;
+  expect(disclosure.tagName).toBe('BUTTON');
+  expect(disclosure.getAttribute('aria-label')).toContain('/remote/src/App.tsx');
+  expect(container.querySelectorAll('[data-layer]')).toHaveLength(2);
+  expect(container.querySelector('[data-openbitfun-part="summary"]')?.textContent).toBe('3 edits: App.tsx');
+  expect(header?.querySelector('[data-openbitfun-change="added"]')?.textContent).toBe('+18');
+  expect(header?.querySelector('[data-openbitfun-change="removed"]')?.textContent).toBe('-6');
+  const openButton = container.querySelector<HTMLButtonElement>('[aria-label="Open file"]')!;
+  act(() => openButton.click());
+  expect(open).toHaveBeenCalledOnce();
+  expect(toggle).not.toHaveBeenCalled();
+  act(() => disclosure.click());
+  expect(toggle).toHaveBeenCalledWith(true);
+  render(true);
+  expect(container.querySelector('[data-openbitfun-part="header"]')).toBe(header);
+  expect(header?.querySelector('[data-openbitfun-part="summary"]')?.textContent).toBe('File edits: App.tsx');
+  expect(header?.querySelector('[data-openbitfun-part="changeSummary"]')).toBeNull();
+  expect(header?.querySelector('[aria-label="Open file"]')).toBe(openButton);
+  expect(disclosure.getAttribute('aria-expanded')).toBe('true');
+  expect(container.textContent).toContain('Revision details');
+  expect(container.querySelector('[data-file-revisions]')).not.toBeNull();
+  expect(container.querySelector('.explore-region--bounded')).toBeNull();
+  render(false, 2);
+  expect(header?.querySelector('[data-openbitfun-part="summary"]')?.textContent).toBe('3 edits: App.tsx');
+  expect(header?.querySelector('[data-openbitfun-change="added"]')?.textContent).toBe('+18');
+  expect(container.querySelectorAll('[data-layer]')).toHaveLength(1);
+  expect(container.querySelector('[data-openbitfun-part="contentWrapper"]')?.hasAttribute('inert')).toBe(true);
+});
+
 function BrowserHarness({ expanded = true, toggle, initialQuery = '' }: {
   expanded?: boolean; toggle?: (expanded: boolean) => void; initialQuery?: string;
 }) {

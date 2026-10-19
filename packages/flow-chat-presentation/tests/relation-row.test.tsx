@@ -16,7 +16,7 @@ afterEach(() => { act(() => root.unmount()); container.remove(); });
 
 const relationship: ToolCardInteraction = {
   operation: 'send', source: { label: 'Current session', kind: 'session' },
-  target: { id: 'result', label: 'Maintainer', kind: 'agent', details: 'Historical agent record' },
+  target: { id: 'result', label: 'Maintainer', kind: 'agent' },
 };
 function click(selector: string) { act(() => container.querySelector<HTMLButtonElement>(selector)!.click()); }
 
@@ -51,11 +51,15 @@ describe('relationship element interactions', () => {
     expect(container.querySelector('.lucide-arrow-right')).toBeNull();
   });
 
-  it('inspects an unavailable object independently, including IDs that match result slot names', () => {
+  it('keeps unavailable nodes disabled and opens their recorded details only through the outcome', () => {
     act(() => root.render(<ToolRelationRow interaction={relationship} result="Deleted" status="completed" details="Deletion record" />));
+    const target = container.querySelector<HTMLButtonElement>('[data-openbitfun-part="target"]')!;
+    expect(target.disabled).toBe(true);
+    expect(target.hasAttribute('aria-haspopup')).toBe(false);
     click('[data-openbitfun-part="target"]');
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Historical agent record');
-    expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('Deletion record');
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    click('[data-openbitfun-part="result"]');
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Deletion record');
   });
 });
 
@@ -74,6 +78,8 @@ describe('process relationship records', () => {
       toolCall: { input: { session_id: 24, chars: 'continue\n' } }, _progressMessage: 'running output' });
     expect(expanded()).toBe(false);
     expect(container.querySelector('[aria-expanded]')).toBeNull();
+    click('[data-openbitfun-part="target"]');
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
     click('[data-openbitfun-part="result"]');
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain('continue\n');
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain('running output');

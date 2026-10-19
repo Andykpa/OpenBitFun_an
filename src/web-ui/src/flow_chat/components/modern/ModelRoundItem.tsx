@@ -8,9 +8,10 @@
  */
 
 import React, { useMemo, useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
+import { useFlowChatReaderValue, useTimelineReveal } from '../../timeline/readerState';
 import { useTranslation } from 'react-i18next';
 import { subscribeOverlayInteraction, createOverlayPortal, Button, Disclosure, Icon, IconButton, Menu, MenuItem, Tooltip } from '@openbitfun/ui';
-import { AmbientToolCard, AmbientToolCardHeader, ToolCardSection, ToolCardText } from '@openbitfun/ui/flow-chat';
+import { AmbientToolCard, AmbientToolCardHeader, FlowChatMetric, FlowChatMetricDetails, ToolCardSection, ToolCardText } from '@openbitfun/ui/flow-chat';
 import { CircleAlert, Wifi } from 'lucide-react';
 import type { ModelRound, ModelRoundAttempt, ModelRoundAttemptDiagnostic, FlowItem, FlowTextItem, FlowToolItem, FlowThinkingItem, ToolRejectOptions } from '../../types/flow-chat';
 import { useI18n } from '@/infrastructure/i18n';
@@ -26,10 +27,13 @@ import { getConcurrentCapsuleRows, type ConcurrentCapsuleRow } from '../../tool-
 import { useFlowChatContext } from './FlowChatContext';
 import { ExportImageButton } from './ExportImageButton';
 import { ForkSessionButton } from './ForkSessionButton';
+import { TurnUsageMetrics } from './TurnUsageMetrics';
+import { TurnFooter } from './TurnFooter';
 import {
   buildModelRoundItemGroups,
   buildInlineToolGroupData,
   getModelRoundActiveItems,
+  isModelRoundGroupingDisabled,
   type ModelRoundItemGroup,
 } from '../../grouping/roundGroups';
 import { FlowGroupRenderer } from './FlowGroupRenderer';
@@ -358,13 +362,17 @@ const RetryAttemptSection: React.FC<{
 export const ModelRoundItem = React.memo<ModelRoundItemProps>(
   ({
     round,
+    blockPart,
     projectedGroups,
     turnId,
     isLastRound = false,
+    isLatestTurn = false,
     isTurnComplete = false,
     turnStartedAt,
     turnEndedAt,
     turnDurationMs,
+    turnOutputDurationMs,
+    turnTokenUsage,
     canvasArtifactItems = [],
     expandedThinkingItemIds = [],
   }) => {
@@ -373,9 +381,11 @@ export const ModelRoundItem = React.memo<ModelRoundItemProps>(
     const { sessionId, allowTranscriptExport = true } = useFlowChatContext();
     const typewriterRevealGate = useCreateTypewriterRevealGate();
     const [copied, setCopied] = useState(false);
-    const [showRetryHistory, setShowRetryHistory] = useState(false);
-    const [showRoundHistory, setShowRoundHistory] = useState(false);
-    const [openHistoryRoundAttemptIds, setOpenHistoryRoundAttemptIds] = useState<Record<string, boolean>>({});
+    const [showRetryHistory, setShowRetryHistory] = useFlowChatReaderValue<boolean>(`round:${turnId}:${round.id}:retries`, false);
+    const [showRoundHistory, setShowRoundHistory] = useFlowChatReaderValue<boolean>(`round:${turnId}:${round.id}:history`, false);
+    const [historyChoices, setHistoryChoices] = useFlowChatReaderValue<string>(`round:${turnId}:${round.id}:attempts`, '{}');
+    const openHistoryRoundAttemptIds = useMemo<Record<string, boolean>>(() => JSON.parse(historyChoices), [historyChoices]);
+    const turnRevealing = useTimelineReveal(turnId, `${round.id}:${blockPart}:${round.items[0]?.id ?? ''}`, typewriterRevealGate.isAnyRevealing);
     const [isCopyMenuOpen, setIsCopyMenuOpen] = useState(false);
     const copyButtonRef = useRef<HTMLButtonElement>(null);
     const copyMenuRef = useRef<HTMLDivElement>(null);
@@ -383,7 +393,7 @@ export const ModelRoundItem = React.memo<ModelRoundItemProps>(
       open: isCopyMenuOpen,
       anchorRef: copyButtonRef,
       popoverRef: copyMenuRef,
-      preferredPlacement: 'top',
+      preferredPlacement: 'bottom',
       alignment: 'end',
       gap: 4,
     });
@@ -432,23 +442,23 @@ export const ModelRoundItem = React.memo<ModelRoundItemProps>(
     const historyRounds = round.historyRounds ?? [];
 
     useEffect(() => {
-      if (historicalAttempts.length === 0 && showRetryHistory) {
+      if ((!blockPart || blockPart === 'header') && historicalAttempts.length === 0 && showRetryHistory) {
         setShowRetryHistory(false);
       }
-    }, [historicalAttempts.length, showRetryHistory]);
+    }, [blockPart, historicalAttempts.length, showRetryHistory, setShowRetryHistory]);
 
     useEffect(() => {
-      if (historyRounds.length === 0 && showRoundHistory) {
+      if ((!blockPart || blockPart === 'header') && historyRounds.length === 0 && showRoundHistory) {
         setShowRoundHistory(false);
       }
-    }, [historyRounds.length, showRoundHistory]);
+    }, [blockPart, historyRounds.length, showRoundHistory, setShowRoundHistory]);
 
     const setHistoryRoundAttemptsExpanded = useCallback((historyRoundId: string, expanded: boolean) => {
-      setOpenHistoryRoundAttemptIds((current) => ({
-        ...current,
+      setHistoryChoices((current) => JSON.stringify({
+        ...JSON.parse(current),
         [historyRoundId]: expanded,
       }));
-    }, []);
+    }, [setHistoryChoices]);
 
     // Keep the recorded round order; FlowChatStore already applies immutable updates.
     const sortedItems = useMemo(
@@ -458,6 +468,7 @@ export const ModelRoundItem = React.memo<ModelRoundItemProps>(
 
     // Collect settled exploration while keeping narrative and critical items
     // in their original transcript positions.
+    const disableExploreGrouping = isModelRoundGroupingDisabled(round);
     const groupedItems = useMemo(() => {
       if (projectedGroups) return projectedGroups;
       const visibleItems = isTurnComplete
@@ -466,10 +477,10 @@ export const ModelRoundItem = React.memo<ModelRoundItemProps>(
       return buildModelRoundItemGroups({
         items: visibleItems,
         isStreaming: round.isStreaming,
-        disableExploreGrouping: round.renderHints?.disableExploreGrouping === true,
+        disableExploreGrouping,
         isCollapsibleTool,
       });
-    }, [isTurnComplete, projectedGroups, round.isStreaming, round.renderHints?.disableExploreGrouping, sortedItems]);
+    }, [disableExploreGrouping, isTurnComplete, projectedGroups, round.isStreaming, sortedItems]);
 
     const groupSummary = useMemo(
       () => renderTraceEnabled ? summarizeModelRoundItemGroups(groupedItems) : null,
@@ -541,6 +552,11 @@ export const ModelRoundItem = React.memo<ModelRoundItemProps>(
     );
 
     const completedAt = turnEndedAt ?? round.endTime;
+    // Throughput must divide by streaming time, not turn wall time: the latter
+    // also counts tool execution and waiting and would report a deflated rate.
+    const usageDurationMs = turnOutputDurationMs ?? turnDurationMs ??
+      (typeof turnStartedAt === 'number' && typeof completedAt === 'number'
+        ? Math.max(0, completedAt - turnStartedAt) : undefined);
     const effectiveDurationMs = turnDurationMs ??
       (typeof turnStartedAt === 'number' && typeof completedAt === 'number'
         ? Math.max(0, completedAt - turnStartedAt)
@@ -550,21 +566,25 @@ export const ModelRoundItem = React.memo<ModelRoundItemProps>(
       durationMs: effectiveDurationMs,
       status: round.status,
       formatTime: timestamp => formatDate(new Date(timestamp), {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
       }),
       t,
     }), [completedAt, effectiveDurationMs, formatDate, round.status, t]);
+    const durationMetaItem = completionMetaItems.find(item => item.key === 'duration');
     // Wait for typewriter catch-up before revealing footer controls. Reserve
     // footer layout as soon as the model round completes so the eventual
     // reveal does not resize the list (that resize flashed the chat pane).
     const isVisuallyStreaming = round.isStreaming || typewriterRevealGate.isAnyRevealing;
-    const shouldReserveFooter = isTurnComplete &&
+    const shouldReserveFooter = (!blockPart || blockPart === 'footer') && isTurnComplete &&
       isLastRound &&
       !round.isStreaming &&
       (hasContent || completionMetaItems.length > 0);
-    const shouldRevealFooter = shouldReserveFooter && !typewriterRevealGate.isAnyRevealing;
+    const shouldRevealFooter = shouldReserveFooter && !typewriterRevealGate.isAnyRevealing && !turnRevealing;
 
     return (
       <TypewriterRevealGateProvider value={typewriterRevealGate}>
@@ -585,7 +605,7 @@ export const ModelRoundItem = React.memo<ModelRoundItemProps>(
         data-effective-model-name={round.effectiveModelName || ''}
         data-streaming={isVisuallyStreaming ? 'true' : 'false'}
       >
-        {round.renderHints?.continuedAfterInterruption && (
+        {(!blockPart || blockPart === 'header') && round.renderHints?.continuedAfterInterruption && (
           <div className="model-round-item__continuation">{t('modelRound.continued')}</div>
         )}
         {renderTraceEnabled && renderTraceStartedAtMs !== null && groupSummary && (
@@ -599,7 +619,7 @@ export const ModelRoundItem = React.memo<ModelRoundItemProps>(
           />
         )}
 
-        {historyRounds.length > 0 && (
+        {(!blockPart || blockPart === 'header') && historyRounds.length > 0 && (
           <RetryHistoryCard
             id={`${round.id}:round-history`}
             isExpanded={showRoundHistory}
@@ -674,7 +694,7 @@ export const ModelRoundItem = React.memo<ModelRoundItemProps>(
           </RetryHistoryCard>
         )}
 
-        {historicalAttempts.length > 0 && (
+        {(!blockPart || blockPart === 'header') && historicalAttempts.length > 0 && (
           <RetryHistoryCard
             id={`${round.id}:attempt-history`}
             isExpanded={showRetryHistory}
@@ -734,88 +754,103 @@ export const ModelRoundItem = React.memo<ModelRoundItemProps>(
         )}
 
         {shouldReserveFooter && (
-          <div
-            className={`model-round-item__footer${shouldRevealFooter ? '' : ' model-round-item__footer--pending'}`}
-            data-openbitfun-product-component="model-round-item"
-            data-openbitfun-product-part="footer"
-            data-openbitfun-state={shouldRevealFooter ? undefined : 'pending'}
-            aria-hidden={!shouldRevealFooter}
-          >
-            {completionMetaItems.length > 0 && (
-              <div
-                className="model-round-item__meta"
-                data-openbitfun-product-component="model-round-item"
-                data-openbitfun-product-part="meta"
-                aria-label={t('modelRound.meta.label')}
-              >
-                {completionMetaItems.map(item => (
+          <TurnFooter turnId={turnId} isLatestTurn={isLatestTurn} ready={shouldRevealFooter}>
+            <div className="model-round-item__usage">
+              <TurnUsageMetrics usage={turnTokenUsage} durationMs={usageDurationMs} focusable={shouldRevealFooter} />
+            </div>
+            <div className="model-round-item__completion">
+              {durationMetaItem && (
+                <div
+                  className="model-round-item__meta"
+                  data-openbitfun-product-component="model-round-item"
+                  data-openbitfun-product-part="meta"
+                  aria-label={t('modelRound.meta.label')}
+                >
                   <span
-                    key={item.key}
                     className="model-round-item__meta-item"
                     data-openbitfun-product-component="model-round-item"
                     data-openbitfun-product-part="metaItem"
-                    aria-label={`${item.label}: ${item.value}`}
                   >
-                    {item.value}
+                    <FlowChatMetric
+                      focusable={shouldRevealFooter}
+                      description={completionMetaItems.map(item => `${item.label}: ${item.value}`).join(' · ')}
+                      content={<FlowChatMetricDetails rows={completionMetaItems} />}
+                    >
+                      {durationMetaItem.value}
+                    </FlowChatMetric>
                   </span>
-                ))}
+                </div>
+              )}
+
+              <div className="model-round-item__actions">
+                <ForkSessionButton sessionId={sessionId} turnId={turnId} />
+
+                {allowTranscriptExport && <ExportImageButton turnId={turnId} triggerRef={copyButtonRef} renderTrigger={({ isExporting, onOpenDialog }) => (
+                  <div className="model-round-item__copy-menu-anchor">
+                    <Tooltip content={isExporting ? t('exportImage.exporting') : copied ? t('modelRound.copiedDialog') : t('modelRound.copyDialog')} placement="top">
+                      <IconButton
+                        ref={copyButtonRef}
+                        className={`model-round-item__action-btn model-round-item__copy-btn ${copied ? 'copied' : ''}`}
+                        onClick={() => setIsCopyMenuOpen(current => !current)}
+                        tabIndex={shouldRevealFooter ? 0 : -1}
+                        disabled={!shouldRevealFooter}
+                        loading={isExporting}
+                        aria-haspopup="menu"
+                        aria-expanded={isCopyMenuOpen}
+                        aria-label={isExporting ? t('exportImage.exporting') : copied ? t('modelRound.copiedDialog') : t('modelRound.copyDialog')}
+                        data-testid="model-round-copy-btn"
+                        data-openbitfun-product-component="model-round-item" data-openbitfun-product-part="action" data-openbitfun-state={copied ? 'copied' : undefined}
+                        icon={<Icon name={copied ? 'check-line' : 'duplicate'} size="sm" />}
+                      />
+                    </Tooltip>
+
+                    {isCopyMenuOpen && createOverlayPortal(
+                      <Menu
+                        ref={copyMenuRef}
+                        className="model-round-item__copy-menu"
+                        data-testid="model-round-copy-menu"
+                        data-openbitfun-placement={copyMenuLayout?.placement ?? 'bottom'}
+                        style={{
+                          top: `${copyMenuLayout?.top ?? 0}px`,
+                          left: `${copyMenuLayout?.left ?? 0}px`,
+                          visibility: copyMenuLayout ? 'visible' : 'hidden',
+                        }}
+                      >
+                        <MenuItem
+                          type="button"
+                          onClick={() => void handleCopyScope('full')}
+                          data-testid="model-round-copy-full"
+                        >
+                          {t('transcriptExport.copyFull')}
+                        </MenuItem>
+                        <MenuItem
+                          type="button"
+                          onClick={() => void handleCopyScope('result')}
+                          data-testid="model-round-copy-result"
+                        >
+                          {t('transcriptExport.copyResult')}
+                        </MenuItem>
+                        <MenuItem
+                          type="button"
+                          onClick={() => {
+                            setIsCopyMenuOpen(false);
+                            onOpenDialog();
+                          }}
+                          aria-haspopup="dialog"
+                          data-testid="model-round-export-image"
+                        >
+                          {t('exportImage.exportToImage')}
+                        </MenuItem>
+                      </Menu>,
+                      getAppearanceOverlayHost(),
+                      undefined,
+                      { ownerRef: copyButtonRef, open: isCopyMenuOpen },
+                    )}
+                  </div>
+                )} />}
               </div>
-            )}
-
-            <div className="model-round-item__actions">
-              <ForkSessionButton sessionId={sessionId} turnId={turnId} />
-
-              {allowTranscriptExport && <div className="model-round-item__copy-menu-anchor">
-                <Tooltip content={copied ? t('modelRound.copiedDialog') : t('modelRound.copyDialog')} placement="top">
-                  <IconButton
-                    ref={copyButtonRef}
-                    className={`model-round-item__action-btn model-round-item__copy-btn ${copied ? 'copied' : ''}`}
-                    onClick={() => setIsCopyMenuOpen(current => !current)}
-                    tabIndex={shouldRevealFooter ? 0 : -1}
-                    disabled={!shouldRevealFooter}
-                    aria-haspopup="menu"
-                    aria-expanded={isCopyMenuOpen}
-                    aria-label={copied ? t('modelRound.copiedDialog') : t('modelRound.copyDialog')}
-                    data-testid="model-round-copy-btn"
-                    data-openbitfun-product-component="model-round-item" data-openbitfun-product-part="action" data-openbitfun-state={copied ? 'copied' : undefined}
-                    icon={<Icon name={copied ? 'check-line' : 'duplicate'} size="sm" />}
-                  />
-                </Tooltip>
-
-                {isCopyMenuOpen && createOverlayPortal(
-                  <Menu
-                    ref={copyMenuRef}
-                    className="model-round-item__copy-menu"
-                    data-testid="model-round-copy-menu"
-                    data-openbitfun-placement={copyMenuLayout?.placement ?? 'top'}
-                    style={{
-                      top: `${copyMenuLayout?.top ?? 0}px`,
-                      left: `${copyMenuLayout?.left ?? 0}px`,
-                      visibility: copyMenuLayout ? 'visible' : 'hidden',
-                    }}
-                  >
-                    <MenuItem
-                      type="button"
-                      onClick={() => void handleCopyScope('full')}
-                      data-testid="model-round-copy-full"
-                    >
-                      {t('transcriptExport.copyFull')}
-                    </MenuItem>
-                    <MenuItem
-                      type="button"
-                      onClick={() => void handleCopyScope('result')}
-                      data-testid="model-round-copy-result"
-                    >
-                      {t('transcriptExport.copyResult')}
-                    </MenuItem>
-                  </Menu>,
-                  getAppearanceOverlayHost(),
-                )}
-              </div>}
-
-              {allowTranscriptExport && <ExportImageButton turnId={turnId} />}
             </div>
-          </div>
+          </TurnFooter>
         )}
       </div>
       </TypewriterRevealGateProvider>

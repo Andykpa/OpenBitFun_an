@@ -1,15 +1,19 @@
 import type { ModelRound, FlowToolItem, TokenUsage } from '../../types/flow-chat';
 import type { ModelRoundItemGroup } from './modelRoundItemGrouping';
+import { isModelRoundGroupingDisabled } from '../../grouping/roundGroups';
 
 export interface ModelRoundItemProps {
+  blockPart?: 'content' | 'header' | 'footer';
   round: ModelRound;
   projectedGroups?: ModelRoundItemGroup[];
   turnId: string;
   isLastRound?: boolean;
+  isLatestTurn?: boolean;
   isTurnComplete?: boolean;
   turnStartedAt?: number;
   turnEndedAt?: number;
   turnDurationMs?: number;
+  turnOutputDurationMs?: number;
   turnTokenUsage?: TokenUsage;
   canvasArtifactItems?: FlowToolItem[];
   expandedThinkingItemIds?: string[];
@@ -40,20 +44,23 @@ export function areModelRoundItemPropsEqual(prev: ModelRoundItemProps, next: Mod
 
   // In complete state, compare items array reference to detect tool state changes.
   return (
+    prev.blockPart === next.blockPart &&
     prev.round.id === next.round.id &&
     prev.round.renderHints?.continuedAfterInterruption === next.round.renderHints?.continuedAfterInterruption &&
-    prev.round.renderHints?.disableExploreGrouping === next.round.renderHints?.disableExploreGrouping &&
+    isModelRoundGroupingDisabled(prev.round) === isModelRoundGroupingDisabled(next.round) &&
     prev.round.items === next.round.items &&
     sameProjectedGroups(prev.projectedGroups, next.projectedGroups) &&
     prev.round.attempts === next.round.attempts &&
     prev.round.attemptDiagnostics === next.round.attemptDiagnostics &&
     prev.round.historyRounds === next.round.historyRounds &&
     prev.isLastRound === next.isLastRound &&
+    prev.isLatestTurn === next.isLatestTurn &&
     prev.isTurnComplete === next.isTurnComplete &&
     prev.expandedThinkingItemIds === next.expandedThinkingItemIds &&
     prev.turnStartedAt === next.turnStartedAt &&
     prev.turnEndedAt === next.turnEndedAt &&
     prev.turnDurationMs === next.turnDurationMs &&
+    prev.turnOutputDurationMs === next.turnOutputDurationMs &&
     prev.turnTokenUsage === next.turnTokenUsage &&
     prev.canvasArtifactItems === next.canvasArtifactItems
   );

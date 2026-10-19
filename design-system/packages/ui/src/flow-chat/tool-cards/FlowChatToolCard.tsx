@@ -13,9 +13,11 @@ import {
 } from "react";
 import { Icon } from '../../components/Icon/Icon';
 import { IconButton } from '../../components/IconButton';
+import { ShimmerText } from '../../components/ShimmerText';
 import { Tooltip } from '../../components/Tooltip';
 import { useDesignSystem } from '../../overlay/useDesignSystem';
 import { ToolProcessingDots } from './ToolProcessingDots';
+import { ToolCardRollingNumber } from './ToolCardRollingNumber';
 import { ToolCapsulePresentationProvider, useToolCapsulePresentation } from './ToolCapsulePresentation';
 import { TOOL_CAPSULE_COLLAPSE_DURATION_MS, useToolCapsuleMotion } from '../motion/capsuleMotion';
 import { classNames } from "../../internal/classNames";
@@ -462,7 +464,7 @@ export function AmbientToolCard({
 
   const handleDirectActionKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     onRootKeyDown?.(event);
-    if (!directAction || event.defaultPrevented || (event.key !== "Enter" && event.key !== " ")) {
+    if (!directAction || event.target !== event.currentTarget || event.defaultPrevented || (event.key !== "Enter" && event.key !== " ")) {
       return;
     }
 
@@ -676,7 +678,7 @@ export function ToolCardStatusIcon({
 export interface ToolCardActionsProps {
   children: ReactNode;
   className?: string;
-  /** Reserve the controls' width and reveal on the owning region's hover/focus. */
+  /** Reveal on the owning region's hover/focus; the owner controls hidden layout. */
   revealOnHover?: boolean;
 }
 
@@ -719,10 +721,13 @@ export interface ToolCardChangeSummaryProps
   extends Omit<HTMLAttributes<HTMLSpanElement>, "children"> {
   additions?: number | string;
   deletions?: number | string;
+  /** Roll changed digits while the host is generating the change. */
+  animated?: boolean;
 }
 
 export function ToolCardChangeSummary({
   additions,
+  animated = false,
   className,
   deletions,
   ...props
@@ -742,10 +747,10 @@ export function ToolCardChangeSummary({
       data-openbitfun-part="changeSummary"
     >
       {hasAdditions && (
-        <span data-openbitfun-change="added">+{additions}</span>
+        <span data-openbitfun-change="added">+{animated ? <ToolCardRollingNumber value={additions!} /> : additions}</span>
       )}
       {hasDeletions && (
-        <span data-openbitfun-change="removed">-{deletions}</span>
+        <span data-openbitfun-change="removed">-{animated ? <ToolCardRollingNumber value={deletions!} /> : deletions}</span>
       )}
     </span>
   );
@@ -768,6 +773,8 @@ export interface ProminentToolCardSummaryProps {
   icon?: ReactNode;
   onAffordanceClick?: (event: ReactMouseEvent<HTMLButtonElement>) => void;
   statusIcon?: ReactNode;
+  /** Opt into one action/content shimmer scope; false retains its layout while inactive. */
+  textShimmer?: boolean;
   trailingActions?: ReactNode;
 }
 
@@ -786,6 +793,7 @@ export function ProminentToolCardSummary({
   onAffordanceClick,
   primaryActions,
   statusIcon,
+  textShimmer,
   trailingActions,
 }: ProminentToolCardSummaryProps) {
   const { messages } = useDesignSystem();
@@ -830,26 +838,8 @@ export function ProminentToolCardSummary({
   const subjectText = typeof content === "string" || typeof content === "number"
     ? <OverflowText>{content}</OverflowText>
     : content;
-
-  return (
-    <div
-      className={classNames(styles.summaryRow, styles.prominentSummary)}
-      data-openbitfun-affordance={resolvedKind}
-      data-openbitfun-component="flow-chat-tool-card"
-      data-openbitfun-expandable={expandable ? "true" : "false"}
-      data-openbitfun-part="summary"
-      onClick={isExpandAction ? (event) => {
-        if (shouldIgnoreToggleClick(event, event.currentTarget)) {
-          return;
-        }
-        event.stopPropagation();
-        affordanceButtonRef.current?.click();
-      } : undefined}
-    >
-      {isExpandAction && affordanceButton}
-      {icon !== undefined && icon !== null && icon !== false && icon !== "" && (
-        <ToolCardIconSlot icon={icon} />
-      )}
+  const summaryText = (
+    <>
       {action !== undefined && action !== null && action !== false && action !== "" && (
         <span
           {...actionDataAttributes}
@@ -872,6 +862,35 @@ export function ProminentToolCardSummary({
           {subjectText}
         </span>
       )}
+    </>
+  );
+
+  return (
+    <div
+      className={classNames(styles.summaryRow, styles.prominentSummary)}
+      data-openbitfun-affordance={resolvedKind}
+      data-openbitfun-component="flow-chat-tool-card"
+      data-openbitfun-expandable={expandable ? "true" : "false"}
+      data-openbitfun-part="summary"
+      onClick={isExpandAction ? (event) => {
+        if (shouldIgnoreToggleClick(event, event.currentTarget)) {
+          return;
+        }
+        event.stopPropagation();
+        affordanceButtonRef.current?.click();
+      } : undefined}
+    >
+      {isExpandAction && affordanceButton}
+      {icon !== undefined && icon !== null && icon !== false && icon !== "" && (
+        <ToolCardIconSlot icon={icon} />
+      )}
+      {textShimmer === undefined ? summaryText : (
+        <span className={styles.summaryTextRegion}>
+          <ShimmerText active={textShimmer} className={styles.summaryText}>
+            {summaryText}
+          </ShimmerText>
+        </span>
+      )}
       {extra !== undefined && extra !== null && extra !== false && (
         <span
           className={styles.extra}
@@ -885,9 +904,10 @@ export function ProminentToolCardSummary({
         <ToolCardStatusIcon icon={statusIcon} withDivider={Boolean(extra)} />
       )}
       {hasActionRegion && (
-        <span className={styles.actionRegion} data-openbitfun-component="flow-chat-tool-card" data-openbitfun-part="actionRegion">
+        <span className={classNames(styles.actionRegion, !primaryActions && styles.hoverActions)}
+          data-openbitfun-component="flow-chat-tool-card" data-openbitfun-part="actionRegion">
           {primaryActions && <ToolCardActions>{primaryActions}</ToolCardActions>}
-          {hasAuxiliaryActions && <ToolCardActions revealOnHover>
+          {hasAuxiliaryActions && <ToolCardActions revealOnHover className={primaryActions ? styles.hoverActions : undefined}>
             {actions}
             {contentActions}
             {hasPanelAction && affordanceButton}

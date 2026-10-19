@@ -10,13 +10,14 @@ import { getToolItemCardConfig } from './toolCardMetadata';
 
 const state = vi.hoisted(() => ({
   sessions: new Map<string, Session>(), listeners: new Set<() => void>(), openMainSession: vi.fn(),
+  openBtwSessionInAuxPane: vi.fn(),
 }));
 vi.mock('../store/FlowChatStore', () => ({ flowChatStore: {
   getState: () => ({ sessions: state.sessions }),
   subscribe: (listener: () => void) => { state.listeners.add(listener); return () => state.listeners.delete(listener); },
 } }));
 vi.mock('../services/sessionActivation', () => ({ openMainSession: state.openMainSession }));
-vi.mock('../services/btwSessionPane', () => ({ openBtwSessionInAuxPane: vi.fn() }));
+vi.mock('../services/btwSessionPane', () => ({ openBtwSessionInAuxPane: state.openBtwSessionInAuxPane }));
 vi.mock('@/infrastructure/i18n/hooks/useI18n', async () => {
   const { createTestI18nT } = await import('@/test/i18nTestUtils');
   const t = createTestI18nT('flow-chat');
@@ -40,6 +41,7 @@ beforeEach(() => {
     ['target', session('target', 'Release review')],
   ]);
   state.openMainSession.mockReset();
+  state.openBtwSessionInAuxPane.mockReset();
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -77,10 +79,52 @@ describe('session relationship records', () => {
     expect(container.querySelector('[aria-expanded]')).toBeNull();
   });
 
+  it('opens the current session through its node without showing a dialog', async () => {
+    render(SessionMessageToolCard, item('SessionMessage', { session_id: 'target', message: 'Inspect the release' }));
+    click('source');
+    await vi.waitFor(() => expect(state.openMainSession).toHaveBeenCalledWith('current', expect.any(Object)));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it.each(['source', 'target'])('opens a subagent %s in the right pane of its recorded parent', part => {
+    const id = part === 'source' ? 'current' : 'target';
+    state.sessions.set('parent', { ...session('parent', 'Parent'), remoteConnectionId: 'remote-1', remoteSshHost: 'host-1' });
+    state.sessions.set(id, { ...session(id, 'Worker'), sessionKind: 'subagent', parentSessionId: 'parent', parentToolCallId: 'launch' });
+    render(SessionMessageToolCard, item('SessionMessage', { session_id: 'target', message: 'Inspect the release' }));
+    click(part);
+    expect(state.openBtwSessionInAuxPane).toHaveBeenCalledWith(expect.objectContaining({
+      childSessionId: id, parentSessionId: 'parent', parentToolCallId: 'launch',
+      remoteConnectionId: 'remote-1', remoteSshHost: 'host-1',
+    }));
+    expect(state.openMainSession).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('enables an unresolved session node after hydration without using a dialog fallback', async () => {
+    state.sessions.delete('target');
+    render(SessionMessageToolCard, item('SessionMessage', { session_id: 'target', message: 'Inspect the release' }));
+    const target = container.querySelector<HTMLButtonElement>('[data-openbitfun-part="target"]')!;
+    expect(target.disabled).toBe(true);
+    click('target');
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    act(() => {
+      state.sessions.set('target', session('target', 'Release review'));
+      state.listeners.forEach(listener => listener());
+    });
+    expect(container.querySelector('[data-openbitfun-part="target"]')).toBe(target);
+    expect(target.disabled).toBe(false);
+    click('target');
+    await vi.waitFor(() => expect(state.openMainSession).toHaveBeenCalledWith('target', expect.any(Object)));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
   it('retains deleted session details without navigating to a missing session', () => {
     state.sessions.delete('target');
     render(SessionControlToolCard, item('SessionControl', { action: 'delete', session_id: 'target', session_name: 'Release review' }));
     click('target');
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.querySelector<HTMLButtonElement>('[data-openbitfun-part="target"]')?.disabled).toBe(true);
+    click('result');
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Release review');
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Deleted the session');
     expect(state.openMainSession).not.toHaveBeenCalled();
@@ -93,11 +137,13 @@ describe('session relationship records', () => {
     expect(container.querySelector('[data-openbitfun-part="result"]')?.textContent).toBe('Requested interruption');
   });
 
-  it('uses the recorded deletion count and keeps each requested agent inspectable', () => {
+  it('keeps deleted agent nodes noninteractive while the result opens the deletion record', () => {
     render(AgentDeleteToolCard, item('AgentDelete', { agent_ids: ['worker-a', 'worker-b'] }, { agent_ids: ['worker-a'], deleted_agents: 1 }));
     expect(container.querySelectorAll('[data-openbitfun-part="target"]')).toHaveLength(2);
     expect(container.querySelector('[data-openbitfun-part="result"]')?.textContent).toBe('Agents deleted: 1');
     click('target');
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    click('result');
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain('worker-a');
     expect(state.openMainSession).not.toHaveBeenCalled();
   });

@@ -2,7 +2,7 @@ import type { FlowItem, FlowTextItem, FlowToolItem, ModelRound, ModelRoundAttemp
 import type { VirtualItem } from '../types/flow-chat-projection';
 import { canvasArtifactReferenceFromToolItem } from '../utils/canvasArtifactPresentation';
 import { isFlowItemVisible } from '../utils/flowItemVisibility';
-import { classifyFlowGroupItem, flowGroupPolicies, joinedFlowGroupCategory, meetsFlowGroupThreshold, type FlowGroupPolicyOptions } from './policies';
+import { canContinueFlowGroup, classifyFlowGroupItem, flowGroupPolicies, joinedFlowGroupCategory, meetsFlowGroupThreshold, type FlowGroupPolicyOptions } from './policies';
 import { isFlowGroupMemberActive } from './lifecycle';
 import { isShellActivity } from './activityClassification';
 import { parseDeepResearchContent } from '../deep-research/deepResearchProtocol';
@@ -29,6 +29,18 @@ export function hasModelRoundNarrative(round: Pick<ModelRound, 'items' | 'attemp
 export function hasModelRoundLeadingControls(round: ModelRound): boolean {
   return Boolean(round.renderHints?.continuedAfterInterruption || round.historyRounds?.length
     || (round.attempts?.length ?? 0) > 1 || round.attempts?.some(attempt => attempt.diagnostic));
+}
+
+/** Read old native retry hints as display metadata without rewriting saved records. */
+export function isModelRoundGroupingDisabled(round: Pick<ModelRound, 'id' | 'renderHints' | 'attempts'>): boolean {
+  if (round.renderHints?.disableExploreGrouping !== true) return false;
+  // Preserve explicit policies, including sources advertised by a newer host.
+  if (round.renderHints.disableExploreGroupingSource !== undefined) return true;
+  // Only the native Runtime's recorded attempt identities prove the old automatic rule.
+  const attempts = round.attempts ?? [];
+  const legacyRetryHint = attempts.length > 1
+    && attempts.every(attempt => attempt.id === `${round.id}:attempt:${attempt.index}`);
+  return !legacyRetryHint;
 }
 
 /** Ordinary prose and reasoning do not end a tool run. Protocol text renders cards. */
@@ -71,14 +83,14 @@ export function projectedFlowGroup(category: FlowGroupCategory, items: FlowItem[
 
 export function getModelRoundFlowGroups(round: ModelRound, projectedGroups?: ModelRoundItemGroup[]): FlowGroupData[] {
   return (projectedGroups ?? buildFlowItemGroups({
-    items: getModelRoundActiveItems(round), disabled: round.renderHints?.disableExploreGrouping === true,
+    items: getModelRoundActiveItems(round), disabled: isModelRoundGroupingDisabled(round),
   })).flatMap(group => group.type === 'critical' ? [] : [buildInlineFlowGroupData(round.id, group)]);
 }
 
 export function getProjectedModelRoundGroups(item: Extract<VirtualItem, { type: 'model-round' }>, retainCandidates = false): ModelRoundItemGroup[] {
   return item.projectedGroups ?? buildFlowItemGroups({
     items: getModelRoundActiveItems(item.data).filter(member => !item.isTurnComplete || !canvasArtifactReferenceFromToolItem(member)),
-    disabled: item.data.renderHints?.disableExploreGrouping === true, retainCandidates,
+    disabled: isModelRoundGroupingDisabled(item.data), retainCandidates,
   });
 }
 
@@ -115,7 +127,8 @@ export function buildFlowItemGroups({ items, disabled = false, retainCandidates 
     const nextCategory = disabled ? undefined : classifyFlowGroupItem(item, policyOptions);
     if (nextCategory) {
       const joinedCategory = joinedFlowGroupCategory(category, nextCategory);
-      const continuing = category !== undefined && joinedCategory !== undefined;
+      const continuing = category !== undefined && joinedCategory !== undefined
+        && canContinueFlowGroup(nextCategory, buffer, [item]);
       const companionStart = flowGroupCompanionStart(pending, continuing);
       if (!continuing) {
         flush(false);

@@ -42,7 +42,11 @@ export const agentControlToolCardMeta = {
     { name: "openAgentLabel", type: "string" },
   ],
   states: ["default", "hover", "loading", "error"],
-  tokens: [...prominentTokens, "color.surface.panel", "control.activityItem.surfaceHeight", "control.activityItem.surfaceRadius", "control.flowChat.cardGap", "control.flowChat.transcriptMaxWidth"],
+  tokens: [
+    ...prominentTokens, "color.surface.panel", "control.activityItem.surfaceHeight",
+    "control.activityItem.surfaceRadius", "control.flowChat.cardGap", "control.flowChat.transcriptMaxWidth",
+    "layout.card.paddingMd", "layout.card.gapMd", "layout.card.gapSm",
+  ],
 } as const satisfies ComponentMeta;
 
 export const fileDiffToolCardMeta = {

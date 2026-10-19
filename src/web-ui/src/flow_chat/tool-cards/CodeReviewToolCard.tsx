@@ -1,3 +1,4 @@
+import { useToolCardDisclosure, useToolCardValue } from '../timeline/readerState';
 /**
  * CodeReview tool display component
  * Displays structured code review results with collapsible/expandable details
@@ -5,7 +6,7 @@
  */
 
 import { OverflowText, Icon } from '@openbitfun/ui';
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Loader2, AlertTriangle, AlertCircle, SearchCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getToolCardStatus } from './toolCardStatus';
@@ -236,10 +237,17 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
   const { t } = useTranslation('flow-chat');
   const { toolResult } = toolItem;
   const status = getToolCardStatus(toolItem);
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [expandedRemediationIds, setExpandedRemediationIds] = useState<Set<string>>(new Set());
-  const [expandedReportSectionIds, setExpandedReportSectionIds] = useState<Set<ReviewSectionId>>(new Set());
-  const autoExpandedResultRef = useRef<string | null>(null);
+  const [isExpanded, setIsExpanded] = useToolCardDisclosure('isExpanded');
+  const [remediationChoices, setRemediationChoices] = useToolCardValue<string>('remediations', '[]');
+  const [sectionChoices, setSectionChoices] = useToolCardValue<string>('reportSections', '{}');
+  const expandedRemediationIds = useMemo(() => new Set<string>(JSON.parse(remediationChoices)), [remediationChoices]);
+  const reportSectionChoices = useMemo(() => JSON.parse(sectionChoices) as Partial<Record<ReviewSectionId, boolean>>, [sectionChoices]);
+  const setExpandedRemediationIds = useCallback((update: (previous: Set<string>) => Set<string>) => {
+    setRemediationChoices(previous => JSON.stringify([...update(new Set<string>(JSON.parse(previous)))]));
+  }, [setRemediationChoices]);
+  const setReportSectionChoices = useCallback((update: (previous: Partial<Record<ReviewSectionId, boolean>>) => Partial<Record<ReviewSectionId, boolean>>) => {
+    setSectionChoices(previous => JSON.stringify(update(JSON.parse(previous))));
+  }, [setSectionChoices]);
   const toolId = toolItem.id ?? toolItem.toolCall?.id;
   const { cardRootRef, applyExpandedState, dispatchToolCardToggle } = useToolCardHeightContract({
     toolId,
@@ -296,10 +304,14 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
     }
   }, [toolResult?.result]);
 
-  useEffect(() => {
-    setExpandedRemediationIds(new Set());
-    setExpandedReportSectionIds(new Set(reviewData ? getDefaultExpandedCodeReviewSectionIds(reviewData) : []));
-  }, [reviewData, toolResult?.result]);
+  const expandedReportSectionIds = useMemo(() => {
+    const expanded = new Set(reviewData ? getDefaultExpandedCodeReviewSectionIds(reviewData) : []);
+    for (const [id, open] of Object.entries(reportSectionChoices)) {
+      if (open) expanded.add(id as ReviewSectionId);
+      else expanded.delete(id as ReviewSectionId);
+    }
+    return expanded;
+  }, [reportSectionChoices, reviewData]);
 
   const issueStats = useMemo(() => {
     if (!reviewData) return null;
@@ -361,25 +373,9 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
     [reviewData],
   );
 
-  useEffect(() => {
-    const resultKey = typeof toolResult?.result === 'string'
-      ? toolResult.result
-      : JSON.stringify(toolResult?.result ?? null);
-    const shouldAutoExpand =
-      status === 'completed' &&
-      reviewData?.review_mode === 'deep' &&
-      buildReviewRemediationItems(reviewData).length > 0 &&
-      autoExpandedResultRef.current !== resultKey;
-
-    if (shouldAutoExpand) {
-      autoExpandedResultRef.current = resultKey;
-      setIsExpanded(true);
-    }
-  }, [reviewData, status, toolResult?.result]);
-
   const toggleExpanded = useCallback(() => {
     applyExpandedState(isExpanded, !isExpanded, setIsExpanded);
-  }, [applyExpandedState, isExpanded]);
+  }, [applyExpandedState, isExpanded, setIsExpanded]);
 
   const handleCardClick = useCallback((e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
@@ -402,20 +398,12 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
       }
       return next;
     });
-  }, []);
+  }, [setExpandedRemediationIds]);
 
   const handleToggleReportSection = useCallback((sectionId: ReviewSectionId) => () => {
     dispatchToolCardToggle();
-    setExpandedReportSectionIds((current) => {
-      const next = new Set(current);
-      if (next.has(sectionId)) {
-        next.delete(sectionId);
-      } else {
-        next.add(sectionId);
-      }
-      return next;
-    });
-  }, [dispatchToolCardToggle]);
+    setReportSectionChoices(current => ({ ...current, [sectionId]: !expandedReportSectionIds.has(sectionId) }));
+  }, [dispatchToolCardToggle, expandedReportSectionIds, setReportSectionChoices]);
 
   // Listen for scroll-to events from the review action bar
   useEffect(() => {
@@ -426,12 +414,7 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
       }
 
       // Ensure both issues and remediation sections are expanded
-      setExpandedReportSectionIds((current) => {
-        const next = new Set(current);
-        next.add('remediation');
-        next.add('issues');
-        return next;
-      });
+      setReportSectionChoices(current => ({ ...current, remediation: true, issues: true }));
 
       // Double rAF: wait for React state update + DOM render before scrolling
       requestAnimationFrame(() => {
@@ -461,7 +444,7 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
     return () => {
       globalEventBus.off(DEEP_REVIEW_SCROLL_TO_EVENT, handler);
     };
-  }, [isExpanded]);
+  }, [isExpanded, setIsExpanded, setReportSectionChoices]);
 
   const renderContent = () => {
     if (status === 'cancelled') return t('toolCards.default.cancelled');

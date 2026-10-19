@@ -3,6 +3,7 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { subagentMotionClips } from '@openbitfun/ui/brand';
 import { SubagentAvatar } from './SubagentAvatar';
 import { resolveSubagentAvatarPresentation } from './avatarResolver';
 import { getSubagentAvatarDefinition } from './catalog';
@@ -92,6 +93,62 @@ describe('SubagentAvatar', () => {
     expect(animate.mock.calls.filter(call => (call[1] as KeyframeAnimationOptions)?.duration === 520)).toHaveLength(4);
     act(() => root.render(null));
     expect(cancels.every(cancel => cancel.mock.calls.length > 0)).toBe(true);
+  });
+
+  it.each([
+    ['pointerenter', 'pointerleave'],
+    ['focus', 'blur'],
+  ])('keeps working through %s and finishing, then responds to completion', async (enter, leave) => {
+    const tracks: {
+      options: KeyframeAnimationOptions;
+      cancel: ReturnType<typeof vi.fn>;
+      finish: () => void;
+    }[] = [];
+    Object.defineProperty(Element.prototype, 'animate', { configurable: true, value: (
+      _frames: Keyframe[], options: KeyframeAnimationOptions,
+    ) => {
+      let finish!: () => void;
+      const finished = new Promise<void>(resolve => { finish = resolve; });
+      const cancel = vi.fn();
+      tracks.push({ options, cancel, finish });
+      return { cancel, finished, play: vi.fn(), pause: vi.fn(), playState: 'running' };
+    } });
+    vi.stubGlobal('IntersectionObserver', undefined);
+    const render = (status: 'idle' | 'running' | 'finishing' | 'completed') => act(() => root.render(
+      <button data-agent-capsule-trigger><SubagentAvatar sessionId="child" status={status} motion /></button>,
+    ));
+    const expectLoop = (duration: number) => {
+      expect(tracks.slice(-4).map(track => [track.options.duration, track.options.iterations]))
+        .toEqual(Array.from({ length: 4 }, () => [duration, Infinity]));
+    };
+
+    render('idle');
+    const trigger = container.querySelector('button')!;
+    act(() => { trigger.dispatchEvent(new Event(enter)); });
+    expectLoop(subagentMotionClips.hoverBlink.duration);
+    render('running');
+    expectLoop(subagentMotionClips.working.duration);
+    const workingTracks = tracks.slice(-4);
+    const workingCount = tracks.length;
+    act(() => {
+      trigger.dispatchEvent(new Event(leave));
+      trigger.dispatchEvent(new Event(enter));
+    });
+    render('finishing');
+    expect(tracks).toHaveLength(workingCount);
+    expect(workingTracks.every(track => track.cancel.mock.calls.length === 0)).toBe(true);
+
+    render('completed');
+    expect(workingTracks.every(track => track.cancel.mock.calls.length > 0)).toBe(true);
+    expect(tracks.slice(-4).every(track => track.options.iterations === 1)).toBe(true);
+    await act(async () => { tracks.slice(-4).forEach(track => track.finish()); });
+    expectLoop(subagentMotionClips.hoverBlink.duration);
+
+    render('running');
+    act(() => { trigger.click(); });
+    expect(tracks.slice(-4).every(track => track.options.iterations === 1)).toBe(true);
+    await act(async () => { tracks.slice(-4).forEach(track => track.finish()); });
+    expectLoop(subagentMotionClips.working.duration);
   });
 
   it('leaves the authored avatar static when reduced motion is requested', () => {

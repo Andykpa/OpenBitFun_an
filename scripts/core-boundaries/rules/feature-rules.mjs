@@ -2,7 +2,6 @@
 
 export const servicesReqwestOwnerFeatures = [
   'account-identity',
-  'announcement',
   'browser-control',
   'mcp',
   'miniapp-market',
@@ -40,7 +39,8 @@ export const optionalDependencyFeatureOwnerRules = [
   },
   {
     crateName: 'services-core',
-    reviewedAggregateFeatures: ['workspace-persistence'],
+    // Offline recovery composes only existing storage/identity contracts.
+    reviewedAggregateFeatures: ['workspace-persistence', 'session-recovery'],
     reason:
       'services-core optional implementation dependencies must stay behind their exact owner capability',
     dependencies: [
@@ -48,7 +48,7 @@ export const optionalDependencyFeatureOwnerRules = [
       { depName: 'zip', ownerFeatures: ['pet-packages'] },
       { depName: 'uuid', ownerFeatures: ['pet-packages'] },
       { depName: 'aes-gcm', ownerFeatures: ['credential-vault'] },
-      { depName: 'anyhow', ownerFeatures: ['credential-vault', 'dispatch-workspace', 'workspace-runtime', 'workspace-transfer'] },
+      { depName: 'anyhow', ownerFeatures: ['credential-vault', 'dispatch-workspace', 'workspace-runtime', 'workspace-transfer', 'session-recovery'] },
       { depName: 'async-trait', ownerFeatures: ['permission', 'workspace-runtime'] },
       { depName: 'base64', ownerFeatures: ['pet-packages', 'credential-vault', 'filesystem'] },
       {
@@ -146,7 +146,7 @@ export const optionalDependencyFeatureOwnerRules = [
       { depName: 'log', ownerFeatures: ['agent-runtime', 'native-hook-runtime'] },
       { depName: 'regex', ownerFeatures: ['agent-runtime', 'definition-contracts', 'native-hook-settings'] },
       { depName: 'serde', ownerFeatures: ['agent-runtime', 'definition-contracts', 'native-hook-runtime'] },
-      { depName: 'serde_json', ownerFeatures: ['agent-runtime', 'native-hook-runtime', 'native-hook-settings'] },
+      { depName: 'serde_json', ownerFeatures: ['agent-runtime', 'definition-contracts', 'native-hook-runtime', 'native-hook-settings'] },
       { depName: 'serde_yaml', ownerFeatures: ['agent-runtime', 'definition-contracts'] },
       { depName: 'sha2', ownerFeatures: ['agent-runtime'] },
       { depName: 'thiserror', ownerFeatures: ['agent-runtime', 'definition-contracts', 'native-hook-runtime'] },
@@ -172,6 +172,7 @@ export const optionalDependencyFeatureOwnerRules = [
       { depName: 'openbitfun-agent-tools', ownerFeatures: ['agent-runtime', 'local-storage', 'mcp-runtime'] },
       { depName: 'openbitfun-claude-code-adapter', ownerFeatures: ['external-sources'] },
       { depName: 'openbitfun-codex-adapter', ownerFeatures: ['external-sources'] },
+      { depName: 'openbitfun-zcode-adapter', ownerFeatures: ['external-sources'] },
       { depName: 'openbitfun-external-sources', ownerFeatures: ['external-sources'] },
       { depName: 'openbitfun-legacy-migration-adapters', ownerFeatures: ['legacy-migration'] },
       { depName: 'openbitfun-opencode-adapter', ownerFeatures: ['external-sources'] },
@@ -194,7 +195,6 @@ export const optionalDependencyFeatureOwnerRules = [
       {
         depName: 'openbitfun-services-integrations',
         ownerFeatures: [
-          'announcement',
           'canvas-runtime',
           'browser-control',
           'deep-research',
@@ -291,13 +291,13 @@ export const optionalDependencyFeatureOwnerRules = [
         depName: 'openbitfun-services-core',
         ownerFeatures: [
           'account-identity',
-          'announcement',
           'browser-control',
           'git',
           'hook-import',
           'mcp',
           'miniapp-market',
           'miniapp-runtime',
+          'miniapp-storage',
           'models-dev',
           'process-tree',
           'remote-connect',
@@ -510,6 +510,7 @@ export const capabilityContractDependencyRules = [
           capabilityForwarder('workspace-transfer', 'workspace-ports'),
         ],
         ['permission', 'workspace-runtime', 'workspace-persistence', 'workspace-transfer'],
+        ['session-recovery'],
       )],
       ['openbitfun-services-integrations', capabilityConsumer(
         [capabilityEdge([], { optional: true })],
@@ -604,9 +605,12 @@ export const capabilityContractDependencyRules = [
     featureProfiles: {
       default: [],
       'definition-contracts': [
+        // Skill declarations reuse pure hook validation without process support.
+        'native-hook-settings',
         'dep:openbitfun-core-types',
         'dep:regex',
         'dep:serde',
+        'dep:serde_json',
         'dep:serde_yaml',
         'dep:thiserror',
       ],
@@ -623,6 +627,8 @@ export const capabilityContractDependencyRules = [
         'tokio/macros',
         'tokio/process',
         'tokio/rt',
+        // Session hook once guards and cancellation watchers.
+        'tokio/sync',
         'tokio/time',
       ],
       'agent-runtime': [
@@ -731,7 +737,6 @@ export const coreProductFullFeatureAssemblyRule = {
     'tools-pages',
     'web-tools',
     'workspace-search',
-    'announcement',
     'canvas-runtime',
     'dispatch-store',
     'file-watch',
@@ -993,6 +998,7 @@ export const coreClosedFeatureProfileRules = [
       'dep:openbitfun-pi-adapter',
       'dep:openbitfun-claude-code-adapter',
       'dep:openbitfun-codex-adapter',
+      'dep:openbitfun-zcode-adapter',
       'dep:openbitfun-external-sources',
       'openbitfun-services-integrations/hook-import',
       'plugin-source',
@@ -1698,13 +1704,6 @@ export const coreClosedFeatureProfileRules = [
   },
   {
     manifestPath: 'src/crates/assembly/core/Cargo.toml',
-    featureName: 'announcement',
-    requiredFeatureRefs: ['openbitfun-services-integrations/announcement'],
-    exact: true,
-    reason: 'openbitfun-core announcement must select only the announcement owner capability',
-  },
-  {
-    manifestPath: 'src/crates/assembly/core/Cargo.toml',
     featureName: 'file-watch',
     requiredFeatureRefs: ['openbitfun-services-integrations/file-watch'],
     exact: true,
@@ -1728,7 +1727,7 @@ export const coreClosedFeatureProfileRules = [
   {
     manifestPath: 'src/crates/assembly/core/Cargo.toml',
     featureName: 'service-integrations',
-    requiredFeatureRefs: ['announcement', 'file-watch', 'git', 'review-platform'],
+    requiredFeatureRefs: ['file-watch', 'git', 'review-platform'],
     exact: true,
     reason:
       'openbitfun-core service-integrations is a compatibility facade group, not a product capability umbrella',
@@ -1781,7 +1780,6 @@ export const ownerCrateFeatureAssemblyRules = [
       'script-tool-runtime',
     ],
     requiredProductFullFeatures: [
-      'announcement',
       'browser-control',
       'canvas-runtime',
       'deep-research',

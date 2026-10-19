@@ -1,8 +1,9 @@
+import { useToolCardDisclosure } from '../timeline/readerState';
 /**
  * Tool card for GrepSearch text queries.
  */
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getToolCardStatus, getToolCardStatusDescription } from './toolCardStatus';
 import type { ToolCardProps } from '../types/flow-chat';
@@ -17,7 +18,7 @@ export const GrepSearchDisplay: React.FC<ToolCardProps> = ({
   const { t } = useTranslation('flow-chat');
   const { toolCall, toolResult } = toolItem;
   const status = getToolCardStatus(toolItem);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useToolCardDisclosure('isExpanded');
   const toolId = toolItem.id ?? toolCall?.id;
   const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
     toolId,
@@ -64,7 +65,8 @@ export const GrepSearchDisplay: React.FC<ToolCardProps> = ({
 
   const pattern = getSearchPattern();
   const searchPath = getSearchPath();
-  const hasDetails = status === 'completed' && stats.matches > 0;
+  const hasDetails = (status === 'completed' || Boolean(toolItem.importedSource))
+    && (stats.matches > 0 || typeof toolResult?.result?.result === 'string' && toolResult.result.result.length > 0);
   const hasResultData = typeof toolResult?.result?.total_matches === 'number'
     && Number.isFinite(toolResult.result.total_matches) && toolResult.result.total_matches >= 0;
 
@@ -83,7 +85,7 @@ export const GrepSearchDisplay: React.FC<ToolCardProps> = ({
         onExpand,
       });
     }
-  }, [applyExpandedState, hasDetails, isExpanded, onExpand]);
+  }, [applyExpandedState, hasDetails, isExpanded, onExpand, setIsExpanded]);
 
   if (!isToolCardVisible(toolItem)) {
     return null;
@@ -102,10 +104,10 @@ export const GrepSearchDisplay: React.FC<ToolCardProps> = ({
         details={hasDetails ? [
           { label: `${t('toolCards.grepSearch.labelPattern')}:`, value: pattern },
           { label: `${t('toolCards.grepSearch.labelPath')}:`, value: searchPath },
-          {
+          ...(hasResultData ? [{
             label: `${t('toolCards.grepSearch.labelStats')}:`,
             value: t('toolCards.grepSearch.matchesAndFiles', { matches: stats.matches, files: stats.files }),
-          },
+          }] : []),
         ] : undefined}
         resultBlocks={resultBlocks}
       />

@@ -367,6 +367,7 @@ export function CommandToolCard({
         </>
       ) : <ProminentToolCard
         allowExpandedWhenFailed
+        collapsibleErrorContent
         className={expanded ? styles.expandedCard : undefined}
         errorContent={errorContent}
         expandedContent={details}
@@ -378,8 +379,7 @@ export function CommandToolCard({
             content={expanded ? undefined : commandContent}
             extra={statusContent}
             primaryActions={renderAction("interrupt", interruptAction)}
-            icon={<Icon name="square-terminal" size="sm" />}
-            statusIcon={loading ? <ToolProcessingDots size={16} /> : undefined}
+            icon={loading ? <ToolProcessingDots size={16} /> : <Icon name="square-terminal" size="sm" />}
           />
         )}
         summaryExpandAffordance={hasDetails}

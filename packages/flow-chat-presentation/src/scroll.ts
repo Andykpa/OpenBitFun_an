@@ -158,6 +158,16 @@ export function useContainedTailFollow({ enabled: isExpanded, active: isActive, 
     tailFollowFrameRef.current = requestAnimationFrame(runFrame);
   }, [detectUpwardScroll, recordScrollPosition]);
 
+  /** An explicit return to the live preview releases a reader's earlier pause. */
+  const resume = useCallback(() => {
+    stopTailFollow();
+    shouldFollowTailRef.current = true;
+    tailFollowPauseVersionRef.current += 1;
+    tailFollowUserPauseUntilMsRef.current = 0;
+    lastScrollPositionRef.current = null;
+    if (isExpanded && contentRef.current) scheduleTailFollow(tailFollowPauseVersionRef.current);
+  }, [isExpanded, scheduleTailFollow, stopTailFollow]);
+
   /** A follow in flight outlives neither the card nor its collapse. */
   useEffect(() => stopTailFollow, [isExpanded, stopTailFollow]);
 
@@ -312,7 +322,7 @@ export function useContainedTailFollow({ enabled: isExpanded, active: isActive, 
   }, [isExpanded, pauseTailFollowForUserScroll]);
 
   return {
-    contentRef, scrollState, pause: pauseTailFollowForUserScroll,
+    contentRef, scrollState, pause: pauseTailFollowForUserScroll, resume,
     contentProps: {
       onScroll: checkScrollState, onWheelCapture: handleContentWheelCapture,
       onTouchStart: handleContentTouchStart, onTouchMove: handleContentTouchMove,

@@ -1,8 +1,9 @@
+import { useToolCardDisclosure } from '../timeline/readerState';
 /**
  * Tool card for TodoWrite.
  */
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { i18nService } from '@/infrastructure/i18n';
 import type { ToolCardProps } from '../types/flow-chat';
@@ -29,27 +30,30 @@ export const TodoWriteDisplay: React.FC<ToolCardProps> = ({
   const { t } = useTranslation('flow-chat');
   const { status, toolResult, partialParams, isParamsStreaming } = toolItem;
 
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useToolCardDisclosure('isExpanded');
   const toolId = toolItem.id;
   const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
     toolId,
     toolName: toolItem.toolName,
   });
 
-  const turnTodos = useDialogTurnTodos(sessionId, turnId);
+  const turnTodos = useDialogTurnTodos(toolItem.importedSource ? undefined : sessionId, turnId);
 
   const todosToDisplay: TodoLike[] = useMemo(() => {
     if (isParamsStreaming && partialParams?.todos && Array.isArray(partialParams.todos)) {
       return partialParams.todos as TodoLike[];
     }
-    if (turnTodos.length > 0) {
+    if (!toolItem.importedSource && turnTodos.length > 0) {
       return turnTodos as TodoLike[];
     }
     if (toolResult?.result?.todos && Array.isArray(toolResult.result.todos)) {
       return toolResult.result.todos as TodoLike[];
     }
+    if (Array.isArray(toolItem.toolCall?.input?.todos)) {
+      return toolItem.toolCall.input.todos as TodoLike[];
+    }
     return [];
-  }, [partialParams, toolResult, isParamsStreaming, turnTodos]);
+  }, [partialParams, toolResult, isParamsStreaming, turnTodos, toolItem.importedSource, toolItem.toolCall?.input]);
 
   const todoRenderItems = useMemo(
     () => createTodoRenderItems(todosToDisplay),
@@ -98,7 +102,7 @@ export const TodoWriteDisplay: React.FC<ToolCardProps> = ({
   const handleToggleExpanded = useCallback(() => {
     if (todosToDisplay.length === 0) return;
     applyExpandedState(isExpanded, !isExpanded, setIsExpanded);
-  }, [applyExpandedState, isExpanded, todosToDisplay.length]);
+  }, [applyExpandedState, isExpanded, setIsExpanded, todosToDisplay.length]);
 
   const hasTodos = todosToDisplay.length > 0;
 

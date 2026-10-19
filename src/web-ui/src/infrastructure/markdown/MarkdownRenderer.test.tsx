@@ -8,6 +8,7 @@ import type { MenuItem } from '@/shared/context-menu-system/types';
 import { MarkdownRenderer, ThinkingMarkdownRenderer } from './MarkdownRenderer';
 import { useAgentCanvasStore } from '@/app/components/panels/content-canvas/stores/canvasStore';
 import { useSceneStore } from '@/app/stores/sceneStore';
+import { selectSessionPaneMode, sessionPaneLayoutStore } from '@/app/scenes/session/sessionPaneLayoutStore';
 import { useContentResourceStore } from '@/app/workbench/contentResourceStore';
 import { appManager } from '@/app/services/AppManager';
 import { flowChatStore } from '@/flow_chat/store/FlowChatStore';
@@ -208,11 +209,16 @@ describe('Markdown file links', () => {
     }
   });
 
-  it('preserves thinking code controls and image identity across stream completion', async () => {
+  it('preserves thinking code controls and images across compact expansion and completion', async () => {
     // Resolve the lazy entry before asserting its product DOM.
     await import('./ThinkingMarkdown');
     const content = '![Thinking preview](thinking-preview.png)\n\n```ts\nconst value = 1;\n';
-    await act(async () => root.render(<ThinkingMarkdownRenderer content={content} isStreaming basePath="/srv/thinking" />));
+    const renderThinking = async (viewport: 'compact' | 'expanded', value = content, streaming = true) => act(async () => root.render(
+      <div data-thinking-viewport={viewport}>
+        <ThinkingMarkdownRenderer content={value} isStreaming={streaming} basePath="/srv/thinking" singleLinePreview />
+      </div>,
+    ));
+    await renderThinking('compact');
     const image = container.querySelector('img');
     const toolbar = container.querySelector('.code-block-toolbar');
     expect(image).not.toBeNull();
@@ -220,7 +226,13 @@ describe('Markdown file links', () => {
     expect(container.querySelector('.code-block-wrapper')?.getAttribute('data-openbitfun-state')).toBe('streaming');
     const lightweight = container.querySelector('pre.code-block-fallback');
     expect(lightweight).not.toBeNull();
-    await act(async () => root.render(<ThinkingMarkdownRenderer content={content + '```'} basePath="/srv/thinking" />));
+    const preview = container.querySelector('.thinking-markdown-preview')!;
+    expect(preview.textContent).toBe('const value = 1;');
+    expect(preview.querySelector('pre, .code-block-toolbar, img')).toBeNull();
+    await renderThinking('expanded');
+    expect(container.querySelector('pre')).toBe(lightweight);
+    expect(container.querySelector('.code-block-toolbar')).toBe(toolbar);
+    await renderThinking('compact', content + '```', false);
     expect(container.querySelector('img')).toBe(image);
     expect(container.querySelector('.code-block-toolbar')).toBe(toolbar);
     expect(container.querySelector('.code-block-wrapper')?.hasAttribute('data-openbitfun-state')).toBe(false);
@@ -500,9 +512,6 @@ Second paragraph.
   it('commits a browser view and explicitly reveals its inline host', async () => {
     container.className = 'openbitfun-session-scene modern-flowchat-container';
     openSessionHost();
-    const onExpandPanel = vi.fn();
-
-    window.addEventListener('expand-right-panel-immediate', onExpandPanel);
 
     try {
       await act(async () => {
@@ -512,16 +521,16 @@ Second paragraph.
 
       const link = container.querySelector<HTMLAnchorElement>('a[href="https://example.com/docs"]');
       expect(link).not.toBeNull();
+      expect(selectSessionPaneMode(sessionPaneLayoutStore.getState())).toBe('chat-only');
 
       act(() => {
         link?.click();
       });
 
-      expect(onExpandPanel).toHaveBeenCalledTimes(1);
+      expect(selectSessionPaneMode(sessionPaneLayoutStore.getState())).toBe('split');
       expect(useAgentCanvasStore.getState().primaryGroup.tabs).toHaveLength(1);
       expect(useAgentCanvasStore.getState().primaryGroup.tabs[0].content.data.url).toBe('https://example.com/docs');
     } finally {
-      window.removeEventListener('expand-right-panel-immediate', onExpandPanel);
       vi.useRealTimers();
     }
   });
@@ -855,10 +864,31 @@ Second paragraph.
     expect(mocks.getCurrentWorkspacePath).not.toHaveBeenCalled();
   });
 
+  it('loads Windows drive-letter absolute markdown images', async () => {
+    const imagePath = 'C:/SampleDocs/preview.png';
+
+    await act(async () => {
+      root.render(
+        <MarkdownRenderer
+          content={`![Preview](${imagePath})`}
+          basePath="D:/IgnoredWorkspace"
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const image = container.querySelector<HTMLImageElement>('img[alt="Preview"]');
+    expect(image).not.toBeNull();
+    expect(mocks.readFileContent).toHaveBeenCalledWith(imagePath, 'base64', undefined);
+    expect(image?.src).toBe('data:image/png;base64,cmVsdS1wbmc=');
+  });
+
   it.each([
     ['computer://output/preview%20%E5%9B%BE.png', '/srv/project/output/preview 图.png'],
     ['file:///srv/project/preview.png', '/srv/project/preview.png'],
     ['computer:///srv/project/preview.png', '/srv/project/preview.png'],
+    ['file:///C:/SampleDocs/preview.png', 'C:/SampleDocs/preview.png'],
   ])('resolves output image references through the owning filesystem: %s', async (source, expectedPath) => {
     await act(async () => root.render(<MarkdownRenderer content={`![Preview](${source})`} basePath="/srv/project" remoteConnectionId={source} />));
     expect(mocks.readFileContent).toHaveBeenCalledWith(expectedPath, 'base64', source);

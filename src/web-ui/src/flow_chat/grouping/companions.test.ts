@@ -12,8 +12,9 @@ import { resolveFlowChatFocusTarget } from '../components/modern/flowChatFocusTa
 type ToolFamily = FlowGroupCategory | 'shell';
 function tool(id: string, category: ToolFamily = 'explore'): FlowToolItem {
   return { id, type: 'tool', timestamp: 1, status: 'completed',
-    toolName: { explore: 'Read', context: 'GetToolSpec', shell: 'ExecCommand', interface: 'ComputerUse' }[category],
-    toolCall: { id, input: category === 'interface' ? { action: 'get_app_state' } : {} },
+    toolName: { explore: 'Read', context: 'GetToolSpec', shell: 'ExecCommand', interface: 'ComputerUse', 'file-edit': 'Edit' }[category],
+    toolCall: { id, input: category === 'interface' ? { action: 'get_app_state' }
+      : category === 'file-edit' ? { file_path: '/remote/src/App.tsx' } : {} },
     toolResult: { success: true, result: {} } };
 }
 function narrative(id: string, type: 'thinking' | 'text' = 'thinking'): FlowTextItem | FlowThinkingItem {
@@ -24,7 +25,7 @@ function row(id: string, items: FlowItem[]): Extract<VirtualItem, { type: 'model
   return { type: 'model-round', turnId: 'turn', isLastRound: true, isTurnComplete: true,
     data: { id, items, index: 0, startTime: 1, status: 'completed', isComplete: true, isStreaming: false } };
 }
-const categories: ToolFamily[] = ['explore', 'context', 'shell', 'interface'];
+const categories: ToolFamily[] = ['explore', 'context', 'shell', 'interface', 'file-edit'];
 
 describe('card-based collection boundaries', () => {
   it.each(categories)('%s collects leading reasoning and intervening prose in recorded order', category => {
@@ -66,7 +67,7 @@ describe('card-based collection boundaries', () => {
     expect(JSON.stringify(inputs)).toBe(recorded);
   });
 
-  it.each(['context', 'interface'] as const)('%s thresholds count only cards and leave uncollected narrative in its row', category => {
+  it.each(['context', 'interface', 'file-edit'] as const)('%s thresholds count only cards and leave uncollected narrative in its row', category => {
     const thinking = narrative('thinking');
     const call = tool('one', category);
     expect(buildFlowItemGroups({ items: [thinking, call] })).toEqual([

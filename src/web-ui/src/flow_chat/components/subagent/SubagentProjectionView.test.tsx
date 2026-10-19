@@ -37,6 +37,7 @@ vi.mock('../../store/FlowChatStore', () => ({
   FlowChatStore: {
     getInstance: () => ({
       getState: () => flowChatState,
+      retainSessionHistory: () => () => {},
       subscribe: () => () => {},
     }),
   },
@@ -66,6 +67,14 @@ describe('SubagentProjectionView', () => {
   let root: Root;
 
   beforeEach(() => {
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(500);
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(600);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(500);
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     container = document.createElement('div');
     document.body.appendChild(container);
@@ -91,6 +100,8 @@ describe('SubagentProjectionView', () => {
       root.unmount();
     });
     container.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('hydrates a metadata-only historical subagent session when its detail panel is mounted', async () => {

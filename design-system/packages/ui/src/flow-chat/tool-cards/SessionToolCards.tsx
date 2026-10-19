@@ -128,8 +128,7 @@ function SessionToolCardBase({
     </div>;
     return <ToolRelationRow {...props} data-openbitfun-tool-card={toolCard}
       interaction={{ ...interaction, target: openAction ? { ...interaction.target,
-        onOpen: openAction.onPress, openLabel: openAction.label } : { ...interaction.target,
-        details: interaction.target.details ?? (!interaction.target.onOpen ? relationDetails : undefined) } }}
+        onOpen: openAction.onPress, openLabel: openAction.label } : interaction.target }}
       status={status} result={statusLabel ?? resultSummary ?? summary}
       details={relationDetails} detailsTitle={message ? messageLabel ?? action : action ?? summary} resultLabel={resultLabel} />;
   }

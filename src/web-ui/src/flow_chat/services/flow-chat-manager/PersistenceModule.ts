@@ -16,12 +16,13 @@ import {
 } from '../../utils/toolInvocationIdentity';
 import { resolveSessionDriverId } from '../../session-drivers/resolve';
 import { resolveStorageTurnIndex } from '../../utils/flowChatTurnIdentity';
+import { sessionActivityStore } from '../../store/sessionActivityStore';
 
 const log = createLogger('PersistenceModule');
 const COALESCED_IMMEDIATE_SAVE_DELAY_MS = 500;
 
-function isTransientSession(session: { isTransient?: boolean } | undefined): boolean {
-  return session?.isTransient === true;
+function isTransientSession(session: { isTransient?: boolean; draft?: { phase: string } } | undefined): boolean {
+  return session?.isTransient === true || session?.draft?.phase === 'editing' || session?.draft?.phase === 'creating';
 }
 
 /**
@@ -520,6 +521,8 @@ export function convertDialogTurnToBackendFormat(dialogTurn: DialogTurn, turnInd
       ? {
           inputTokens: dialogTurn.tokenUsage.inputTokens,
           outputTokens: dialogTurn.tokenUsage.outputTokens,
+          ...(dialogTurn.tokenUsage.cachedTokens !== undefined
+            ? { cachedTokens: dialogTurn.tokenUsage.cachedTokens } : {}),
           totalTokens: dialogTurn.tokenUsage.totalTokens,
           timestamp: dialogTurn.tokenUsage.timestamp,
         }
@@ -570,6 +573,13 @@ export async function updateSessionMetadata(
     if (!scope.isCurrent()) return;
 
     const metadata = buildSessionMetadata(session, existingMetadata);
+    if (fields?.includes('unreadCompletion')) {
+      const activity = sessionActivityStore.get(sessionId)?.summary;
+      // lastTurn is a receipt guard in a UI patch, not a write to the host's
+      // execution summary. A newer quiet run must not change its target.
+      const unreadTurn = activity?.unreadTurn;
+      if (unreadTurn) metadata.lastTurn = unreadTurn;
+    }
 
     await sessionAPI.saveSessionMetadata(
       metadata,

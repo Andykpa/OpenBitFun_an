@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   estimateTextHeightFromLength,
-  describeVirtualItemEstimate,
   estimateVirtualMessageItemHeightWithContext,
   estimateVirtualMessageItemHeight,
   getVirtualMessageDefaultItemHeight,
@@ -214,13 +213,12 @@ describe('estimateVirtualMessageItemHeight', () => {
     const expanded = estimateVirtualMessageItemHeightWithContext(exploreItem, {
       exploreGroupStates: new Map([['group-1', true]]),
     });
-    expect(describeVirtualItemEstimate(exploreItem)).toMatchObject({ defaultExpanded: false });
     expect(defaultHeight).toBe(collapsed);
     expect(expanded).toBeGreaterThan(collapsed);
   });
 });
 
-it('estimates the full natural height of live and explicitly expanded group content', () => {
+it('keeps live thinking estimates compact regardless of content length', () => {
   const read: FlowToolItem = { id: 'read', type: 'tool', toolName: 'Read', status: 'completed',
     timestamp: 1, toolCall: { id: 'read', input: {} } };
   const thinking: FlowThinkingItem = { id: 'thought', type: 'thinking', content: 'Checking the result.',
@@ -232,13 +230,13 @@ it('estimates the full natural height of live and explicitly expanded group cont
   const longer = estimateFlowGroupHeight({ ...data, allItems: [read, { ...thinking, content: 'x'.repeat(10000) } as FlowThinkingItem] }).heightPx;
   const closed = estimateFlowGroupHeight(data, { groupStates: new Map([['group', false]]) }).heightPx;
   expect(short).toBeGreaterThan(closed);
-  expect(short).toBeLessThan(long);
-  expect(longer).toBeGreaterThan(long);
-  expect(long).toBeGreaterThan(600);
+  expect(short).toBe(long);
+  expect(longer).toBe(long);
+  expect(estimateFlowGroupHeight(data, { expandedThinkingItemIds: [thinking.id] }).heightPx).toBe(short);
   const completed: FlowThinkingItem = { ...thinking, content: 'x'.repeat(5000), status: 'completed', isStreaming: false };
   const settledContent = { ...data, allItems: [read, completed] };
-  expect(estimateFlowGroupHeight(settledContent).heightPx).toBeLessThan(short);
-  expect(estimateFlowGroupHeight(settledContent, { expandedThinkingItemIds: [thinking.id] }).heightPx).toBe(long);
+  expect(estimateFlowGroupHeight(settledContent).heightPx).toBe(short);
+  expect(estimateFlowGroupHeight(settledContent, { expandedThinkingItemIds: [thinking.id] }).heightPx).toBeGreaterThan(long);
 });
 
 describe('selectInitialHistoryRenderWindow', () => {

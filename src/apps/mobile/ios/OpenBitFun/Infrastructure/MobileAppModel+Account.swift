@@ -46,6 +46,7 @@ extension MobileAppModel {
         if !preserveDrawer { drawerOpen = false }
         let targetKey = "account:\(device.id)"
         guard remoteExpectedDeviceKey != targetKey else { return }
+        remoteReleasedDeviceID = nil
         invalidateTargetScopedFileTransfers()
         remoteTargetEpoch &+= 1
         accountSelectedDeviceID = device.id
@@ -228,7 +229,7 @@ extension MobileAppModel {
             }
             return components.url
         }
-        if accountSheetOpen, let url = accountAuthorizationURL, url != previousAuthorizationURL {
+        if accountSheetOpen || accountLoginSurfaces > 0, let url = accountAuthorizationURL, url != previousAuthorizationURL {
             openAccountAuthorization()
         }
         if let ready = state as? AccountUiStateReady {
@@ -248,6 +249,8 @@ extension MobileAppModel {
             accountDeviceName = ready.selectedDeviceName
             accountDeviceCount = ready.devices.count
             accountSelectedDeviceID = ready.selectedDeviceId
+            if remoteReleasedDeviceID != ready.selectedDeviceId { remoteReleasedDeviceID = nil }
+            let released = remoteReleasedDeviceID != nil
             accountRefreshing = ready.refreshing
             remoteCreateDeviceError = ready.refreshFailure != nil
                 ? localized("设备列表加载失败，请稍后重试。") : nil
@@ -265,12 +268,6 @@ extension MobileAppModel {
             if let selectedID = ready.selectedDeviceId {
                 coreAdapter?.loadDeviceDirectory(selectedID)
             }
-            if let link = pendingDeviceLink {
-                pendingDeviceLink = nil
-                submitPairing(url: link)
-                if pairingError != nil { pairingSheetOpen = true }
-                return
-            }
             // A persisted target is only a preference. If it is no longer in
             // the directory or has gone offline, recover to the first online
             // controllable device instead of leaving the user on the empty
@@ -278,7 +275,7 @@ extension MobileAppModel {
             let selectedDeviceIsOnline = ready.selectedDeviceId.flatMap { selectedID in
                 ready.devices.first(where: { $0.id == selectedID })?.online
             } ?? false
-            if !selectedDeviceIsOnline,
+            if !released, !selectedDeviceIsOnline,
                let target = ready.devices.first(where: { $0.online }) {
                 accountBusy = true
                 coreAdapter?.selectAccountDevice(id: target.id)
@@ -288,7 +285,7 @@ extension MobileAppModel {
             let retainsReachableAccountTarget = selectedTargetKey == remoteExpectedDeviceKey && remoteConnected
             if !retainsReachableAccountTarget {
                 remoteConnected = false
-                connectionPhase = ready.selectedDeviceId == nil ? .disconnected : .reconnecting
+                connectionPhase = ready.selectedDeviceId == nil || released ? .disconnected : .reconnecting
             }
             surface = .remote
         } else if let failed = state as? AccountUiStateFailed {

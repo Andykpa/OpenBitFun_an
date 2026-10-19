@@ -52,6 +52,8 @@ export interface FlowToolItem extends FlowItem {
   type: 'tool';
   /** Provider-facing identity. Deferred calls remain `CallDeferredTool`. */
   toolName: string;
+  /** Read-time provenance from the owning Turn, never a native runtime tool. */
+  importedSource?: 'codex' | 'zcode';
   terminalSessionId?: string;
   interruptionReason?: 'app_restart' | 'retry_superseded';
   toolCall: {
@@ -189,6 +191,8 @@ export interface ModelRoundRenderHints {
    * collapsible tools and adjacent narrative into an explore group.
    */
   disableExploreGrouping?: boolean;
+  /** Explicit host policy; absent on older retry-derived hints. */
+  disableExploreGroupingSource?: 'host';
 }
 
 export interface ModelRoundAttempt {
@@ -231,6 +235,8 @@ export interface ModelRound {
 export interface TokenUsage {
   inputTokens: number;
   outputTokens?: number;
+  /** Cache-read tokens; absent when any request in the turn did not report them. */
+  cachedTokens?: number;
   totalTokens: number;
   timestamp: number;
   /** Persisted source turn used to invalidate usage after history rewrites. */
@@ -386,6 +392,19 @@ export type SessionContextRestoreState =
 
 // Session state.
 export interface Session {
+  /** Original history source; continuation mode is an independent fact. */
+  importedSource?: string;
+  /** Local composer selection, applied only after a source view is forked. */
+  externalContinuationPermissionMode?: import('@/infrastructure/api/service-api/AgentAPI').SessionPermissionMode | null;
+  externalHistory?: {
+    mode: 'follow';
+    contentVersion?: string;
+    sourceStatus?: 'available' | 'unavailable';
+    incomplete?: boolean;
+    observedFingerprint?: string;
+    materializedObservation?: string;
+  };
+  externalBranchOf?: import('@/shared/types/session-history').SessionCustomMetadata['externalBranchOf'];
   sessionId: string;
   title?: string;
   /**
@@ -441,6 +460,8 @@ export interface Session {
    * - 'failed': hydrate failed and the UI should offer retry instead of showing a new session.
    */
   historyState?: SessionHistoryState;
+  /** Last authoritative metadata count; absent on legacy projections. */
+  persistedTurnCount?: number;
 
   /**
    * Backend runtime-context lifecycle for sessions restored through the fast
@@ -481,6 +502,9 @@ export interface Session {
    * rollback.
    */
   lastSubmittedMode?: string;
+
+  /** Frontend-only new-conversation preparation; never serialized as session metadata. */
+  draft?: import('../utils/sessionDraft').SessionDraft;
 
   // Workspace this session belongs to. Used for sidebar display filtering.
   // Sessions are always kept in store for event processing; only display is filtered.

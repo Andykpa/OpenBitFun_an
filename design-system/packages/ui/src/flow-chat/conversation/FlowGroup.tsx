@@ -9,7 +9,11 @@ import { Tooltip } from '../../components/Tooltip/Tooltip';
 import { OverflowText } from '../../primitives/OverflowText';
 import { receiveCapsule, useCapsuleMotion } from '../motion/capsuleMotion';
 import { FlowChatCollapse } from './FlowChatCollapse';
+import { FileRevisionSummary, type FlowGroupFileRevision } from './FileRevisionSummary';
+import fileRevisionStyles from './FileRevisionSummary.module.css';
 import './ConversationBlocks.css';
+
+export type { FlowGroupFileRevision } from './FileRevisionSummary';
 
 /** A host-owned, single-use receipt. Counts, hydration and mounting are not arrivals. */
 export interface FlowGroupReceiveFeedback {
@@ -57,11 +61,15 @@ export interface FlowGroupProps extends Omit<HTMLAttributes<HTMLDivElement>, 'ch
   streaming?: boolean;
   /** Opt into an internal scroll area for embedded hosts; transcripts use natural height. */
   bounded?: boolean;
+  /** The host renders members as siblings in its single virtual timeline. */
+  externalContent?: boolean;
   receiveFeedback?: FlowGroupReceiveFeedback;
   contentRef?: Ref<HTMLDivElement>;
   onContentScroll?: HTMLAttributes<HTMLDivElement>['onScroll'];
   contentProps?: HTMLAttributes<HTMLDivElement>;
   browser?: FlowGroupBrowserProps;
+  /** A shared file identity with bound revision pages instead of a capsule. */
+  fileRevision?: FlowGroupFileRevision;
   /** Stable anatomy identity for semantic presets and installed Appearance packages. */
   'data-openbitfun-component'?: string;
   'data-testid'?: string;
@@ -72,12 +80,13 @@ export interface FlowGroupProps extends Omit<HTMLAttributes<HTMLDivElement>, 'ch
 export const FlowGroup = forwardRef<HTMLDivElement, FlowGroupProps>(function FlowGroup({
   children, expanded, onExpandedChange, leading, summary, summaryItems, summaryDescription,
   itemCount = 0, placement = 'standalone', streaming = false, bounded = false,
-  receiveFeedback, contentRef, onContentScroll, contentProps, browser, className = '',
+  receiveFeedback, contentRef, onContentScroll, contentProps, browser, fileRevision, externalContent = false, className = '',
   'data-openbitfun-component': component = 'flow-group',
   'data-testid': testId = 'chat-flow-group', 'data-group-kind': kind,
   ...props
 }, ref) {
-  const contentId = useId();
+  const internalContentId = useId();
+  const contentId = externalContent ? undefined : internalContentId;
   const Content = bounded ? ScrollArea : 'div';
   const rootRef = useRef<HTMLDivElement | null>(null);
   const bindRoot = useCallback((node: HTMLDivElement | null) => {
@@ -94,8 +103,8 @@ export const FlowGroup = forwardRef<HTMLDivElement, FlowGroupProps>(function Flo
     // must never replay when the reader scrolls back or later closes the group.
     const claimed = receiveFeedback?.claim();
     if (expanded) motion.cancel();
-    else if (changed && claimed) motion.play('receive', receiveCapsule);
-  }, [expanded, receiveFeedback, motion.play, motion.cancel]);
+    else if (!fileRevision && changed && claimed) motion.play('receive', receiveCapsule);
+  }, [expanded, fileRevision, receiveFeedback, motion.play, motion.cancel]);
 
   const handleToggle = () => {
     if (!onExpandedChange) return;
@@ -107,10 +116,14 @@ export const FlowGroup = forwardRef<HTMLDivElement, FlowGroupProps>(function Flo
     data-openbitfun-component={component} data-openbitfun-part="root" data-flow-group=""
     data-openbitfun-state={expanded ? 'expanded' : undefined} data-testid={testId}
     data-group-kind={kind} data-placement={placement} data-expanded={expanded ? 'true' : 'false'}
+    data-file-revisions={fileRevision ? 'true' : undefined}
     data-collected={itemCount > 1 ? 'true' : 'false'} data-item-count={itemCount}
     className={['explore-region', 'explore-region--collapsible', expanded ? 'explore-region--expanded' : 'explore-region--collapsed',
-      streaming && 'explore-region--streaming', bounded && 'explore-region--bounded', className].filter(Boolean).join(' ')}>
-    <div className={`explore-region__toolbar${expanded && browser ? ' explore-region__toolbar--browsable' : ''}`}>
+      streaming && 'explore-region--streaming', bounded && 'explore-region--bounded', fileRevision && fileRevisionStyles.group, className].filter(Boolean).join(' ')}>
+    {fileRevision ? <FileRevisionSummary file={fileRevision} itemCount={itemCount} expanded={expanded}
+      onToggle={onExpandedChange ? handleToggle : undefined} contentId={contentId}
+      description={[summaryDescription ?? summary, fileRevision.statusLabel, fileRevision.changeSummary?.label].filter(Boolean).join(' · ')} component={component} testId={testId} />
+      : <div className={`explore-region__toolbar${expanded && browser ? ' explore-region__toolbar--browsable' : ''}`}>
       <Tooltip content={summaryDescription ?? summary} disabled={!summaryDescription}>
         <div data-openbitfun-component={component} data-openbitfun-part="header" className="explore-region__header"
           data-overflow-trigger onClick={handleToggle} role={onExpandedChange ? 'button' : undefined}
@@ -144,8 +157,8 @@ export const FlowGroup = forwardRef<HTMLDivElement, FlowGroupProps>(function Flo
         className="explore-region__controls" onFocusCapture={browser.onInteract}>
         <FlowGroupBrowser browser={browser} />
       </div>}
-    </div>
-    <FlowChatCollapse isOpen={expanded} id={contentId}
+    </div>}
+    {!externalContent && <FlowChatCollapse isOpen={expanded} id={contentId}
       data-openbitfun-component={component} data-openbitfun-part="contentWrapper"
       className="explore-region__content-wrapper"
       innerClassName="explore-region__content-inner">
@@ -157,7 +170,8 @@ export const FlowGroup = forwardRef<HTMLDivElement, FlowGroupProps>(function Flo
         {browser?.empty && <div className="explore-region__empty">{browser.emptyLabel}</div>}
         {children}
       </Content>
-    </FlowChatCollapse>
+    </FlowChatCollapse>}
+    {externalContent && expanded && browser?.empty && <div className="explore-region__empty">{browser.emptyLabel}</div>}
   </div>;
 });
 

@@ -15,7 +15,7 @@ export function subscribeToToolSessions(listener: () => void): () => void {
 /** The actor is identified by its position in this conversation, never its title. */
 export function useCurrentToolSessionParticipant(sessionId: string | undefined, t: (key: string) => string): ToolCardParticipant {
   const label = t('toolCards.interaction.currentSession');
-  const participant = useToolSessionParticipant(sessionId, label, t);
+  const participant = useToolSessionParticipant(sessionId, label, t, 'session', {});
   return useMemo(() => ({ ...participant, label }), [participant, label]);
 }
 
@@ -32,27 +32,36 @@ export function useToolSessionParticipant(
   const parentToolCallId = navigation?.parentToolCallId;
   const navigationEnabled = navigation?.enabled;
   const readSnapshot = useCallback(() => {
-    const session = sessionId ? flowChatStore.getState().sessions.get(sessionId) : undefined;
-    const parent = parentSessionId ? flowChatStore.getState().sessions.get(parentSessionId) : undefined;
+    const { sessions } = flowChatStore.getState();
+    const session = sessionId ? sessions.get(sessionId) : undefined;
+    const resolvedParentId = session?.parentSessionId || parentSessionId;
+    const parent = resolvedParentId ? sessions.get(resolvedParentId) : undefined;
     return JSON.stringify([session?.title?.trim() ?? '', session?.sessionKind === 'subagent', Boolean(session),
-      Boolean(parent), Boolean(parent?.config?.dispatchTarget || parent?.config?.dispatchJobId), getActiveSurfaceScope().epoch]);
+      Boolean(parent), Boolean(session?.config?.dispatchTarget || session?.config?.dispatchJobId
+        || parent?.config?.dispatchTarget || parent?.config?.dispatchJobId), getActiveSurfaceScope().epoch, resolvedParentId || '']);
   }, [sessionId, parentSessionId]);
   const snapshot = useSyncExternalStore(subscribeToToolSessions, readSnapshot, readSnapshot);
   return useMemo<ToolCardParticipant>(() => {
-    const [title, subagent, available, parentAvailable, detached, epoch] = JSON.parse(snapshot) as [string, boolean, boolean, boolean, boolean, number];
+    const [title, subagent, available, parentAvailable, detached, epoch, resolvedParentId] = JSON.parse(snapshot) as [string, boolean, boolean, boolean, boolean, number, string];
     const agent = subagent || kind === 'agent';
     const label = agent ? sessionId ? t(resolveSubagentNameKey(sessionId)) : fallback : title || fallback;
     const canOpen = hasNavigation && navigationEnabled !== false && !detached && sessionId
-      && (available || agent && parentAvailable);
+      && (agent ? parentAvailable && resolvedParentId !== sessionId : available);
     const link = canOpen ? {
-      openLabel: t('toolCards.builtin.links.openSession'),
+      openLabel: t(agent ? 'toolCards.taskTool.openInPanel' : 'toolCards.builtin.links.openSession'),
       onOpen: () => {
         const scope = getActiveSurfaceScope();
         if (scope.epoch !== epoch) return;
-        const parentId = parentSessionId;
-        const parent = parentId ? flowChatStore.getState().sessions.get(parentId) : undefined;
         const child = flowChatStore.getState().sessions.get(sessionId);
-        if (agent && parentId && parent) {
+        const parentId = child?.parentSessionId || resolvedParentId;
+        const parent = parentId ? flowChatStore.getState().sessions.get(parentId) : undefined;
+        if (child?.config?.dispatchTarget || child?.config?.dispatchJobId
+          || parent?.config?.dispatchTarget || parent?.config?.dispatchJobId) return;
+        if (agent) {
+          if (!parent || parentId === sessionId) {
+            notificationService.error(t('toolCards.interaction.sessionUnavailable'));
+            return;
+          }
           openBtwSessionInAuxPane({ childSessionId: sessionId, parentSessionId: parentId, sessionKind: 'subagent',
             sessionTitle: label, workspaceId: child?.workspaceId, workspacePath: parent.workspacePath,
             parentToolCallId: child?.parentToolCallId || parentToolCallId,
@@ -79,5 +88,5 @@ export function useToolSessionParticipant(
       };
     }
     return { ...link, id: sessionId, label, kind: 'session' };
-  }, [snapshot, sessionId, kind, fallback, t, hasNavigation, navigationEnabled, parentSessionId, parentToolCallId]);
+  }, [snapshot, sessionId, kind, fallback, t, hasNavigation, navigationEnabled, parentToolCallId]);
 }

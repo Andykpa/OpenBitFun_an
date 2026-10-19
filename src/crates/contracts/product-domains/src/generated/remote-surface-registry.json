@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "digest": "fnv1a64:6ef0dc2e94b7c19e",
+  "digest": "fnv1a64:1d617d6e336f2a60",
   "retiredCommandPrefixes": [
     {
       "prefix": "lsp_",
@@ -9,6 +9,7 @@
   ],
   "capabilities": {
     "ids": [
+      "background_result_delivery_v1",
       "dialog_queue_v1",
       "idempotent_dialog_submit",
       "inline_image_attachments_v1",
@@ -19,6 +20,7 @@
       "token_usage_statistics",
       "miniapp_agent_context_files_v1",
       "wsl_workspaces_v1",
+      "computer_use_sharing_v1",
       "product_control_v1",
       "product_control_native_v1",
       "product_control_presentation_v1",
@@ -26,10 +28,12 @@
       "tool_catalog",
       "chat_mcp_catalog_v1",
       "workspace_id_references_v1",
+      "whole_session_copy_v1",
       "user_question_response",
       "user_question_interaction_v1"
     ],
     "desktop": [
+      "background_result_delivery_v1",
       "dialog_queue_v1",
       "idempotent_dialog_submit",
       "inline_image_attachments_v1",
@@ -40,6 +44,7 @@
       "token_usage_statistics",
       "miniapp_agent_context_files_v1",
       "wsl_workspaces_v1",
+      "computer_use_sharing_v1",
       "product_control_v1",
       "product_control_native_v1",
       "product_control_presentation_v1",
@@ -47,10 +52,12 @@
       "tool_catalog",
       "chat_mcp_catalog_v1",
       "workspace_id_references_v1",
+      "whole_session_copy_v1",
       "user_question_response",
       "user_question_interaction_v1"
     ],
     "cli": [
+      "background_result_delivery_v1",
       "dialog_queue_v1",
       "control_conversation_v1",
       "control_conversation_reset_v1",
@@ -1115,7 +1122,115 @@
       }
     },
     {
+      "id": "computer_use_request_permission",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no browser or OS automation runtime"
+      }
+    },
+    {
       "id": "computer_use_request_permissions",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no browser or OS automation runtime"
+      }
+    },
+    {
+      "id": "computer_use_share_control",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no browser or OS automation runtime"
+      }
+    },
+    {
+      "id": "computer_use_share_forget_grant",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no browser or OS automation runtime"
+      }
+    },
+    {
+      "id": "computer_use_share_grants",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no browser or OS automation runtime"
+      }
+    },
+    {
+      "id": "computer_use_share_input",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no browser or OS automation runtime"
+      }
+    },
+    {
+      "id": "computer_use_share_observe",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no browser or OS automation runtime"
+      }
+    },
+    {
+      "id": "computer_use_share_request",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no browser or OS automation runtime"
+      }
+    },
+    {
+      "id": "computer_use_share_start",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no browser or OS automation runtime"
+      }
+    },
+    {
+      "id": "computer_use_share_targets",
       "surface": "tauri_command",
       "remoteWorkspace": "LocalOnly",
       "peer": {
@@ -1154,6 +1269,18 @@
       "id": "control_deep_review_queue",
       "surface": "tauri_command",
       "remoteWorkspace": "LegacyUnaudited",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no handler for this command"
+      }
+    },
+    {
+      "id": "copy_session",
+      "surface": "tauri_command",
+      "remoteWorkspace": "RemoteRouted",
       "peer": {
         "kind": "proxied"
       },
@@ -1490,18 +1617,6 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
-    },
-    {
-      "id": "dismiss_announcement",
-      "surface": "tauri_command",
-      "remoteWorkspace": "WorkspaceAgnostic",
-      "peer": {
-        "kind": "controller_local"
-      },
-      "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
       }
     },
     {
@@ -2252,18 +2367,6 @@
       }
     },
     {
-      "id": "get_announcement_tips",
-      "surface": "tauri_command",
-      "remoteWorkspace": "WorkspaceAgnostic",
-      "peer": {
-        "kind": "controller_local"
-      },
-      "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
-    },
-    {
       "id": "get_app_state",
       "surface": "tauri_command",
       "remoteWorkspace": "WorkspaceAgnostic",
@@ -2277,6 +2380,18 @@
     },
     {
       "id": "get_app_version",
+      "surface": "tauri_command",
+      "remoteWorkspace": "WorkspaceAgnostic",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no handler for this command"
+      }
+    },
+    {
+      "id": "get_assistant_workspaces",
       "surface": "tauri_command",
       "remoteWorkspace": "WorkspaceAgnostic",
       "peer": {
@@ -2860,18 +2975,6 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
-    },
-    {
-      "id": "get_pending_announcements",
-      "surface": "tauri_command",
-      "remoteWorkspace": "WorkspaceAgnostic",
-      "peer": {
-        "kind": "controller_local"
-      },
-      "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
       }
     },
     {
@@ -4100,6 +4203,18 @@
       }
     },
     {
+      "id": "list_removed_external_sessions",
+      "surface": "tauri_command",
+      "remoteWorkspace": "RemoteUnsupported",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no handler for this command"
+      }
+    },
+    {
       "id": "list_sessions",
       "surface": "tauri_command",
       "remoteWorkspace": "LegacyUnaudited",
@@ -4307,18 +4422,6 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
-    },
-    {
-      "id": "mark_announcement_seen",
-      "surface": "tauri_command",
-      "remoteWorkspace": "WorkspaceAgnostic",
-      "peer": {
-        "kind": "controller_local"
-      },
-      "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
       }
     },
     {
@@ -4790,6 +4893,18 @@
       }
     },
     {
+      "id": "miniapp_presentation",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
+      }
+    },
+    {
       "id": "miniapp_recompile",
       "surface": "tauri_command",
       "remoteWorkspace": "LegacyUnaudited",
@@ -4835,6 +4950,18 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
+      }
+    },
+    {
+      "id": "miniapp_shell_call",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
       }
     },
     {
@@ -4919,18 +5046,6 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
-    },
-    {
-      "id": "never_show_announcement",
-      "surface": "tauri_command",
-      "remoteWorkspace": "WorkspaceAgnostic",
-      "peer": {
-        "kind": "controller_local"
-      },
-      "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
       }
     },
     {
@@ -6058,6 +6173,18 @@
       }
     },
     {
+      "id": "restore_removed_external_session",
+      "surface": "tauri_command",
+      "remoteWorkspace": "RemoteUnsupported",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no handler for this command"
+      }
+    },
+    {
       "id": "restore_session",
       "surface": "tauri_command",
       "remoteWorkspace": "LegacyUnaudited",
@@ -6123,6 +6250,18 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
+      }
+    },
+    {
+      "id": "reveal_session_storage_directory",
+      "surface": "tauri_command",
+      "remoteWorkspace": "WorkspaceAgnostic",
+      "peer": {
+        "kind": "operator_only"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
       }
     },
     {
@@ -7789,18 +7928,6 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
-    },
-    {
-      "id": "trigger_announcement",
-      "surface": "tauri_command",
-      "remoteWorkspace": "WorkspaceAgnostic",
-      "peer": {
-        "kind": "controller_local"
-      },
-      "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
       }
     },
     {

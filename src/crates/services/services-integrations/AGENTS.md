@@ -113,8 +113,6 @@ slices that are outside pure product logic but still platform-neutral.
   sandbox or a CPU/memory/filesystem/network resource limit; surfaces must keep
   those residual risks explicit. Unix descendants that deliberately create a
   new session/process group are outside the managed boundary.
-- Announcement remote fetch/cache lives here; product assembly supplies config
-  values such as endpoint, locale, version, platform, and cache path.
 - DeepResearch report IO here owns report/citation sidecar filesystem work;
   provider-neutral citation numbering stays in `openbitfun-agent-runtime`. The IO
   path must use the injected `WorkspaceFileSystem` for both local and remote
@@ -131,6 +129,7 @@ streamable HTTP stay independent. Representative stable entry points are:
 
 ```bash
 cargo check -p openbitfun-services-integrations --no-default-features
+cargo test -p openbitfun-services-integrations --no-default-features --features browser-control --lib browser_control::cdp::tests::
 cargo test -p openbitfun-services-integrations --no-default-features --features remote-persistence --lib remote_persistence::tests::
 cargo test -p openbitfun-services-integrations --no-default-features --features mcp --test mcp_contracts
 cargo test -p openbitfun-services-integrations --no-default-features --features mcp --test mcp_streamable_http_contracts
@@ -138,6 +137,7 @@ cargo test -p openbitfun-services-integrations --no-default-features --features 
 cargo test -p openbitfun-services-integrations --no-default-features --features remote-ssh-concrete --lib remote_ssh::manager::tests::workspace_
 cargo test -p openbitfun-services-integrations --no-default-features --features remote-ssh-concrete --lib remote_ssh::wsl::tests::
 cargo test --locked -p openbitfun-services-integrations --no-default-features --features remote-ssh-concrete --lib remote_ssh::relay_deploy::tests::
+cargo test --locked -p openbitfun-services-integrations --no-default-features --features remote-connect --lib remote_connect::account::tests
 cargo test --locked -p openbitfun-services-integrations --no-default-features --features remote-connect --lib remote_connect::relay_client::tests::
 cargo test --locked -p openbitfun-services-integrations --no-default-features --features remote-connect --lib remote_connect::host_stream::tests::
 cargo test --locked -p openbitfun-services-integrations --no-default-features --features remote-connect --lib remote_connect::host_stream_subscriber::tests::
@@ -158,6 +158,11 @@ boundaries, and bounded disk storage), run:
 cargo test --locked -p openbitfun-services-integrations --no-default-features --features miniapp-market --lib market_image::tests
 ```
 
+For MiniApp instance leases, storage transactions, and Worker lifecycle, use
+`cargo test --locked -p openbitfun-services-integrations --no-default-features --features miniapp-runtime --lib miniapp::`.
+Framework Worker storage shares the host JSON transaction owner; preserve custom
+`worker.js` method overrides before routing built-in `storage.*` requests.
+
 On Windows with an initialized WSL distribution, set `OPENBITFUN_TEST_WSL_DISTRO`
 and run `cargo test -p openbitfun-services-integrations --no-default-features
 --features remote-ssh-concrete --lib wsl_windows_workspace_transport -- --ignored`
@@ -173,6 +178,12 @@ advertise a small handle limit and are included in the existing CI
 the same command with the filter ending in
 `workspace_sftp::openssh_real_files_over_loopback_ssh -- --ignored`.
 
+For directory symlink browsing and workspace-path validation, use the same
+package/features with `--lib directory_symlink_browsing -- --include-ignored`
+and `OPENBITFUN_TEST_SFTP_SERVER` set. This runs real OpenSSH SFTP over loopback
+and the Docker command adapter against a local POSIX shell fixture; the latter
+does not establish real Docker-daemon or Windows WSL coverage.
+
 For the remote Flashgrep distribution gate and retained protocol helpers, use:
 
 ```bash
@@ -187,3 +198,9 @@ cargo test --locked -p openbitfun-services-integrations --no-default-features --
 
 These loopback protocol fixtures exercise the serving host's HTTP and filesystem
 behavior; they do not establish real SSH, relay, peer or dispatch support.
+
+For models.dev snapshot reuse, last-valid recovery, and background refresh:
+
+```bash
+cargo test --locked -p openbitfun-services-integrations --no-default-features --features models-dev --lib models_dev::tests
+```

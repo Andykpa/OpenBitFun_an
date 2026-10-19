@@ -91,6 +91,88 @@ use crate::service::config::types::{AIConfig, GlobalConfig, ModelCapability};
 #[cfg(feature = "remote-connect")]
 use crate::service::session::{DialogTurnData, ToolItemIdentityExt, TurnStatus};
 
+/// Host-local catalog projection. Discovery never activates a workspace or SSH.
+#[derive(Default)]
+pub(crate) struct CoreWorkspaceCatalogPort;
+
+impl CoreWorkspaceCatalogPort {
+    pub(crate) async fn list_from_service(
+        service: &crate::service::workspace::WorkspaceService,
+    ) -> Vec<openbitfun_runtime_ports::AgentWorkspaceCatalogEntry> {
+        use crate::service::workspace::WorkspaceKind;
+        use openbitfun_runtime_ports::{AgentWorkspaceCatalogEntry, AgentWorkspaceRemoteInfo};
+        service
+            .list_workspace_infos()
+            .await
+            .into_iter()
+            .map(|record| {
+                let project = record.project_workspace_id().map(str::to_owned);
+                let remote = (record.workspace_kind == WorkspaceKind::Remote).then(|| {
+                    AgentWorkspaceRemoteInfo {
+                        connection_id: record.remote_ssh_connection_id().map(str::to_owned),
+                        host: record
+                            .metadata
+                            .get("sshHost")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_owned),
+                    }
+                });
+                let binding_error = project.as_ref().err().cloned().or_else(|| {
+                    remote.as_ref().and_then(|route| {
+                        (route
+                            .connection_id
+                            .as_deref()
+                            .is_none_or(|id| id.trim().is_empty())
+                            || route
+                                .host
+                                .as_deref()
+                                .is_none_or(|host| host.trim().is_empty()))
+                        .then(|| {
+                            "Remote workspace is missing its saved SSH connection ID or host"
+                                .to_string()
+                        })
+                    })
+                });
+                let root_path = if record.workspace_kind == WorkspaceKind::Remote {
+                    openbitfun_services_core::workspace_identity::normalize_remote_workspace_path(
+                        &record.root_path.to_string_lossy(),
+                    )
+                } else {
+                    record.root_path.to_string_lossy().into_owned()
+                };
+                AgentWorkspaceCatalogEntry {
+                    workspace_id: record.id,
+                    project_workspace_id: project.ok(),
+                    name: record.name,
+                    kind: record.workspace_kind,
+                    root_path,
+                    last_accessed_at_ms: record.last_accessed.timestamp_millis(),
+                    remote,
+                    binding_error,
+                }
+            })
+            .collect()
+    }
+}
+
+#[async_trait::async_trait]
+impl openbitfun_runtime_ports::AgentWorkspaceCatalogPort for CoreWorkspaceCatalogPort {
+    async fn list_workspaces(
+        &self,
+    ) -> openbitfun_runtime_ports::PortResult<
+        Vec<openbitfun_runtime_ports::AgentWorkspaceCatalogEntry>,
+    > {
+        let service =
+            crate::service::workspace::get_global_workspace_service().ok_or_else(|| {
+                openbitfun_runtime_ports::PortError::new(
+                    openbitfun_runtime_ports::PortErrorKind::NotAvailable,
+                    "Workspace service is unavailable",
+                )
+            })?;
+        Ok(Self::list_from_service(&service).await)
+    }
+}
+
 #[cfg(feature = "opencode-plugin-host")]
 #[derive(Clone)]
 struct ConfiguredPluginSubmissionPort {
@@ -512,18 +594,49 @@ pub(crate) fn remote_workspace_metadata(
 #[cfg(feature = "remote-connect")]
 pub(crate) fn remote_workspace_display_name(
     workspace: &crate::service::workspace::WorkspaceInfo,
-) -> &str {
-    if workspace.workspace_kind == crate::service::workspace::WorkspaceKind::Assistant {
-        workspace
-            .identity
-            .as_ref()
-            .and_then(|identity| identity.name.as_deref())
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-            .unwrap_or(&workspace.name)
-    } else {
-        &workspace.name
+) -> String {
+    let preferred =
+        if workspace.workspace_kind == crate::service::workspace::WorkspaceKind::Assistant {
+            workspace
+                .identity
+                .as_ref()
+                .and_then(|identity| identity.name.as_deref())
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .unwrap_or(workspace.name.trim())
+        } else {
+            workspace.name.trim()
+        };
+    let normalized = preferred.to_ascii_lowercase();
+    if !preferred.is_empty()
+        && normalized != "unknown"
+        && normalized != "unknown project"
+        && preferred != "未知"
+        && preferred != "未知项目"
+    {
+        return preferred.to_string();
     }
+
+    let path_name = workspace
+        .root_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or("");
+    if !path_name.is_empty() {
+        return path_name.to_string();
+    }
+
+    for key in ["connectionName", "sshHost"] {
+        if let Some(value) = workspace_metadata_string(&workspace.metadata, key) {
+            return value;
+        }
+    }
+    if workspace.workspace_kind == crate::service::workspace::WorkspaceKind::Remote {
+        return "Remote workspace".to_string();
+    }
+    "Workspace".to_string()
 }
 
 #[cfg(feature = "remote-connect")]
@@ -536,7 +649,7 @@ pub(crate) async fn remote_opened_workspace_catalog(
         .into_iter()
         .map(|workspace| RemoteRecentWorkspaceFacts {
             workspace_id: workspace.id.clone(),
-            name: remote_workspace_display_name(&workspace).to_string(),
+            name: remote_workspace_display_name(&workspace),
             path: workspace.root_path.to_string_lossy().to_string(),
             last_opened: workspace.last_accessed.to_rfc3339(),
             kind: remote_workspace_kind(workspace.workspace_kind.clone()),
@@ -565,7 +678,7 @@ async fn current_remote_workspace_facts() -> Option<RemoteWorkspaceFacts> {
             RemoteWorkspaceFacts {
                 workspace_id: workspace.id.clone(),
                 path: root_path.to_string_lossy().to_string(),
-                name: workspace.name,
+                name: remote_workspace_display_name(&workspace),
                 git_branch: git_branch_for_workspace_path(&root_path),
                 kind: remote_workspace_kind(workspace.workspace_kind.clone()),
                 assistant_id: workspace.assistant_id,
@@ -610,7 +723,7 @@ async fn open_workspace_with_snapshot(
     Ok(RemoteWorkspaceUpdate {
         workspace_id: info.id.clone(),
         path: info.root_path.to_string_lossy().to_string(),
-        name: info.name,
+        name: remote_workspace_display_name(&info),
         remote_connection_id,
         remote_ssh_host,
     })
@@ -646,7 +759,7 @@ fn remote_workspace_facts_from_record(
     RemoteWorkspaceFacts {
         workspace_id: workspace.id.clone(),
         path: workspace.root_path.to_string_lossy().into_owned(),
-        name: workspace.name.clone(),
+        name: remote_workspace_display_name(workspace),
         git_branch: None,
         kind: remote_workspace_kind(workspace.workspace_kind.clone()),
         assistant_id: workspace.assistant_id.clone(),
@@ -703,6 +816,11 @@ async fn load_remote_session_metadata_for_workspace(
         })?;
 
     use openbitfun_services_core::session::SessionRelationshipKind;
+    let default_title = crate::service::i18n::generated_locale_contract::generated_shared_term(
+        crate::service::config::app_language::get_app_language().await,
+        "sessions.new",
+    )
+    .unwrap_or("New Session");
 
     Ok(metadata
         .into_iter()
@@ -726,13 +844,18 @@ async fn load_remote_session_metadata_for_workspace(
                 });
             let parent_session_id =
                 relationship.and_then(|relationship| relationship.parent_session_id);
+            let name = if openbitfun_services_core::session::naming::is_default_title(&session) {
+                default_title.to_string()
+            } else {
+                session.session_name.clone()
+            };
             RemoteSessionMetadata {
                 workspace_id: session
                     .workspace_id
                     .clone()
                     .or_else(|| Some(workspace_id.clone())),
                 session_id: session.session_id,
-                name: session.session_name,
+                name,
                 agent_type: session.agent_type,
                 created_at_ms: session.created_at,
                 last_active_at_ms: session.last_active_at,
@@ -880,6 +1003,12 @@ fn remote_chat_history_turn_from_core_turn(
         .collect();
 
     RemoteChatHistoryTurn {
+        background_delivery:
+            openbitfun_core_types::background_delivery::BackgroundDelivery::from_metadata(
+                turn.user_message.metadata.as_ref(),
+                &turn.turn_id,
+            )
+            .filter(|delivery| delivery.execution_generation == turn.recovery_epoch.unwrap_or(0)),
         turn_id: turn.turn_id.clone(),
         turn_index: turn.turn_index,
         user_message_id: turn.user_message.id.clone(),
@@ -2265,10 +2394,25 @@ impl CoreServiceAgentRuntime {
             .get_session(session_id)
             .is_none()
         {
-            coordinator
-                .restore_session_for_workspace_binding(&binding, session_id)
+            let session = coordinator
+                .update_session_model_selection_from_storage_path(
+                    &binding.session_storage_dir(),
+                    session_id,
+                    &normalized_model_id,
+                    normalized_reasoning_preset
+                        .as_ref()
+                        .and_then(|value| value.as_deref()),
+                    false,
+                )
                 .await
-                .map_err(|e| format!("Failed to restore session: {e}"))?;
+                .map_err(|error| format!("Failed to update session model: {error}"))?;
+            if session_uses_shared_mode_default(&session) {
+                Self::persist_mode_model(&normalized_model_id).await;
+            }
+            return Ok(RemoteSessionModelSelection {
+                model_id: session.config.model_id.unwrap_or(normalized_model_id),
+                reasoning_preset: session.config.reasoning_preset,
+            });
         }
 
         let previous_model_id = coordinator
@@ -2926,7 +3070,14 @@ impl CoreRemoteSessionRuntimeHost {
             .ok_or_else(|| "Desktop session system not ready".to_string())?;
         let scheduler = get_global_scheduler()
             .ok_or_else(|| "Dialog scheduler is not initialized".to_string())?;
-        let runtime = CoreServiceAgentRuntime::agent_runtime_with_dialog_turns(
+        Self::from_owners(coordinator, scheduler)
+    }
+
+    fn from_owners(
+        coordinator: Arc<ConversationCoordinator>,
+        scheduler: Arc<DialogScheduler>,
+    ) -> Result<Self, String> {
+        let runtime = CoreServiceAgentRuntime::agent_runtime_with_lifecycle_delivery(
             coordinator.clone(),
             scheduler,
         )?;
@@ -3239,7 +3390,7 @@ impl RemoteWorkspaceRuntimeHost for CoreRemoteWorkspaceRuntimeHost {
             .map(|workspace| RemoteRecentWorkspaceFacts {
                 workspace_id: workspace.id.clone(),
                 path: workspace.root_path.to_string_lossy().to_string(),
-                name: workspace.name.clone(),
+                name: remote_workspace_display_name(&workspace),
                 last_opened: workspace.last_accessed.to_rfc3339(),
                 kind: remote_workspace_kind(workspace.workspace_kind.clone()),
                 remote_connection_id: remote_workspace_metadata(
@@ -3798,6 +3949,89 @@ mod tests {
     };
     use crate::OpenBitFunError;
 
+    #[tokio::test]
+    async fn remote_session_host_registers_targeted_rollback_port() {
+        use crate::agentic::events::{EventQueue, EventQueueConfig, EventRouter};
+        use crate::agentic::execution::{
+            ExecutionEngine, ExecutionEngineConfig, RoundExecutor, StreamProcessor,
+        };
+        use crate::agentic::persistence::PersistenceManager;
+        use crate::agentic::session::{ContextCompressor, SessionContextStore, SessionManager};
+        use crate::agentic::tools::{registry::ToolRegistry, ToolPipeline, ToolStateManager};
+
+        let directory = tempfile::tempdir().expect("runtime fixture");
+        let paths = Arc::new(
+            crate::infrastructure::PathManager::with_user_root_for_tests(
+                directory.path().join("user-root"),
+            ),
+        );
+        let sessions = Arc::new(SessionManager::new(
+            Arc::new(SessionContextStore::new()),
+            Arc::new(PersistenceManager::new(paths).expect("persistence manager")),
+            Default::default(),
+        ));
+        let events = Arc::new(EventQueue::new(EventQueueConfig::default()));
+        let tools = Arc::new(ToolPipeline::new(
+            Arc::new(tokio::sync::RwLock::new(ToolRegistry::new())),
+            Arc::new(ToolStateManager::new(events.clone())),
+            None,
+        ));
+        let engine = Arc::new(ExecutionEngine::new(
+            Arc::new(RoundExecutor::new(
+                Arc::new(StreamProcessor::new(events.clone())),
+                events.clone(),
+                tools.clone(),
+            )),
+            events.clone(),
+            sessions.clone(),
+            Arc::new(ContextCompressor::new()),
+            ExecutionEngineConfig::default(),
+        ));
+        let coordinator = Arc::new(ConversationCoordinator::new(
+            sessions.clone(),
+            engine,
+            tools,
+            events,
+            Arc::new(EventRouter::new()),
+            Arc::new(
+                crate::runtime_ownership::CoreRuntimeOwnership::embedded_with_facts(
+                    directory.path().join("ownership"),
+                    "openbitfun".to_string(),
+                    "test",
+                ),
+            ),
+        ));
+        let scheduler = DialogScheduler::new(coordinator.clone(), sessions);
+        let host = CoreRemoteSessionRuntimeHost::from_owners(coordinator, scheduler)
+            .expect("remote session host");
+
+        // Invalid identity must reach the registered revert provider's validation.
+        let error = host
+            .runtime
+            .rollback_session_to_turn(AgentSessionRollbackToTurnRequest {
+                workspace_path: String::new(),
+                workspace_id: None,
+                workspace_hostname: None,
+                session_id: "../invalid-session".to_string(),
+                target_turn_id: "turn-1".to_string(),
+                require_idle: true,
+                expected_storage_turn_index: None,
+                expected_catalog_revision: None,
+                remote_connection_id: None,
+                remote_ssh_host: None,
+            })
+            .await
+            .expect_err("invalid session identity");
+        assert!(
+            matches!(
+                error,
+                openbitfun_agent_runtime::sdk::RuntimeError::Port(ref port)
+                    if port.kind == openbitfun_runtime_ports::PortErrorKind::InvalidRequest
+            ),
+            "expected revert provider validation, got {error}"
+        );
+    }
+
     #[test]
     fn local_workspace_marker_is_not_remote_routing_authority() {
         use crate::service::workspace::WorkspaceKind;
@@ -4091,7 +4325,6 @@ mod tests {
         assert!(!open_workspace.contains("initialize_snapshot_manager_for_workspace"));
 
         for (start, end) in [
-            ("pub(crate) async fn update_remote_session_model", "/// Persist the shared selector"),
             ("async fn restore_remote_session(\n        &self,\n        session_id: &str,\n        workspace: RemoteDialogWorkspaceBinding", "fn prewarm_remote_terminal"),
             ("async fn ensure_session_loaded(&self, session_id: &str)", "async fn update_session_title"),
             ("async fn restore_remote_session(\n        &self,\n        session_id: &str,\n        _restore_path_hint: &str", "async fn cancel_remote_turn"),
@@ -4110,6 +4343,17 @@ mod tests {
                 "remote attach or mutation must not bypass the Coordinator ownership gate"
             );
         }
+
+        let selector = source
+            .split("pub(crate) async fn update_remote_session_model")
+            .nth(1)
+            .and_then(|source| source.split("/// Persist the shared selector").next())
+            .unwrap();
+        assert!(selector.contains("ensure_remote_binding_runtime_ownership"));
+        assert!(selector.contains(
+            "coordinator\n                .update_session_model_selection_from_storage_path"
+        ));
+        assert!(!selector.contains("restore_session"));
 
         let remote_session_host = source
             .split("impl RemoteSessionRuntimeHost for CoreRemoteSessionRuntimeHost")
@@ -4130,30 +4374,6 @@ mod tests {
             .expect("remote session rollback");
         assert!(rollback.contains("ensure_remote_binding_runtime_ownership"));
         assert!(rollback.contains("binding.is_remote()"));
-
-        let remote_session_host_impl = source
-            .split("impl CoreRemoteSessionRuntimeHost")
-            .nth(1)
-            .and_then(|source| source.split("struct CoreRemotePollRuntimeHost").next())
-            .expect("remote session host struct implementation");
-        assert!(
-            remote_session_host_impl.contains("agent_runtime_with_dialog_turns"),
-            "CoreRemoteSessionRuntimeHost must register dialogue and revert ports for rollback"
-        );
-
-        let dialog_turns_builder = source
-            .split("pub(crate) fn agent_runtime_with_dialog_turns")
-            .nth(1)
-            .and_then(|source| {
-                source
-                    .split("pub(crate) fn agent_runtime_with_lifecycle_delivery")
-                    .next()
-            })
-            .expect("agent_runtime_with_dialog_turns definition");
-        assert!(
-            dialog_turns_builder.contains(".with_session_revert_port(session_revert)"),
-            "agent_runtime_with_dialog_turns must attach session_revert port"
-        );
     }
 
     #[test]
@@ -4657,13 +4877,8 @@ mod history_workspace_identity_tests {
     async fn history_routing_uses_ids_even_with_colliding_roots_and_stale_transport_fields() {
         let temp = tempfile::tempdir().unwrap();
         let local = register_local_fixture(temp.path(), None).await;
-        let remote_path = if local.root_path.to_string_lossy().starts_with('/') {
-            local.root_path.to_string_lossy().to_string()
-        } else {
-            format!("/srv/colliding-test/{}", uuid::Uuid::new_v4())
-        };
         let remote = register_remote_fixture(
-            &remote_path,
+            &local.root_path.to_string_lossy(),
             "history-test-ssh",
             "history.example",
         )

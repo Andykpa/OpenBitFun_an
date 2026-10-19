@@ -10,6 +10,8 @@ export const thinkingBlockMeta = {
   description: 'Controlled reasoning and reasoning-summary anatomy shared with the production transcript.',
   props: [{ name: 'expanded', type: 'boolean' }, { name: 'label', type: 'string' }, { name: 'onToggle', type: '() => void' },
     { name: 'onOpenDetails', type: '() => void' },
+    { name: 'streamingExpanded', type: 'boolean', defaultValue: 'false' },
+    { name: 'onStreamingExpandedChange', type: '(expanded: boolean) => void' },
     { name: 'scrollOwner', type: "'self' | 'parent'", defaultValue: 'self' }],
   states: ['collapsed', 'expanded', 'streaming', 'summary'], tokens: [...tokens, 'control.flowChat.streamViewportBlockSize'],
 } as const satisfies ComponentMeta;
@@ -37,16 +39,19 @@ export const flowChatRuntimeStatusMeta = {
 
 export const flowGroupMeta = {
   category: 'flow-chat', name: 'FlowGroup', maturity: 'stable',
-  description: 'A controlled collection with a shared summary, disclosure, natural-height content and one-shot arrival feedback.',
+  description: 'A controlled collection with capsule or bound file-revision summaries, shared disclosure and natural-height content.',
   props: [{ name: 'expanded', type: 'boolean' }, { name: 'summary', type: 'string' },
     { name: 'leading', type: 'ReactNode' }, { name: 'onExpandedChange', type: '(expanded: boolean) => void' },
     { name: 'itemCount', type: 'number' }, { name: 'receiveFeedback', type: 'FlowGroupReceiveFeedback' },
     { name: 'contentProps', type: 'HTMLAttributes<HTMLDivElement>' },
     { name: 'browser', type: 'FlowGroupBrowserProps' },
+    { name: 'fileRevision', type: 'FlowGroupFileRevision' },
     { name: 'placement', type: "'standalone' | 'inline'", defaultValue: 'standalone' },
     { name: 'bounded', type: 'boolean', defaultValue: 'false' }],
-  states: ['collapsed', 'expanded', 'streaming'],
-  tokens: [...exploreGroupMeta.tokens, 'layout.scrollArea.fadeExtent', 'motion.duration.fast', 'motion.easing.standard'],
+  states: ['collapsed', 'expanded', 'streaming', 'file-collapsed', 'file-expanded', 'file-error'],
+  tokens: [...exploreGroupMeta.tokens, 'layout.scrollArea.fadeExtent', 'motion.duration.fast', 'motion.easing.standard',
+    'color.surface.panel', 'color.border.default', 'color.border.strong', 'color.status.danger.content',
+    'control.activityItem.surfaceHeight', 'control.activityItem.surfaceRadius', 'type.body.xs.fontSize'],
 } as const satisfies ComponentMeta;
 
 export const contextLoadGroupMeta = {

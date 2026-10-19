@@ -10,6 +10,7 @@ import {
   ArrowRight,
   ArrowUp,
   ArrowUpRight,
+  BatteryFull,
   Bell,
   Blocks,
   BookOpen,
@@ -62,7 +63,7 @@ import {
   PanelLeft,
   PanelRight,
   PanelsTopLeft,
-  Pencil,
+  Pen,
   Pin,
   Plus,
   Plug,
@@ -92,6 +93,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { classNames } from "../../internal/classNames";
+import { Galaxy } from './galaxy';
 import { LayersPlus } from './layersPlus';
 import gitUrl from "./assets/git.svg";
 import thinkingUrl from "./assets/thinking.svg";
@@ -99,6 +101,7 @@ import creativeUrl from "./assets/creative.svg";
 import ultimateUrl from "./assets/ultimate.svg";
 import standardUrl from "./assets/standard.svg";
 import minimalUrl from "./assets/minimal.svg";
+import reasoningAutoUrl from "./assets/reasoning-auto.svg";
 import styles from "./Icon.module.css";
 
 export const iconNames = [
@@ -112,10 +115,12 @@ export const iconNames = [
   "ultimate",
   "standard",
   "minimal",
+  "reasoning-auto",
   "arrow-left",
   "arrow-right",
   "arrow-up",
   "arrow-up-right",
+  "battery-full",
   "bell",
   "book-open",
   "book-search",
@@ -149,6 +154,7 @@ export const iconNames = [
   "folder",
   "folder-open",
   "folder-search",
+  "galaxy",
   "gear",
   "git",
   "git-pull-request",
@@ -222,7 +228,7 @@ export type IconSource =
   | { glyph: LucideIcon; name?: never }
   | { glyph?: never; name: IconName };
 
-// Only the four harness modes, Git branch, and user-authored thinking mark retain authored artwork.
+// Brand-derived mode and reasoning marks retain their reviewed SVG geometry.
 const iconSources: Partial<Record<IconName, string>> = {
   creative: creativeUrl,
   ultimate: ultimateUrl,
@@ -230,6 +236,7 @@ const iconSources: Partial<Record<IconName, string>> = {
   minimal: minimalUrl,
   git: gitUrl,
   thinking: thinkingUrl,
+  "reasoning-auto": reasoningAutoUrl,
 };
 
 const lineGlyphs = {
@@ -243,6 +250,7 @@ const lineGlyphs = {
   "arrow-right": ArrowRight,
   "arrow-up": ArrowUp,
   "arrow-up-right": ArrowUpRight,
+  "battery-full": BatteryFull,
   "bell": Bell,
   "book-open": BookOpen,
   "book-search": BookSearch,
@@ -267,7 +275,7 @@ const lineGlyphs = {
   "device-mac": Monitor,
   "download": ArrowDown,
   "duplicate": Copy,
-  "edit": Pencil,
+  "edit": Pen,
   "extension": Puzzle,
   "eye": Eye,
   "file-search-corner": FileSearchCorner,
@@ -280,6 +288,7 @@ const lineGlyphs = {
   "folder": Folder,
   "folder-open": FolderOpen,
   "folder-search": FolderSearch,
+  "galaxy": Galaxy,
   "gear": Settings,
   "hourglass": Hourglass,
   "image": Image,
@@ -324,7 +333,10 @@ const lineGlyphs = {
   "wrench": Wrench,
   "workflow": Workflow,
   "xmark": X,
-} satisfies Record<Exclude<IconName, "creative" | "ultimate" | "standard" | "minimal" | "git" | "thinking">, LucideIcon>;
+} satisfies Record<Exclude<IconName,
+  | "creative" | "ultimate" | "standard" | "minimal" | "git" | "thinking"
+  | "reasoning-auto"
+>, LucideIcon>;
 
 interface IconBaseProps
   extends Omit<HTMLAttributes<HTMLSpanElement>, "aria-label" | "children"> {

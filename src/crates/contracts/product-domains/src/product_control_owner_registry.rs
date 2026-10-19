@@ -213,6 +213,7 @@ fn miniapp_input(action: &str) -> Value {
             json!({ "type": "array", "items": { "type": "string" } }),
         );
         properties.insert("permissions".into(), json!({ "type": "object" }));
+        properties.insert("chrome".into(), json!({ "type": "object", "description": "Per-app titlebar configuration; see MiniApp chrome.titlebar contract. Use {} to restore defaults." }));
         properties.insert("esmDependencies".into(), json!({ "type": "array", "items": {
             "type": "object", "required": ["name"], "additionalProperties": false,
             "properties": { "name": { "type": "string" }, "version": { "type": "string" }, "url": { "type": "string" } }
@@ -354,12 +355,6 @@ pub fn owner_definitions() -> Vec<ProductControlOwnerDefinition> {
             config("app.notifications.permission_request_notify"),
         ),
         option(
-            "setting.application.general",
-            "startup-tips",
-            boolean(),
-            config("app.notifications.enable_startup_tips"),
-        ),
-        option(
             "setting.application.appearance",
             "theme",
             string(),
@@ -422,6 +417,12 @@ pub fn owner_definitions() -> Vec<ProductControlOwnerDefinition> {
             "voice-enabled",
             boolean(),
             merge_config("app.ai_experience", &["voice_input.enabled"]),
+        ),
+        option(
+            "setting.application.input",
+            "auto-show-selection-toolbar",
+            boolean(),
+            config("app.flow_chat.auto_show_selection_toolbar"),
         ),
         option(
             "setting.application.input",
@@ -681,6 +682,12 @@ pub fn owner_definitions() -> Vec<ProductControlOwnerDefinition> {
             "session-title-generation",
             boolean(),
             merge_config("app.ai_experience", &["enable_session_title_generation"]),
+        ),
+        option(
+            "setting.workspace.session",
+            "prompt-suggestion",
+            boolean(),
+            merge_config("app.ai_experience", &["enable_prompt_suggestion"]),
         ),
         option(
             "setting.workspace.session",

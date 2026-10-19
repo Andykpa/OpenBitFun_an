@@ -25,8 +25,6 @@ export const AgentDeleteToolCard: React.FC<ToolCardProps> = ({ toolItem, session
     const label = linked ? t(resolveSubagentNameKey(linked)) : id;
     return { id, label, kind: 'agent' as const,
       avatar: linked ? <SubagentAvatar sessionId={linked} name={label} size={16} motion={false} showStatus={false} /> : undefined,
-      openLabel: t('toolCards.interaction.inspectObject'),
-      details: <ToolCardText variant="prose">{toolItem.toolResult?.error || t('toolCards.builtin.deleteAgentScope')}</ToolCardText>,
     };
   });
   const count = typeof result.deleted_agents === 'number' && Number.isFinite(result.deleted_agents) && result.deleted_agents >= 0

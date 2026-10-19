@@ -13,6 +13,8 @@ import styles from "./ContextCompressionToolCard.module.css";
 export interface ContextCompressionToolCardProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "children" | "title"> {
   error?: ReactNode;
+  isExpanded?: boolean;
+  onToggle?: () => void;
   processingText?: ReactNode;
   status: FlowChatToolStatus;
   summary?: ReactNode;
@@ -29,6 +31,8 @@ const ACTIVE_STATUSES = new Set<FlowChatToolStatus>([
 export function ContextCompressionToolCard({
   className,
   error,
+  isExpanded = false,
+  onToggle,
   processingText,
   status,
   summary,
@@ -48,6 +52,9 @@ export function ContextCompressionToolCard({
       data-openbitfun-status={status}
     >
       <ProminentToolCard
+        collapsibleErrorContent
+        isExpanded={isExpanded}
+        onToggle={error ? onToggle : undefined}
         errorContent={error ? <div className={styles.error}>{error}</div> : undefined}
         summary={(
           <ProminentToolCardSummary

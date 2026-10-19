@@ -272,8 +272,12 @@ export const requiredContentRules = [
       'services-core workspace instruction owner must keep local and declarative discovery behavior contracts',
     patterns: [
       {
-        regex: /\bworkspace_instruction_files_reads_agents_then_claude_and_skips_empty_files\b/,
+        regex: /\bworkspace_instruction_families_select_agents_then_claude_then_opencode\b/,
         message: 'missing workspace instruction owner behavior regression',
+      },
+      {
+        regex: /\bworkspace_instruction_override_skips_empty_files_and_suppresses_claude\b/,
+        message: 'missing non-empty workspace instruction override regression',
       },
       {
         regex: /\bopencode_project_instructions_support_local_files_and_globs_only\b/,
@@ -3006,6 +3010,10 @@ export const requiredContentRules = [
         message: 'missing session metadata page owner entrypoint',
       },
       {
+        regex: /\bpub async fn list_metadata_page_with_query\b/,
+        message: 'missing query-aware session metadata page owner entrypoint',
+      },
+      {
         regex: /\bpub async fn list_metadata_including_internal\b/,
         message: 'missing internal session metadata list owner entrypoint',
       },
@@ -3222,7 +3230,7 @@ export const requiredContentRules = [
         message: 'missing metadata list delegation to services-core store',
       },
       {
-        regex: /\.list_metadata_page\(cursor,\s*limit\)/,
+        regex: /\.session_metadata_store\(workspace_path\)\s*\.list_metadata_page_with_query\(cursor,\s*limit,\s*query\)/,
         message: 'missing metadata page delegation to services-core store',
       },
       {
@@ -3863,10 +3871,6 @@ export const requiredContentRules = [
       'service integration and agent-runtime surfaces must not compile in no-default core builds',
     patterns: [
       {
-        regex: /#\[cfg\(feature = "announcement"\)\]\s*pub mod announcement\b/s,
-        message: 'announcement facade must stay behind its exact feature',
-      },
-      {
         regex: /#\[cfg\(feature = "file-watch"\)\]\s*pub use openbitfun_services_integrations::file_watch\b/s,
         message: 'file-watch facade must stay behind its exact feature',
       },
@@ -4401,7 +4405,7 @@ export const requiredContentRules = [
   {
     path: 'src/crates/execution/tool-execution/src/computer_use.rs',
     reason:
-      'tool-runtime must own provider-neutral Computer Use loop detection, screenshot hashing, verification, and retry policy while core keeps host adapters',
+      'tool-runtime must own provider-neutral Computer Use observation evidence, screenshot hashing, and read retry policy while core keeps host adapters',
     patterns: [
       {
         regex: /\bpub struct ComputerUseOptimizer\b/,
@@ -4420,12 +4424,12 @@ export const requiredContentRules = [
         message: 'missing provider-neutral Computer Use retry decision owner',
       },
       {
-        regex: /\bdetects_repeated_action_loop\b/,
-        message: 'missing Computer Use loop detection regression',
+        regex: /\blegitimate_repeated_work_is_not_classified_as_a_loop\b/,
+        message: 'missing Computer Use repeated-work evidence regression',
       },
       {
-        regex: /\bretry_decision_uses_error_text_without_core_error_type\b/,
-        message: 'missing Computer Use retry decision regression',
+        regex: /\btimeout_or_stale_errors_never_authorize_input_replay\b/,
+        message: 'missing Computer Use mutation replay rejection regression',
       },
     ],
   },
@@ -7831,8 +7835,8 @@ export const requiredContentRules = [
         message: 'missing builtin agent definition catalog owner',
       },
       {
-        regex: /builtin_agent_spec\(\s*"GeneralPurpose",\s*SubAgent,\s*"primary"/,
-        message: 'missing GeneralPurpose runtime default model mapping',
+        regex: /builtin_agent_spec\(\s*"GeneralPurpose",\s*SubAgent,\s*"fast"/,
+        message: 'missing GeneralPurpose runtime fast default model mapping',
       },
       {
         regex: /SubagentVisibilityPolicy::restricted\(\["Claw"\]\)/,

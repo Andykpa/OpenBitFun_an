@@ -117,6 +117,21 @@ function makeSession(overrides: Partial<Session> = {}): Session {
 }
 
 describe('sessionToVirtualItems unified work grouping', () => {
+  it('projects quiet runs as stable execution receipts without losing raw output or catalog positions', () => {
+    const session = makeSession();
+    const turn = session.dialogTurns[0];
+    turn.userMessage.metadata = { backgroundDelivery: { schemaVersion: 1, source: 'scheduled_job', taskId: 'generic-monitor', runId: turn.id, policy: 'conditional', disposition: 'quiet', resolvedAtMs: 1 } };
+    turn.modelRounds = [makeRound({ items: [makeTextItem('raw', 'Nothing changed; remaining silent.')] })];
+    const original = JSON.stringify(session.dialogTurns);
+    const first = sessionToVirtualItems(session);
+    expect(first).toHaveLength(1);
+    expect(first[0]).toMatchObject({ type: 'background-run', turnId: turn.id, absoluteTurnIndex: 1 });
+    expect(JSON.stringify(session.dialogTurns)).toBe(original);
+    const refreshed = sessionToVirtualItems({ ...session });
+    expect(refreshed[0]).toBe(first[0]);
+    const withAttention = sessionToVirtualItems({ ...session, needsUserAttention: 'ask_user' });
+    expect(withAttention.some(item => item.type === 'model-round')).toBe(true);
+  });
   it.each([undefined, 'Minimal', 'Standard', 'agentic', 'Ultimate', 'Ultra', 'Creative', 'Claw', 'acp:codex'])(
     'collects Shell with surrounding exploration for a %s turn', agentType => {
       const session = makeSession({ mode: 'Standard', config: { agentType: 'Standard' } });
@@ -213,6 +228,77 @@ describe('sessionToVirtualItems explore grouping', () => {
     const rows = sessionToVirtualItems(session);
     expect(rows.map(item => item.type)).toEqual(['user-message', 'model-round', 'model-round']);
     expect(rows[2]).toMatchObject({ data: { id: 'retry', attempts: session.dialogTurns[0].modelRounds[1].attempts } });
+  });
+
+  it.each(['explore', 'context', 'file-edit', 'interface'] as const)(
+    'starts a new %s group after retry history and collects following rounds', category => {
+      const operation = (id: string): FlowToolItem => {
+        const names = { explore: 'Read', context: 'Skill', 'file-edit': 'Edit', interface: 'ComputerUse' };
+        return { ...makeTool(id, names[category]),
+          toolCall: { id, input: category === 'interface' ? { action: 'get_app_state' }
+            : { file_path: '/workspace/src/main.rs', old_string: 'before', new_string: 'after' } },
+          toolResult: { success: true, result: {} } };
+      };
+      const active = operation('recovered');
+      const retry = makeRound({ id: 'retry', items: [active], attempts: [
+        { id: 'retry:attempt:1', index: 1, status: 'superseded', items: [operation('failed')],
+          diagnostic: { attemptId: 'retry:attempt:1', attemptIndex: 1, category: 'stream_error' } },
+        { id: 'retry:attempt:2', index: 2, status: 'completed', items: [active] },
+      ] });
+      const session = makeSession();
+      session.dialogTurns[0].modelRounds = [
+        makeRound({ id: 'before', items: [operation('before-1'), operation('before-2')] }),
+        retry, makeRound({ id: 'next', items: [operation('next-call')] }),
+      ];
+      const recorded = JSON.stringify(session);
+      const rows = sessionToVirtualItems(session);
+      const groups = rows.flatMap(getVirtualItemFlowGroups);
+      expect(groups.map(group => group.category)).toEqual([category, category]);
+      expect(groups.map(group => group.allItems.map(item => item.id)))
+        .toEqual([['before-1', 'before-2'], ['recovered', 'next-call']]);
+      expect(groups[1].groupId).toBe(`retry:${category}:recovered`);
+      expect(rows.map(getVirtualItemStableKey)).toEqual([
+        'user-message:turn-1:user-1', 'model-round:turn-1:before',
+        'model-round:turn-1:retry', 'model-round:turn-1:next',
+      ]);
+      expect(JSON.stringify(session)).toBe(recorded);
+    },
+  );
+
+  it.each([undefined, 'host'] as const)(
+    'projects legacy native retry hints without discarding an explicit %s policy', source => {
+      const active = makeReadTool('recovered');
+      const retry = makeRound({ id: 'retry', items: [active],
+        renderHints: { disableExploreGrouping: true, ...(source ? { disableExploreGroupingSource: source } : {}) },
+        attempts: [
+          { id: 'retry:attempt:1', index: 1, status: 'superseded', items: [],
+            diagnostic: { attemptId: 'retry:attempt:1', attemptIndex: 1, category: 'stream_error' } },
+          { id: 'retry:attempt:2', index: 2, status: 'completed', items: [active] },
+        ],
+      });
+      const session = makeSession();
+      session.dialogTurns[0].modelRounds = [retry, makeRound({ id: 'next', items: [makeReadTool('next-call')] })];
+      const recorded = JSON.stringify(session);
+      const groups = sessionToVirtualItems(session).flatMap(getVirtualItemFlowGroups);
+      expect(groups.map(group => group.allItems.map(item => item.id)))
+        .toEqual(source ? [['next-call']] : [['recovered', 'next-call']]);
+      expect(JSON.stringify(session)).toBe(recorded);
+    },
+  );
+
+  it('preserves older host hints with unrecognized retry identities', () => {
+    const active = makeReadTool('external-read');
+    const round = makeRound({ items: [active], renderHints: { disableExploreGrouping: true }, attempts: [
+      { id: 'external-first', index: 1, status: 'superseded', items: [],
+        diagnostic: { attemptId: 'external-first', attemptIndex: 1, category: 'stream_error' } },
+      { id: 'external-next', index: 2, status: 'completed', items: [active] },
+    ] });
+    const session = makeSession();
+    session.dialogTurns[0].modelRounds = [round];
+    const rows = sessionToVirtualItems(session);
+    expect(rows.flatMap(getVirtualItemFlowGroups)).toEqual([]);
+    expect(getProjectedModelRoundGroups(rows[1] as ModelRoundVirtualItem))
+      .toEqual([{ type: 'critical', item: active }]);
   });
 
   it('combines mixed and pure exploration through prose until a noncollectible card', () => {
@@ -561,6 +647,8 @@ describe('sessionToVirtualItems explore grouping', () => {
         modelRounds: [makeRound({
           id: 'round-with-answer',
           items: [makeTextItem('text-final', 'Here is the answer.')],
+          streamDurationMs: 1200,
+          firstChunkMs: 200,
         })],
         status: 'completed',
         startTime: 900,
@@ -581,6 +669,7 @@ describe('sessionToVirtualItems explore grouping', () => {
       turnStartedAt: 900,
       turnEndedAt: 2400,
       turnDurationMs: 1500,
+      turnOutputDurationMs: 1000,
       turnTokenUsage: {
         inputTokens: 1200,
         outputTokens: 300,
@@ -668,7 +757,7 @@ describe('sessionToVirtualItems explore grouping', () => {
     expect(items.map(item => item.type)).toEqual(['user-message', 'model-round']);
   });
 
-  it('projects the thinking expansion state used by the renderer into layout hints', () => {
+  it.each(['completed', 'cancelled', 'error'] as const)('keeps trailing thinking hints live-only when it becomes %s', status => {
     const thinkingItem = {
       id: 'thinking-1',
       type: 'thinking' as const,
@@ -715,6 +804,18 @@ describe('sessionToVirtualItems explore grouping', () => {
       [],
       ['thinking-1'],
     ]);
+    const finished = sessionToVirtualItems({
+      ...session,
+      dialogTurns: session.dialogTurns.map(turn => ({
+        ...turn,
+        modelRounds: turn.modelRounds.map(round => ({
+          ...round,
+          items: round.items.map(item => item.id === thinkingItem.id ? { ...item, isStreaming: false, status } : item),
+        })),
+      })),
+    }).filter((item): item is ModelRoundVirtualItem => item.type === 'model-round');
+    // The turn is still processing and there is no successor yet.
+    expect(finished.map(item => item.layoutHints?.expandedThinkingItemIds)).toEqual([[], []]);
   });
 
   it('keeps a trailing reasoning summary collapsed in layout hints', () => {

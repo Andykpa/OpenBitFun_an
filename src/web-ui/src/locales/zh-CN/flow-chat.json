@@ -1,4 +1,20 @@
 {
+  "externalHistory": {
+    "removed": "源会话已从 OpenBitFun 移除，当前分支保留独立历史。",
+    "restoreSource": "重新添加源会话",
+    "sourceMissing": "源会话已不可用，当前分支保留独立历史。",
+    "openFailed": "无法打开源会话。当前分支可正常使用，请稍后重试。",
+    "restoreFailed": "无法重新添加源会话。当前分支不受影响，请稍后重试。",
+    "unavailableWithoutCache": "来源不可用，且没有可用的缓存历史。请恢复来源后重新打开会话。",
+    "unsupportedSurface": "Peer 模式暂不支持跟随来源会话。请在来源主机上打开，或继续已有的 OpenBitFun 分支。",
+    "forkBeforeEdit": "请先分叉此来源会话，再编辑或回退历史。",
+    "followHint": "来自 {{source}} · 发送后在 OpenBitFun 新分支中继续",
+    "branchHint": "继续自 {{source}}",
+    "openSource": "打开来源会话",
+    "unavailable": "来源暂不可用，显示上次缓存",
+    "incomplete": "来源对话尚未完成，当前显示已读取的历史",
+    "openBeforeContinue": "请先打开来源会话并等待历史加载完成，再继续对话。"
+  },
   "subagentIdentity": {
     "names": {
       "bouncyBean": "豆豆",
@@ -172,9 +188,10 @@
     "failedTitle": "历史会话加载失败",
     "failedDescription": "可以重新加载已保存的会话内容；若会话来自其他设备，请先检查账号登录与网络连接。",
     "preparingOlderHistory": "正在准备更早的历史记录...",
-    "olderHistoryNotReady": "更早的历史记录暂未准备好。",
-    "newerHistoryNotReady": "更新的历史记录暂未准备好。",
+    "olderHistoryNotReady": "更早的记录读取失败；当前内容仍可查看。",
+    "newerHistoryNotReady": "后续记录读取失败；当前内容仍可查看。",
     "remoteSessionMissing": "在后端找不到该会话数据。若刚重新连接过 SSH 远程工作区，请关闭并重新打开该远程项目，或新建会话后再试。",
+    "synchronize": "重新同步记录",
     "retry": "重试"
   },
   "usage": {
@@ -188,7 +205,9 @@
       "minutes": "{{value}}分钟",
       "minutesSeconds": "{{minutes}}分{{seconds}}秒",
       "hours": "{{value}}小时",
-      "hoursMinutes": "{{hours}}小时{{minutes}}分钟"
+      "hoursMinutes": "{{hours}}小时{{minutes}}分钟",
+      "days": "{{value}}天",
+      "daysHours": "{{days}}天{{hours}}小时"
     },
     "actions": {
       "copyMarkdown": "复制 Markdown",
@@ -415,6 +434,8 @@
   "threadGoal": {
     "replaceConfirmTitle": "替换线程目标？",
     "replaceConfirmMessage": "是否替换当前目标？\n\n当前：{{existing}}\n\n新目标：{{next}}",
+    "clearConfirmTitle": "清除线程目标？",
+    "clearConfirmMessage": "是否清除当前目标？\n\n目标：{{objective}}",
     "menuTitle": "线程目标",
     "objectiveLabel": "目标描述",
     "updatedUserMessage": "线程目标已更新：{{objective}}",
@@ -454,8 +475,17 @@
     "stripTooltipWithGoal": "{{status}}：{{objective}}",
     "stripOpenEmpty": "打开线程目标",
     "stripOpenWithGoal": "打开线程目标菜单",
+    "stripPauseGoal": "暂停目标",
+    "stripResumeGoal": "恢复目标",
+    "stripClearGoal": "清除目标",
     "usageTokens": "Token {{used}} / {{budget}}",
-    "usageTime": "已用 {{seconds}} 秒",
+    "usageTime": "已用 {{duration}}",
+    "duration": {
+      "seconds": "{{seconds}} 秒",
+      "minutesSeconds": "{{minutes}} 分 {{seconds}} 秒",
+      "hoursMinutesSeconds": "{{hours}} 小时 {{minutes}} 分 {{seconds}} 秒",
+      "daysHoursMinutesSeconds": "{{days}} 天 {{hours}} 小时 {{minutes}} 分 {{seconds}} 秒"
+    },
     "status": {
       "active": "进行中",
       "paused": "已暂停",
@@ -510,14 +540,14 @@
     }
   },
   "session": {
-    "new": "新会话",
+    "new": "$t(shared:sessions.new)",
     "newCode": "新建 Code 会话",
     "newCowork": "新建 Cowork 会话",
-    "newClaw": "新建 Claw 会话",
+    "newClaw": "新建助理会话",
     "newWithIndex": "新建会话 {{count}}",
     "newCodeWithIndex": "新建 Code 会话 {{count}}",
     "newCoworkWithIndex": "新建 Cowork 会话 {{count}}",
-    "newClawWithIndex": "新建 Claw 会话 {{count}}",
+    "newClawWithIndex": "新建助理会话 {{count}}",
     "title": "会话",
     "chatWithAgent": "与{{name}}的对话",
     "rename": "重命名会话",
@@ -559,12 +589,15 @@
     "copyFailed": "已复制!",
     "regenerate": "重新生成",
     "edit": "编辑消息",
+    "editAndRollback": "编辑和回滚",
+    "rollbackBeforeTurn": "回滚到此轮之前",
     "delete": "删除消息",
     "retry": "重试",
     "sentAt": "发送于 {{time}}",
     "clickToExpand": "点击展开",
     "clickToCollapse": "点击收起",
     "fillToInput": "填充到输入框",
+    "continueEditing": "继续编辑",
     "cannotRollback": "无法回滚",
     "rollbackDisabledBusy": "请等待会话空闲后再回滚。",
     "rollbackDisabledRemote": "远程工作区未记录文件快照，暂不支持文件与消息一致回滚；不会更改任何文件或消息。",
@@ -615,6 +648,7 @@
   "input": {
     "placeholder": "有什么可以帮您...",
     "placeholderWithContext": "输入消息，或拖放文件添加上下文...",
+    "promptSuggestionAccept": "{{key}}",
     "send": "发送",
     "sendShortcut": "发送 (⏎)",
     "stop": "停止",
@@ -686,6 +720,8 @@
     }
   },
   "workspaceStrip": {
+    "unavailableLabel": "工作目录不可用",
+    "unavailable": "所选工作目录不可用，请重新打开后重试。",
     "branchSwitchLabel": "切换分支。当前分支：{{branch}}",
     "branchTooltipUnavailable": "非 Git 仓库或当前无分支",
     "branchTooltipUntrusted": "该目录属于其他用户，Git 拒绝读取此仓库。信任该目录后即可看到分支。",
@@ -811,21 +847,21 @@
       "fixedTooltip": "本会话使用 {{name}}，开始后已固定。",
       "compatibilityShort": "兼容模式",
       "comingSoon": "开发中",
-      "comingSoonNotice": "「{{name}}」执行框架正在开发中。",
-      "legacySessionNotice": "该旧会话继续使用原智能体执行模式；请新建会话使用智能体执行框架。",
-      "sessionStartedNotice": "执行框架与主智能体在首轮开始前确定；如需切换，请新建会话。",
+      "comingSoonNotice": "「{{name}}」执行模式正在开发中。",
+      "legacySessionNotice": "旧会话沿用原有智能体；如需选择新的执行模式，请新建会话。",
+      "sessionStartedNotice": "执行模式或主智能体在首轮开始前确定；如需切换，请新建会话。",
       "newSessionConfirmation": {
         "title": "使用「{{name}}」创建新会话？",
         "message": "当前会话不会更改；新会话将使用「{{name}}」。",
         "confirm": "创建新会话"
       },
-      "unsupportedProfile": "不受支持的执行框架（{{id}}）",
-      "unsupportedProfileNotice": "该会话使用当前版本无法运行的 {{id}}。请选择一个受支持的执行框架。",
-      "profileChangeBusy": "请等待当前轮次结束后再切换执行框架。",
-      "profileChangeOutcomeUnknown": "暂时无法确认执行框架是否已切换，请刷新会话后再重试。",
-      "profileUnavailable": "当前 OpenBitFun Host 不支持该执行框架。",
-      "profileChangeFailed": "切换执行框架失败，请重试。",
-      "rememberFailed": "执行框架已切换，但未能记住本次选择。之后的新会话可能继续使用原默认设置。",
+      "unsupportedProfile": "不受支持的执行模式（{{id}}）",
+      "unsupportedProfileNotice": "该会话使用当前版本无法运行的 {{id}}。请选择一个受支持的执行模式。",
+      "profileChangeBusy": "请等待当前轮次结束后再切换执行模式。",
+      "profileChangeOutcomeUnknown": "暂时无法确认执行模式是否已切换，请刷新会话后再重试。",
+      "profileUnavailable": "当前 OpenBitFun Host 不支持该执行模式。",
+      "profileChangeFailed": "切换执行模式失败，请重试。",
+      "rememberFailed": "执行模式已切换，但未能记住本次选择。之后的新会话可能继续使用原默认设置。",
       "otherAgentsTitle": "智能体",
       "otherAgentsEmpty": "当前没有可用的主智能体",
       "unavailable": "不可用",
@@ -847,7 +883,7 @@
           "name": "$t(shared:agents.Creative)"
         }
       },
-      "activateStandard": "切换到标准执行框架"
+      "activateStandard": "切换到标准执行模式"
     },
     "agents": {
       "available": "可用",
@@ -933,6 +969,7 @@
       "openDefaultSettings": "打开权限设置"
     },
     "boostSectionContext": "上下文",
+    "boostThreadGoal": "设置线程目标",
     "boostStartBtw": "发起侧问",
     "boostNewSession": "新建会话",
     "boostAddContext": "引用文件或文件夹",
@@ -1087,6 +1124,8 @@
       "unsupportedHost": "当前主机不支持选择 MCP，请更新主机版本。"
     },
     "skillsIncomplete": "部分技能扫描失败，已成功读取的技能仍可使用。",
+    "skillsUnsupported": "部分技能依赖暂不支持的能力，未加载。",
+    "skillsUnsupportedField": "当前主机暂不支持技能内的 {{field}} 声明，该技能未加载。",
     "skillsDiagnosticsUnavailable": "当前主机不提供技能扫描诊断。",
     "menuTitle": "选择上下文",
     "searchResults": "搜索结果",
@@ -1097,6 +1136,7 @@
     "emptyDirectory": "空目录",
     "rootDirectory": "根目录",
     "goBack": "返回上一级",
+    "openDirectory": "进入目录",
     "navHint": "导航",
     "enterHint": "进入",
     "backHint": "返回",
@@ -1114,7 +1154,7 @@
     "unknownTool": "未知工具"
   },
   "transcriptExport": {
-    "copyFull": "复制完整过程",
+    "copyFull": "复制全部",
     "copyResult": "复制结果",
     "copyEmpty": "该对话没有可复制的内容",
     "exportEmpty": "该会话没有可导出的内容",
@@ -1143,6 +1183,8 @@
   },
   "btw": {
     "title": "侧问",
+    "temporaryLabel": "临时",
+    "temporaryHint": "关闭标签页后，对话内容将消失，无法恢复。",
     "shortLabel": "侧问",
     "hint": "不保存 · 使用当前对话上下文 · 无工具",
     "placeholder": "问个小问题…",
@@ -1681,6 +1723,21 @@
     }
   },
   "modelRound": {
+    "metrics": {
+      "label": "本轮用量与输出速度",
+      "total": "Token 总量",
+      "input": "输入 Token",
+      "output": "输出 Token",
+      "cache": "输入缓存命中",
+      "averageRate": "平均输出",
+      "speedLevel": "速度档位",
+      "rateValue": "{{value}} t/s",
+      "rateBasis": "输出 Token 除以从首个 Token 到流结束的时长，不含工具执行、排队与等待；档位分界为 15、40、80 Token/秒",
+      "slow": "慢",
+      "normal": "一般",
+      "fast": "快",
+      "veryFast": "极快"
+    },
     "copyDialog": "复制对话",
     "copiedDialog": "已复制!",
     "forkDialog": "从这里分叉会话",
@@ -1729,6 +1786,16 @@
       "tokensUnavailable": "不可用",
       "tokenBreakdown": "共 {{total}}，输入 {{input}}，输出 {{output}}"
     }
+  },
+  "fileEditGroup": {
+    "summary": "{{count}} 次编辑",
+    "label": "{{count}} 次编辑：",
+    "expanded": "文件编辑：",
+    "description": "{{path}}，连续编辑 {{count}} 次",
+    "revision": "第 {{count}} 次编辑",
+    "failed": "{{count}} 次失败",
+    "stopped": "{{count}} 次已停止",
+    "running": "正在编辑"
   },
   "contextLoadGroup": {
     "summary": "{{count}} 次上下文加载",
@@ -1956,7 +2023,12 @@
       "finished": "生成结束"
     },
     "generativeWidget": {
-      "exportFileNamePrefix": "OpenBitFun组件"
+      "exportFileNamePrefix": "OpenBitFun组件",
+      "exportHtml": "导出 HTML",
+      "exportingHtml": "正在导出 HTML…",
+      "exportHtmlSuccess": "HTML 已导出",
+      "exportHtmlFailed": "导出 HTML 失败",
+      "exportHtmlHostUnavailable": "此操作需要 OpenBitFun，无法在导出的 HTML 中使用。"
     },
     "initMiniApp": {
       "title": "初始化小应用",
@@ -2012,7 +2084,7 @@
       "copyCommandFailed": "复制命令失败",
       "cancel": "取消",
       "interrupt": "中断命令执行",
-      "openInPanel": "在右侧面板打开Terminal",
+      "openInPanel": "在面板中打开终端",
       "expandOutput": "展开输出",
       "collapseOutput": "收起输出",
       "rejected": "已拒绝",
@@ -2144,6 +2216,7 @@
       "awaitingTimeoutConfirmation": "等待后端确认超时",
       "cancelCountdown": "取消计时",
       "timeoutSettingsHint": "点击可取消计时。可在设置 → 执行与权限 → 工具运行 → 提问超时中调整超时时间。",
+      "unlimitedWait": "不限时",
       "questionsCount": "{{count}} 个问题",
       "answerAllBeforeSubmit": "请回答所有问题后再提交",
       "submit": "提交",
@@ -2453,7 +2526,7 @@
       "resultCount": "{{count}} 个会话",
       "title": "会话",
       "currentWorkspace": "当前工作区",
-      "defaultSessionName": "新会话",
+      "defaultSessionName": "$t(shared:sessions.new)",
       "unknownSession": "未知会话",
       "preparingCreate": "准备创建会话 {{session}}",
       "creatingSession": "正在创建会话 {{session}}",
@@ -3253,10 +3326,42 @@
     "projectCowork": "项目里工作。"
   },
   "modelSelector": {
+    "home": {
+      "context": "上下文",
+      "effort": "思考强度",
+      "unknownContext": "未提供",
+      "contextReadOnly": "上下文窗口由执行端管理",
+      "editContext": "编辑上下文窗口",
+      "contextTokens": "上下文窗口（Token 数）",
+      "saveContext": "保存上下文窗口",
+      "contextInvalid": "请输入 {{min}} 到 {{max}} 之间的整数 Token 数",
+      "contextSaveFailed": "保存失败，请重试。",
+      "availablePoolModels": "模型池可用模型",
+      "mode": "模式",
+      "currentModel": "当前使用模型",
+      "poolConnections": "电池接入列表",
+      "modelPool": "模型池列表"
+    },
+    "modes": {
+      "selection": "选择模式",
+      "manual": "手动指定",
+      "manualUnavailable": "上次选择的模型暂不可用，请重新选择模型。",
+      "smart": "智能模式",
+      "pool": "电池模式",
+      "comingSoon": "尚未开放",
+      "developmentNotice": "当前模式尚未开放，暂时直接使用主力模型。",
+      "primaryRequired": "请先配置主力模型"
+    },
     "model": "模型",
     "modelExplanation": "模型说明",
     "modelSettings": "模型设置",
     "modelSelection": "选择模型",
+    "searchModels": "搜索模型",
+    "collapseSearch": "收起搜索",
+    "searchPlaceholder": "搜索模型或供应商",
+    "noSearchResults": "没有匹配的模型或供应商",
+    "filterProvider": "按服务商筛选模型",
+    "allProviders": "全部服务商",
     "primaryModel": "主力模型",
     "primaryModelDesc": "使用已配置的主力模型",
     "fastModel": "快速模型",
@@ -3269,6 +3374,7 @@
     "acpMode": "模式",
     "acpModeLocked": "会话已经开始，模式不能再改。",
     "acpModeFailed": "切换模式失败",
+    "defaultSaveFailed": "模型已切换，但未能保存后续会话的默认选择。",
     "switchFailed": "切换模型失败",
     "modelNotConfigured": "未配置",
     "openModelSettings": "前往模型设置",
@@ -3309,6 +3415,9 @@
     "xhighDesc": "最大推理深度（较慢）"
   },
   "reasoningSelector": {
+    "thinking": "思考",
+    "automatic": "自动推理",
+    "manual": "手动",
     "title": "推理强度",
     "auto": "自动",
     "modelDefault": "模型默认值",
@@ -3320,11 +3429,11 @@
       "on": "开启",
       "none": "关闭",
       "minimal": "极低",
-      "low": "低",
+      "low": "轻",
       "medium": "中",
       "high": "高",
       "xhigh": "极高",
-      "max": "最高"
+      "max": "最大"
     }
   },
   "coworkScope": {
@@ -3441,6 +3550,7 @@
   "steering": {
     "title": "立即引导",
     "injectedAt": "已在第 {{round}} 轮前插入",
+    "statusNotApplied": "未生效，请在消息队列中重试",
     "statusPending": "等待触发",
     "statusInjected": "已触发"
   },
@@ -3508,5 +3618,12 @@
     "edit": "恢复草稿",
     "noDraft": "完整草稿仅在提交消息的设备上可用。",
     "legacy": "旧队列中的草稿，请逐条发送或恢复。"
+  },
+  "backgroundDelivery": {
+    "recoveryCompleted": "该次执行已恢复并完成。",
+    "adjudicationUsage": "投递判定额外使用 {{tokens}} tokens",
+    "quiet": "后台任务已完成 · 无需汇报",
+    "running": "后台任务执行中",
+    "executionDetails": "执行记录"
   }
 }

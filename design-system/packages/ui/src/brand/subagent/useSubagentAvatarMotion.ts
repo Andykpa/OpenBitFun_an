@@ -2,12 +2,13 @@ import { useEffect, useRef, type RefObject } from 'react';
 import { createSubagentMotionPlayer, type SubagentMotionPlayer } from './subagentMotionPlayer';
 import { pressHoldClip, pressReleaseClip, subagentMotionClips } from './subagentMotion';
 
+const isWorking = (status: string) => status === 'running' || status === 'finishing';
+
 /** Animate authored avatar parts, never the measured card or its text. */
 export function useSubagentAvatarMotion(ref: RefObject<HTMLElement>, status: string, enabled: boolean, identity?: string) {
   const playerRef = useRef<SubagentMotionPlayer>();
   const statusRef = useRef(status);
   const previousStatus = useRef(status);
-  const hoveringRef = useRef(false);
   statusRef.current = status;
 
   useEffect(() => {
@@ -23,12 +24,15 @@ export function useSubagentAvatarMotion(ref: RefObject<HTMLElement>, status: str
     let hovering = false;
     const rest = () => {
       if (pressing) return;
+      if (isWorking(statusRef.current)) {
+        player.play(subagentMotionClips.working, { notify: false });
+        return;
+      }
       if (hovering) {
         player.play(subagentMotionClips.hoverBlink, { notify: false });
         return;
       }
-      const working = statusRef.current === 'running' || statusRef.current === 'finishing';
-      player.play(working ? subagentMotionClips.working : subagentMotionClips.settle, { notify: false });
+      player.play(subagentMotionClips.settle, { notify: false });
     };
     const player = createSubagentMotionPlayer(host, rest, '[data-subagent-motion-art] svg');
     playerRef.current = player;
@@ -47,14 +51,17 @@ export function useSubagentAvatarMotion(ref: RefObject<HTMLElement>, status: str
     reduced?.addEventListener('change', sync);
     forced?.addEventListener('change', sync);
     const trigger = host.closest<HTMLElement>('[data-agent-capsule-trigger]');
-    const hover = () => { hovering = true; hoveringRef.current = true; if (active() && !pressing) rest(); };
+    const hover = () => {
+      hovering = true;
+      // Pointer and focus changes must not replace or restart a working loop.
+      if (active() && !pressing && !isWorking(statusRef.current)) rest();
+    };
     const press = () => { if (active()) { pressing = true; player.play(pressHoldClip, { notify: false }); } };
     const release = () => { if (pressing) { pressing = false; if (active()) player.play({ ...pressReleaseClip, duration: 300 }); } };
     const leave = () => {
       hovering = false;
-      hoveringRef.current = false;
       if (pressing) release();
-      else if (active()) rest();
+      else if (active() && !isWorking(statusRef.current)) rest();
     };
     const click = () => {
       pressing = false;
@@ -89,7 +96,6 @@ export function useSubagentAvatarMotion(ref: RefObject<HTMLElement>, status: str
       view.removeEventListener('pointerup', release);
       player.dispose();
       playerRef.current = undefined;
-      hoveringRef.current = false;
     };
   }, [enabled, identity, ref]);
 
@@ -98,10 +104,11 @@ export function useSubagentAvatarMotion(ref: RefObject<HTMLElement>, status: str
     previousStatus.current = status;
     if (before === status) return;
     const player = playerRef.current;
-    if (!player || hoveringRef.current) return;
-    const working = status === 'running' || status === 'finishing';
+    if (!player) return;
+    const working = isWorking(status);
+    if (working && isWorking(before)) return;
     const clip = working ? subagentMotionClips.working
-      : status === 'completed' && (before === 'running' || before === 'finishing')
+      : status === 'completed' && isWorking(before)
         ? { ...subagentMotionClips.success, duration: 520 }
         : status === 'waiting' ? subagentMotionClips.waiting
           : status === 'error' ? subagentMotionClips.blocked

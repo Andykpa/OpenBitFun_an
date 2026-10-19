@@ -7,14 +7,13 @@
  */
 import type {
   AnyFlowItem,
-  FlowThinkingItem,
   FlowToolItem,
 } from '../../types/flow-chat';
 import type { ToolGroupData, VirtualItem } from '../../store/modernFlowChatStore';
 import { getEffectiveToolName } from '../../utils/toolInvocationIdentity';
 import { buildInlineFlowGroupData, getModelRoundActiveItems, getProjectedModelRoundGroups, hasModelRoundLeadingControls } from '../../grouping/roundGroups';
 import { isFlowGroupExpanded } from '../../grouping/types';
-import { isFlowGroupMemberActive } from '../../grouping/lifecycle';
+import { estimateAgentCardColumns } from '../../timeline/agentCardLayout';
 
 export interface VirtualItemHeightEstimateContext {
   /** Width available to the reading column, excluding the scrollbar. */
@@ -33,6 +32,7 @@ export interface VirtualItemHeightEstimate {
 
 /** Collected rounds keep their virtual identity but have no visible row content. */
 export function getKnownVirtualItemHeightPx(item: VirtualItem): number | undefined {
+  if (item.timeline) return undefined;
   if (item.type !== 'model-round' || item.projectedGroups?.length !== 0
     || (item.isLastRound && item.isTurnComplete)
     || hasModelRoundLeadingControls(item.data)
@@ -149,6 +149,11 @@ export function estimateFlowItemHeight(
   item: AnyFlowItem,
   context: VirtualItemHeightEstimateContext = {},
 ): VirtualItemHeightEstimate {
+  // A live thought starts as one line even when its parent keeps the body
+  // mounted. User expansion is measured after mount, not inferred from length.
+  if (item.type === 'thinking' && (item.isStreaming || item.status === 'streaming')) {
+    return { heightPx: 40, confidence: 'high', kind: 'thinking-streaming' };
+  }
   if (item.type === 'thinking' && !(context.expandedThinkingItemIds ?? []).includes(item.id)) {
     return { heightPx: 40, confidence: 'high', kind: 'thinking-collapsed' };
   }
@@ -257,20 +262,16 @@ export function estimateExploreGroupHeight(
 
 export function estimateFlowGroupHeight(data: ToolGroupData, context: VirtualItemHeightEstimateContext = {}): VirtualItemHeightEstimate {
   const isExpanded = isFlowGroupExpanded(data, context.groupStates ?? context.exploreGroupStates);
-  // Only live reasoning or an explicit search disclosure reserves expanded height.
-  const contentContext = { ...context, expandedThinkingItemIds: [
-    ...(context.expandedThinkingItemIds ?? []),
-    ...data.allItems.filter(item => item.type === 'thinking'
-      && (item as FlowThinkingItem).reasoningKind !== 'summary' && isFlowGroupMemberActive(item)).map(item => item.id),
-  ] };
+  // File identity, revision count and two exposed page edges share one header.
+  const fileRevisionHeader = 'category' in data && data.category === 'file-edit' ? 44 : undefined;
   const contentHeight = data.allItems.reduce<number>(
-    (total, flowItem) => total + estimateFlowItemHeight(flowItem as AnyFlowItem, contentContext).heightPx,
+    (total, flowItem) => total + estimateFlowItemHeight(flowItem as AnyFlowItem, context).heightPx,
     0,
   );
   return {
     heightPx: isExpanded
-      ? EXPLORE_GROUP_HEADER_HEIGHT_PX + contentHeight
-      : EXPLORE_GROUP_COLLAPSED_HEIGHT_PX,
+      ? (fileRevisionHeader ?? EXPLORE_GROUP_HEADER_HEIGHT_PX) + contentHeight
+      : (fileRevisionHeader ?? EXPLORE_GROUP_COLLAPSED_HEIGHT_PX),
     confidence: 'medium',
     kind: isExpanded ? 'explore-group-expanded' : 'explore-group-collapsed',
   };
@@ -280,7 +281,26 @@ export function estimateVirtualItemHeight(
   item: VirtualItem,
   context: VirtualItemHeightEstimateContext = {},
 ): VirtualItemHeightEstimate {
+  if (item.timeline && item.type === 'model-round') {
+    if (item.timeline.layout === 'agent-cards') {
+      const thoughts = item.data.items.filter(member => member.type === 'thinking');
+      const cardCount = item.data.items.length - thoughts.length;
+      const rows = Math.ceil(cardCount / estimateAgentCardColumns(context.availableWidthPx));
+      // Identity cards keep two fixed content lines in every execution state.
+      // Sum visual rows, not individual cards; DOM owns approvals/wrapped notes.
+      return { heightPx: rows * (80 + 12)
+        + thoughts.reduce((height, thought) => height + estimateFlowItemHeight(thought, context).heightPx, 0),
+        confidence: 'medium', kind: 'timeline-agent-cards' };
+    }
+    const { kind, expanded, group } = item.timeline;
+    const heightPx = kind === 'group-header' ? (group?.category === 'file-edit' ? 52 : expanded ? 48 : 36)
+      : kind === 'round-header' ? 48 : kind === 'round-footer' ? 56
+        : item.data.items.reduce((height, member) => height + estimateFlowItemHeight(member as AnyFlowItem, context).heightPx, 0);
+    return { heightPx: Math.max(1, heightPx), confidence: 'medium', kind: `timeline-${kind}` };
+  }
   switch (item.type) {
+    case 'background-run':
+      return { heightPx: 48, confidence: 'medium', kind: 'background-run' };
     case 'user-message':
     case 'user-steering-message':
       return {

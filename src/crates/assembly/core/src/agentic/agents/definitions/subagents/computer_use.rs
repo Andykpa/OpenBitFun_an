@@ -2,13 +2,11 @@
 //!
 //! Dedicated agent for perceiving and operating the user's local computer.
 
-use crate::agentic::agents::{Agent, AgentToolPolicyOverrides, UserContextPolicy};
-use crate::agentic::tools::framework::ToolExposure;
+use crate::agentic::agents::{Agent, UserContextPolicy};
 use async_trait::async_trait;
 
 pub struct ComputerUseMode {
     default_tools: Vec<String>,
-    tool_exposure_overrides: AgentToolPolicyOverrides,
 }
 
 impl Default for ComputerUseMode {
@@ -19,9 +17,6 @@ impl Default for ComputerUseMode {
 
 impl ComputerUseMode {
     pub fn new() -> Self {
-        let mut tool_exposure_overrides = AgentToolPolicyOverrides::default();
-        tool_exposure_overrides.insert("ControlHub".to_string(), ToolExposure::Direct);
-        tool_exposure_overrides.insert("ComputerUse".to_string(), ToolExposure::Direct);
         Self {
             default_tools: vec![
                 "AskUserQuestion".to_string(),
@@ -36,7 +31,6 @@ impl ComputerUseMode {
                 "OpenBitFunControl".to_string(),
                 "ComputerUse".to_string(),
             ],
-            tool_exposure_overrides,
         }
     }
 }
@@ -68,13 +62,7 @@ impl Agent for ComputerUseMode {
     }
 
     fn user_context_policy(&self) -> UserContextPolicy {
-        UserContextPolicy::empty()
-            .with_workspace_instructions()
-            .with_project_layout()
-    }
-
-    fn tool_exposure_overrides(&self) -> &AgentToolPolicyOverrides {
-        &self.tool_exposure_overrides
+        UserContextPolicy::empty().with_workspace_instructions()
     }
 
     fn is_readonly(&self) -> bool {
@@ -107,6 +95,9 @@ mod tests {
             .expect("ComputerUse prompt");
 
         assert!(prompt.contains("When `ControlHub` appears in your current tool list"));
-        assert!(prompt.contains("If `ControlHub` is unavailable"));
+        assert!(prompt.contains("If `ControlHub` lacks the required technical capability"));
+        assert!(prompt.contains(
+            "Permission denial or user Disconnect is not a technical limitation to work around"
+        ));
     }
 }

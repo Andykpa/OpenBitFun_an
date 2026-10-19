@@ -123,14 +123,14 @@ it('Lab next-step playback retains the real card and manual state; Replay resets
   act(() => next.click());
   expect(expanded()).toBeNull();
   await act(async () => { next.click(); });
+  expect(expanded()).toBeNull();
+  await act(async () => { card!.querySelector<HTMLElement>('[data-openbitfun-part="surface"]')!.click(); });
   await act(async () => { await vi.dynamicImportSettled(); });
   expect(container.querySelector('[data-openbitfun-adapter="exec-process-tool-card"]')).toBe(card);
   expect(expanded()).not.toBeNull();
   expect(container.querySelector('.terminal-output-renderer__xterm-host')).not.toBeNull();
   act(() => next.click());
-  // Override the pending grace-period collapse, exactly as a reader can in production.
-  act(() => (expanded() as HTMLElement).click());
-  act(() => card!.querySelector<HTMLElement>('[data-openbitfun-part="surface"]')!.click());
+  // Completion preserves the reader's explicit expansion.
   act(() => next.click());
   expect(expanded()).not.toBeNull();
   expect(next.disabled).toBe(true);

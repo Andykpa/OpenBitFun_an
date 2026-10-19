@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import { useToolCardDisclosure } from '../timeline/readerState';
+import React, { useMemo } from 'react';
 import { useI18n } from '@/infrastructure/i18n/hooks/useI18n';
 import { getToolCardStatus, getToolCardStatusDescription } from './toolCardStatus';
 import type { ToolCardProps } from '../types/flow-chat';
@@ -42,7 +43,7 @@ export const SessionControlToolCard: React.FC<ToolCardProps> = React.memo(({
 }) => {
   const { t } = useI18n('flow-chat');
   const { toolCall, toolResult } = toolItem;
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useToolCardDisclosure('isExpanded');
   const toolId = toolItem.id ?? toolCall?.id;
   const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
     toolId,
@@ -67,7 +68,8 @@ export const SessionControlToolCard: React.FC<ToolCardProps> = React.memo(({
   const sessionName = session?.session_name ?? resultData?.session_name ?? inputData.session_name;
   const source = useCurrentToolSessionParticipant(sourceSessionId, t);
   const target = useToolSessionParticipant(sessionId, sessionName || sessionId || t('toolCards.sessionControl.unknownSession'), t,
-    'session', { parentSessionId: sourceSessionId, enabled: action !== 'delete' && action !== 'list' && sessionId !== sourceSessionId });
+    'session', { parentSessionId: sourceSessionId, enabled: action !== 'list'
+      && !(action === 'delete' && (status === 'completed' || status === 'confirmed')) });
   const agentType = session?.agent_type ?? inputData.agent_type;
   const sessions = Array.isArray(resultData?.sessions) ? resultData.sessions : [];
   const sessionCount = resultData?.count ?? sessions.length;

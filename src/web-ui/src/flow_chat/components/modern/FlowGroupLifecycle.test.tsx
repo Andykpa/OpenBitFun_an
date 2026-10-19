@@ -9,6 +9,10 @@ import type { FlowTextItem, FlowThinkingItem, FlowToolItem } from '../../types/f
 import { requestDeferredContentItem } from '@openbitfun/flow-chat-presentation/deferred-content';
 
 const state = vi.hoisted(() => ({ choices: new Map<string, boolean>(), permissions: new Set<string>(), revealing: false }));
+vi.mock('@/tools/snapshot_system/hooks/useSnapshotState', () => ({
+  useSnapshotState: () => ({ surfaceEpoch: 0, snapshotsAvailable: false }),
+}));
+vi.mock('../../session-drivers/sessionFileNavigation', () => ({ hasSessionFileProvider: () => false }));
 vi.mock('@/infrastructure/i18n', () => ({ useI18n: () => ({ t: (key: string) => key, formatNumber: String }) }));
 vi.mock('./FlowChatContext', () => ({
   useFlowChatContext: () => ({ sessionId: 'session', onExpandGroup: (id: string) => state.choices.set(id, true) }),
@@ -20,11 +24,12 @@ vi.mock('../FlowToolCard', () => ({ FlowToolCard: ({ toolItem }: { toolItem: Flo
     {expanded && <span data-detail={toolItem.id}>Output</span>}</div>;
 } }));
 vi.mock('../../tool-cards/ModelThinkingDisplay', () => ({
-  ModelThinkingDisplay: ({ thinkingItem, withinGroup, hidden, forceExpanded }: {
-    thinkingItem: FlowThinkingItem; withinGroup: boolean; hidden?: boolean; forceExpanded?: boolean;
+  ModelThinkingDisplay: ({ thinkingItem, withinGroup, hidden, forceExpanded, retainForGroupCollapse }: {
+    thinkingItem: FlowThinkingItem; withinGroup: boolean; hidden?: boolean; forceExpanded?: boolean; retainForGroupCollapse?: boolean;
   }) => {
     useReportTypewriterReveal(thinkingItem.id, state.revealing);
-    return <div hidden={hidden} data-parent-scroll={withinGroup} data-forced={forceExpanded}>{thinkingItem.content}</div>;
+    return <div hidden={hidden} data-parent-scroll={withinGroup} data-forced={forceExpanded}
+      data-parent-collapse={retainForGroupCollapse}>{thinkingItem.content}</div>;
   },
 }));
 vi.mock('../FlowTextBlock', () => ({ FlowTextBlock: ({ textItem }: { textItem: FlowTextItem }) => {
@@ -59,6 +64,31 @@ function group(phase: FlowGroupData['phase'], category: FlowGroupCategory = 'exp
     allItems: [{ id: 'call', type: 'tool', toolName: 'Read', timestamp: 1, status: running ? 'running' : 'completed',
       toolCall: { id: 'call', input: {} } } as FlowToolItem] };
 }
+
+it('renders one shared file header and keeps failed revisions visible with explicit collapse available', () => {
+  const data = group('collecting', 'file-edit');
+  data.allItems = ['one', 'two'].map(id => ({ id, type: 'tool', toolName: 'Edit', timestamp: 1, status: 'completed',
+    toolCall: { id, input: { file_path: '/remote/src/App.tsx', old_string: 'old', new_string: 'new' } } }));
+  const render = () => act(() => root.render(<FlowGroupRenderer turnId="turn" data={{ ...data }} />));
+  render();
+  const node = container.querySelector('[data-testid="chat-file-edit-group"]')!;
+  const header = container.querySelector('[data-openbitfun-part="summary"]')!;
+  expect(header.textContent).toBe('fileEditGroup.expandedApp.tsx');
+  expect(node.getAttribute('data-expanded')).toBe('true');
+  expect(container.querySelector('[data-openbitfun-part="controls"]')).toBeNull();
+  data.phase = 'settled';
+  render();
+  expect(container.querySelector('[data-openbitfun-part="summary"]')).toBe(header);
+  expect(header.textContent).toBe('fileEditGroup.labelApp.tsx');
+  expect(node.getAttribute('data-expanded')).toBe('false');
+  data.allItems = [data.allItems[0], { ...data.allItems[1], status: 'error' }];
+  render();
+  expect(node.getAttribute('data-expanded')).toBe('true');
+  expect(node.textContent).toContain('fileEditGroup.failed');
+  state.choices.set('group', false);
+  render();
+  expect(node.getAttribute('data-expanded')).toBe('false');
+});
 
 it.each(['explore', 'context', 'interface'] as const)('%s stays open through each completion and closes once at the group boundary', category => {
   const render = (data: FlowGroupData) => act(() => root.render(<FlowGroupRenderer turnId="turn" data={data} />));
@@ -95,7 +125,10 @@ it.each(['thinking', 'text'] as const)('waits for collected %s to finish reveali
   render('collecting');
   render('settled');
   expect(container.querySelector('[data-flow-group]')?.getAttribute('data-expanded')).toBe('true');
-  if (type === 'thinking') expect(container.querySelector('[data-parent-scroll]')?.getAttribute('data-parent-scroll')).toBe('true');
+  if (type === 'thinking') {
+    expect(container.querySelector('[data-parent-scroll]')?.getAttribute('data-parent-scroll')).toBe('true');
+    expect(container.querySelector('[data-parent-collapse]')?.getAttribute('data-parent-collapse')).toBe('true');
+  }
   state.revealing = false;
   render('settled');
   expect(container.querySelector('[data-flow-group]')?.getAttribute('data-expanded')).toBe('false');
@@ -148,9 +181,11 @@ it('mounts the live tail and preserves it through completion without mounting th
   expect(tail).not.toBeNull();
   expect(container.querySelector('[data-call="call-0"]')).toBeNull();
   expect(container.querySelectorAll('[data-call]').length).toBeLessThanOrEqual(48);
-  render({ ...data, allItems: data.allItems.map(item => ({ ...item, status: 'completed' })) });
+  render({ ...data, phase: 'settled', allItems: data.allItems.map(item => ({ ...item, status: 'completed' })) });
   expect(container.querySelector('[data-call="call-400"]')).toBe(active);
   expect(container.querySelector('[data-call="call-999"]')).toBe(tail);
+  expect(container.querySelector('[data-call="call-0"]')).toBeNull();
+  expect(container.querySelectorAll('[data-call]').length).toBeLessThanOrEqual(48);
 });
 
 function selectFilter(label: string, value: string) {

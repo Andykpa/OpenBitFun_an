@@ -107,8 +107,8 @@ export function GitToolCard({
     <ProminentToolCard
       {...props}
       data-openbitfun-tool-card="git"
-      errorContent={status === "error" ? body : undefined}
-      expandedContent={status === "error" ? undefined : body}
+      allowExpandedWhenFailed
+      expandedContent={body}
       summary={(
         <ProminentToolCardSummary
           action={action}
@@ -122,7 +122,7 @@ export function GitToolCard({
         />
       )}
       summaryExpandAffordance={hasDetails}
-      isExpanded={Boolean(isExpanded && hasDetails && status !== "error")}
+      isExpanded={Boolean(isExpanded && hasDetails)}
       onToggle={hasDetails && onToggle ? onToggle : undefined}
       status={status}
     />
@@ -171,6 +171,8 @@ export function FileDiffToolCard({
     <ProminentToolCard
       {...props}
       data-openbitfun-tool-card="file-diff"
+      allowExpandedWhenFailed
+      collapsibleErrorContent
       errorContent={error ? <div className={styles.error}>{error}</div> : undefined}
       expandedContent={body}
       expandedContentLayout="flush"
@@ -198,9 +200,9 @@ export function FileDiffToolCard({
           statusIcon={loading ? <ToolProcessingDots size={16} /> : undefined}
         />
       )}
-      summaryExpandAffordance={Boolean(body)}
-      isExpanded={Boolean(isExpanded && body && status !== "error")}
-      onToggle={body && onToggle ? onToggle : undefined}
+      summaryExpandAffordance={Boolean(body || error)}
+      isExpanded={Boolean(isExpanded && (body || error))}
+      onToggle={(body || error) && onToggle ? onToggle : undefined}
       status={status}
     />
   );
@@ -314,8 +316,8 @@ function PageLifecycleToolCardBase({
     <ProminentToolCard
       {...props}
       data-openbitfun-tool-card={toolCard}
-      errorContent={status === "error" ? body : undefined}
-      expandedContent={status === "error" ? undefined : body}
+      allowExpandedWhenFailed
+      expandedContent={body}
       summary={(
         <ProminentToolCardSummary
           action={action}
@@ -327,7 +329,7 @@ function PageLifecycleToolCardBase({
         />
       )}
       summaryExpandAffordance={hasDetails}
-      isExpanded={Boolean(isExpanded && hasDetails && status !== "error")}
+      isExpanded={Boolean(isExpanded && hasDetails)}
       onToggle={hasDetails && onToggle ? onToggle : undefined}
       status={status}
     />

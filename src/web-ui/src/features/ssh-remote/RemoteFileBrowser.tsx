@@ -37,6 +37,11 @@ interface DeleteConfirmState {
   entry: RemoteFileEntry | null;
 }
 
+interface ActiveBrowserTransfer {
+  id: string;
+  cancelled: boolean;
+}
+
 function joinRemotePath(dir: string, fileName: string): string {
   const name = fileName.replace(/^\/+/, '');
   if (!dir || dir === '/') {
@@ -89,6 +94,9 @@ export const RemoteFileBrowser: React.FC<RemoteFileBrowserProps> = ({
   const textInputCompositionActiveRef = useRef(false);
   const [entries, setEntries] = useState<RemoteFileEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadedConnectionId, setLoadedConnectionId] = useState<string | null>(null);
+  const directoryRequestRef = useRef(0);
+  const requestedPathRef = useRef(initialPath);
   const [error, setError] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
@@ -104,15 +112,55 @@ export const RemoteFileBrowser: React.FC<RemoteFileBrowserProps> = ({
     entry: null,
   });
   const [transferBusy, setTransferBusy] = useState(false);
+  const [transferCancelling, setTransferCancelling] = useState(false);
+  const activeTransferRef = useRef<ActiveBrowserTransfer | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+
+  const beginTransfer = (): ActiveBrowserTransfer | null => {
+    if (activeTransferRef.current) return null;
+    const transfer = { id: crypto.randomUUID(), cancelled: false };
+    activeTransferRef.current = transfer;
+    setTransferBusy(true);
+    setTransferCancelling(false);
+    setError(null);
+    return transfer;
+  };
+
+  const endTransfer = (transfer: ActiveBrowserTransfer): void => {
+    if (activeTransferRef.current !== transfer) return;
+    activeTransferRef.current = null;
+    setTransferBusy(false);
+    setTransferCancelling(false);
+  };
+
+  const stopTransfer = (): void => {
+    const transfer = activeTransferRef.current;
+    if (!transfer || transfer.cancelled) return;
+    transfer.cancelled = true;
+    setTransferCancelling(true);
+    void sshApi.cancelTransfer(transfer.id).catch((error: unknown) => {
+      setError(error instanceof Error ? error.message : t('ssh.remote.transferFailed'));
+    });
+  };
+
+  useEffect(() => () => {
+    const transfer = activeTransferRef.current;
+    if (!transfer) return;
+    transfer.cancelled = true;
+    void sshApi.cancelTransfer(transfer.id).catch(() => undefined);
+  }, []);
 
   // One-shot retry: when the SSH session was torn down by a transient network
   // blip, the backend transparently reconnects on the next call but the
   // already-in-flight request still fails. Retrying once gives the recovery
   // path a chance to succeed before surfacing an error to the user.
   const loadDirectory = useCallback(async (path: string) => {
+    const request = ++directoryRequestRef.current;
+    requestedPathRef.current = path;
     setLoading(true);
     setError(null);
+    setSelectedPath(null);
+    setIsEditingPath(false);
     const fetchOnce = () => sshApi.readDir(connectionId, path);
     try {
       let result;
@@ -122,28 +170,41 @@ export const RemoteFileBrowser: React.FC<RemoteFileBrowserProps> = ({
         // Brief pause lets the backend complete its reconnect handshake before
         // we hammer it again.
         await new Promise((resolve) => setTimeout(resolve, 250));
+        if (request !== directoryRequestRef.current) return;
         try {
           result = await fetchOnce();
         } catch {
           throw firstErr;
         }
       }
+      if (request !== directoryRequestRef.current) return;
       result.sort((a, b) => {
         if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
         return a.name.localeCompare(b.name);
       });
       setEntries(result);
+      // READDIR follows directory links on the remote host. Commit navigation
+      // only after it succeeds, retaining the link path and last usable listing
+      // when a link is broken, points to a file, or cannot be accessed.
+      setCurrentPath(path);
+      setPathInputValue(path);
+      setLoadedConnectionId(connectionId);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load directory');
-      setEntries([]);
+      if (request !== directoryRequestRef.current) return;
+      setError(e instanceof Error ? e.message : typeof e === 'string' ? e : 'Failed to load directory');
     } finally {
-      setLoading(false);
+      if (request === directoryRequestRef.current) setLoading(false);
     }
   }, [connectionId]);
 
   useEffect(() => {
-    loadDirectory(currentPath);
-  }, [currentPath, loadDirectory]);
+    setEntries([]);
+    setLoadedConnectionId(null);
+    setCurrentPath(initialPath);
+    setPathInputValue(initialPath);
+    void loadDirectory(initialPath);
+    return () => { directoryRequestRef.current += 1; };
+  }, [initialPath, loadDirectory]);
 
   // Close context menu when clicking outside
   useEffect(() => {
@@ -157,10 +218,7 @@ export const RemoteFileBrowser: React.FC<RemoteFileBrowserProps> = ({
   }, []);
 
   const navigateTo = (path: string) => {
-    setCurrentPath(path);
-    setPathInputValue(path);
-    setSelectedPath(null);
-    setIsEditingPath(false);
+    void loadDirectory(path);
   };
 
   const handlePathInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -193,7 +251,7 @@ export const RemoteFileBrowser: React.FC<RemoteFileBrowserProps> = ({
   };
 
   const handleEntryClick = (entry: RemoteFileEntry) => {
-    if (entry.isDir) {
+    if (entry.isDir || (selectDirectoriesOnly && entry.isSymlink)) {
       navigateTo(entry.path);
     } else if (!selectDirectoriesOnly) {
       setSelectedPath(entry.path);
@@ -202,7 +260,7 @@ export const RemoteFileBrowser: React.FC<RemoteFileBrowserProps> = ({
   };
 
   const handleEntryDoubleClick = (entry: RemoteFileEntry) => {
-    if (entry.isDir) {
+    if (entry.isDir || entry.isSymlink) {
       navigateTo(entry.path);
     }
   };
@@ -230,14 +288,19 @@ export const RemoteFileBrowser: React.FC<RemoteFileBrowserProps> = ({
     });
     if (localPath === null) return;
 
-    setTransferBusy(true);
-    setError(null);
+    const transfer = beginTransfer();
+    if (!transfer) return;
     try {
-      await sshApi.downloadToLocalPath(connectionId, entry.path, localPath);
+      await sshApi.downloadToLocalPath(
+        connectionId, entry.path, localPath, undefined, transfer.id,
+        () => transfer.cancelled,
+      );
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('ssh.remote.transferFailed'));
+      if (!transfer.cancelled) {
+        setError(e instanceof Error ? e.message : t('ssh.remote.transferFailed'));
+      }
     } finally {
-      setTransferBusy(false);
+      endTransfer(transfer);
     }
   };
 
@@ -253,7 +316,7 @@ export const RemoteFileBrowser: React.FC<RemoteFileBrowserProps> = ({
           setDeleteConfirm({ show: true, entry });
           break;
         case 'open':
-          if (entry.isDir) {
+          if (entry.isDir || entry.isSymlink) {
             navigateTo(entry.path);
           } else if (!selectDirectoriesOnly) {
             onSelect(entry.path);
@@ -322,25 +385,34 @@ export const RemoteFileBrowser: React.FC<RemoteFileBrowserProps> = ({
     const paths = Array.isArray(selected) ? selected : [selected];
     if (paths.length === 0) return;
 
-    setTransferBusy(true);
-    setError(null);
+    const transfer = beginTransfer();
+    if (!transfer) return;
     try {
       for (const localPath of paths) {
+        if (transfer.cancelled) break;
         const segments = localPath.split(/[/\\]/);
         const base = segments.pop();
         if (!base) continue;
         const remotePath = joinRemotePath(currentPath, base);
-        await sshApi.uploadFromLocalPath(connectionId, localPath, remotePath);
+        await sshApi.uploadFromLocalPath(
+          connectionId, localPath, remotePath, undefined, transfer.id,
+          () => transfer.cancelled,
+        );
       }
       await loadDirectory(currentPath);
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('ssh.remote.transferFailed'));
+      if (!transfer.cancelled) {
+        setError(e instanceof Error ? e.message : t('ssh.remote.transferFailed'));
+      } else {
+        void loadDirectory(currentPath);
+      }
     } finally {
-      setTransferBusy(false);
+      endTransfer(transfer);
     }
   };
 
   const openSelectedWorkspace = () => {
+    if (loading || loadedConnectionId !== connectionId) return;
     onSelect(selectDirectoriesOnly ? currentPath : (selectedPath || currentPath));
   };
 
@@ -506,6 +578,15 @@ export const RemoteFileBrowser: React.FC<RemoteFileBrowserProps> = ({
           <div className="remote-file-browser__transfer-status">
             <Loader2 size={16} className="remote-file-browser__spinner-inline" />
             <span>{t('ssh.remote.transferring')}</span>
+            <Button
+              variant="fill"
+              size="sm"
+              onClick={stopTransfer}
+              disabled={transferCancelling}
+              style={{ marginLeft: 'auto' }}
+            >
+              {t('actions.cancel')}
+            </Button>
           </div>
         )}
 
@@ -516,7 +597,7 @@ export const RemoteFileBrowser: React.FC<RemoteFileBrowserProps> = ({
               <span>{error}</span>
               <IconButton
                 type="button"
-                onClick={() => loadDirectory(currentPath)}
+                onClick={() => loadDirectory(requestedPathRef.current)}
                 title={t('actions.retry') || 'Retry'}
                 style={{ marginLeft: 'auto', marginRight: 8 }}
                 aria-label={t('actions.retry')}
@@ -590,7 +671,7 @@ export const RemoteFileBrowser: React.FC<RemoteFileBrowserProps> = ({
                     </td>
                   </tr>
                 ))}
-                {entries.length === 0 && !loading && (
+                {entries.length === 0 && !loading && !error && loadedConnectionId === connectionId && (
                   <tr>
                     <td colSpan={3} className="remote-file-browser__empty">
                       {t('ssh.remote.emptyDirectory')}
@@ -738,7 +819,7 @@ export const RemoteFileBrowser: React.FC<RemoteFileBrowserProps> = ({
               variant="primary"
               size="sm"
               onClick={openSelectedWorkspace}
-              disabled={false}
+              disabled={loading || loadedConnectionId !== connectionId}
             >
               {t('ssh.remote.openWorkspace')}
             </Button>

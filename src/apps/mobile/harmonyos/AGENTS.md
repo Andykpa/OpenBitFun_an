@@ -76,6 +76,16 @@ source scripts/ohos-env.sh
 "$HVIGORW" --mode module -p module=entry@default -p ohos.test.type=LocalTest test --no-daemon
 ```
 
+For window inset subscription lifecycle and late completion regressions, run
+`node --test tools/tests/window-insets-lifecycle.test.cjs tools/tests/immersive-bottom.test.cjs`.
+The lifecycle tests run the production service with deferred platform window
+reads; device rotation and folding still require native verification.
+
+For language-refresh and literal-parameter regressions, run
+`node --test tools/tests/host-text-retranslator.test.cjs`. This exercises the
+production retranslator and RemoteI18n with real element catalogs; platform
+resource access is mocked and does not replace native resource/device checks.
+
 For workspace/session catalog rendering, install the debug HAP and run
 `python3 tools/check-catalog-refresh.py --hdc "$HDC"` (add `--dark` for dark
 mode). Run in compact and wide postures. The isolated fixture replaces objects
@@ -89,6 +99,19 @@ For composer submission timing and draft ownership, run
 fake RPC: send must clear the input before pressing **Acknowledge**, and a
 **Next draft** entered while pending must survive acknowledgment. Exercise both
 compact and wide layouts and return to normal `EntryAbility` afterward.
+
+For rollback reply ownership and session switching, run
+`node --test tools/tests/rollback-session-isolation.test.cjs`.
+In the `copy-rollback` native preview, stage a rollback, use **Resize**, and verify
+the preview remains for the same session. Use **Switch session** and verify the
+staging bar and full-text panel close while `SESSION-B-DRAFT` remains untouched.
+Exercise compact and wide widths in light and dark modes, then restore normal
+`EntryAbility`. Deferred-response unit tests cover switching while rollback,
+send acknowledgment, and voice shutdown are pending; the preview uses a mock
+host and is not evidence of live relay or physical fold behavior.
+After installing the debug HAP on a wide device/emulator, run
+`python3 tools/check-rollback-session-isolation.py --hdc "$HDC" --device <target>`
+for compact/wide, light/dark and live resize checks with layout/screenshot evidence.
 
 For history loading and explicit jump-to-bottom navigation, install the debug
 HAP and run `python3 tools/check-history-scroll.py --hdc "$HDC"`. The

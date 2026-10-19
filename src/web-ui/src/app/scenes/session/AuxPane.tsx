@@ -6,6 +6,8 @@
  */
 
 import { forwardRef, useEffect, useRef, useImperativeHandle, useCallback, useSyncExternalStore } from 'react';
+import { Maximize2, Minimize2 } from 'lucide-react';
+import { Icon, IconButton, Tooltip } from '@openbitfun/ui';
 import { ContentCanvas, useCanvasStore } from '../../components/panels/content-canvas';
 import { usePanelTabCoordinator } from '../../components/panels/content-canvas/hooks/usePanelTabCoordinator';
 import { TAB_EVENTS } from '../../components/panels/content-canvas/types';
@@ -32,12 +34,15 @@ export interface AuxPaneRef {
 
 interface AuxPaneProps {
   workspacePath?: string;
+  externalToolbar?: boolean;
   isSceneActive?: boolean;
   terminalResizeSuspended?: boolean;
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
 }
 
 const AuxPane = forwardRef<AuxPaneRef, AuxPaneProps>(
-  ({ workspacePath, isSceneActive = true, terminalResizeSuspended = false }, ref) => {
+  ({ workspacePath, externalToolbar = false, isSceneActive = true, terminalResizeSuspended = false, isFullscreen = false, onToggleFullscreen }, ref) => {
     const { t } = useI18n('components');
     const activeSessionId = useSyncExternalStore(
       flowChatStore.subscribe.bind(flowChatStore),
@@ -55,7 +60,7 @@ const AuxPane = forwardRef<AuxPaneRef, AuxPaneProps>(
     const secondaryGroup = useCanvasStore(state => state.secondaryGroup);
     const tertiaryGroup = useCanvasStore(state => state.tertiaryGroup);
     const canvasScopeKey = useCanvasStore(state => state.scopeKey);
-    const { expandPanel, collapsePanel } = usePanelTabCoordinator({
+    const { expandPanel } = usePanelTabCoordinator({
       visibleTabCount: [primaryGroup, secondaryGroup, tertiaryGroup]
         .reduce((count, group) => count + group.tabs.filter(tab =>
           !tab.isHidden && isCanvasTabVisibleForSession(tab, activeSessionId),
@@ -150,11 +155,25 @@ const AuxPane = forwardRef<AuxPaneRef, AuxPaneProps>(
     return (
       <div data-openbitfun-component="aux-pane" data-openbitfun-part="root" className="openbitfun-aux-pane">
         <ContentCanvas
+          externalToolbar={externalToolbar}
           workspacePath={workspacePath}
           mode="agent"
           isSceneActive={isSceneActive}
           onReveal={expandPanel}
-          onCollapsePanel={collapsePanel}
+          toolbarActions={onToggleFullscreen ? (
+            <Tooltip content={t(isFullscreen ? 'canvas.restorePanel' : 'canvas.maximizePanel')} placement="bottom">
+              <IconButton
+                size="sm"
+                aria-label={t(isFullscreen ? 'canvas.restorePanel' : 'canvas.maximizePanel')}
+                aria-pressed={isFullscreen}
+                icon={<Icon glyph={isFullscreen ? Minimize2 : Maximize2} size="sm" />}
+                onClick={event => {
+                  event.stopPropagation();
+                  onToggleFullscreen();
+                }}
+              />
+            </Tooltip>
+          ) : null}
           onInteraction={handleInteraction}
           onBeforeClose={handleBeforeClose}
           terminalResizeSuspended={terminalResizeSuspended}

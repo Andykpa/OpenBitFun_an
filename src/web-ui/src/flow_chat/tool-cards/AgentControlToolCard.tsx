@@ -242,7 +242,8 @@ const AgentSpawnCard: React.FC<ToolCardProps> = ({
             description: t('subagentIdentity.preview.description'),
           },
         }}
-        statusLabel={lifecycle === 'completed' ? undefined : t(`flowChatHeader.agentTreeStatus.${lifecycle}`)}
+        statusLabel={lifecycle === 'completed' ? undefined
+          : t(`flowChatHeader.agentTreeStatus.${lifecycle === 'finishing' ? 'running' : lifecycle}`)}
         statusTone={statusTone}
         onOpenAgent={canOpenSession ? handleOpenSession : undefined}
         openAgentLabel={t('toolCards.taskTool.openInPanel')}

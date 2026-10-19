@@ -11,6 +11,7 @@ import {
   type AskUserAnswers,
   type AskUserQuestion,
   type AskUserState,
+  type AskUserWaitTiming,
 } from '@openbitfun/ui/flow-chat';
 import React, {
   useCallback,
@@ -22,7 +23,6 @@ import React, {
   useSyncExternalStore,
 } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, Icon, Tooltip } from '@openbitfun/ui';
 import { i18nService } from '@/infrastructure/i18n';
 import { toolAPI } from '@/infrastructure/api/service-api/ToolAPI';
 import {
@@ -367,42 +367,19 @@ export const AskUserQuestionCard: React.FC<ToolCardProps> = ({
   const handleOtherInputChange = useCallback((
     questionIndex: number,
     value: string,
-    preserveOtherSelection = false,
   ) => {
     if (draftKey) {
       askUserQuestionDraftStore.getState().setOtherInput(
         draftKey,
         questionIndex,
         value,
-        preserveOtherSelection,
       );
       return;
     }
     setLocalDraft((current) => {
       const isEmpty = value.trim().length === 0;
-      const currentAnswer = current.answers[questionIndex];
-      let nextAnswers = current.answers;
-      if (
-        isEmpty
-        && !preserveOtherSelection
-        && Array.isArray(currentAnswer)
-        && currentAnswer.includes(OTHER_OPTION_VALUE)
-      ) {
-        nextAnswers = {
-          ...current.answers,
-          [questionIndex]: currentAnswer.filter((answer) => answer !== OTHER_OPTION_VALUE),
-        };
-      } else if (
-        isEmpty
-        && !preserveOtherSelection
-        && currentAnswer === OTHER_OPTION_VALUE
-      ) {
-        nextAnswers = { ...current.answers };
-        delete nextAnswers[questionIndex];
-      }
       return {
         ...current,
-        answers: nextAnswers,
         otherInputs: {
           ...current.otherInputs,
           [questionIndex]: isEmpty ? '' : value,
@@ -606,7 +583,31 @@ export const AskUserQuestionCard: React.FC<ToolCardProps> = ({
             ? t('toolCards.askUser.submitFailed')
             : t('toolCards.askUser.waitingAnswer');
 
+  // The header always keeps a timing affordance while the question can be
+  // answered: a dismissible host countdown, or the settled unbounded label when
+  // the host reports no deadline (timeout disabled) instead of an empty slot.
+  // A settled interaction still clears the slot, matching the countdown's own
+  // dismissal rule.
+  const waitSettled = canAnswer
+    && typeof deadline !== 'number'
+    && !interactionAcknowledged
+    && !toolItem.userQuestionWait?.interactionStarted;
+  const waitTiming: AskUserWaitTiming | undefined = isSubmitted
+    ? undefined
+    : showTimer
+      ? {
+          cancelDisabled: !sessionId,
+          cancelLabel: t('toolCards.askUser.cancelCountdown'),
+          hint: t('toolCards.askUser.timeoutSettingsHint'),
+          onCancel: startInteraction,
+          remainingLabel: countdown,
+        }
+      : waitSettled
+        ? { settledLabel: t('toolCards.askUser.unlimitedWait') }
+        : undefined;
+
   if (endedWithoutAnswer && !canFollowUp) {
+    const canReviewQuestions = cancelled && designQuestions.length > 0;
     const terminalLabel = timedOut
       ? t('toolCards.askUser.timeout')
       : cancelled
@@ -617,10 +618,16 @@ export const AskUserQuestionCard: React.FC<ToolCardProps> = ({
     return (
       <AskUser
         data-tool-card-id={toolId ?? ''}
-        questions={[]}
+        disabled
+        disclosure={canReviewQuestions ? {
+          label: terminalLabel,
+          collapseLabel: t('toolCards.askUser.collapseQuestions'),
+        } : undefined}
+        onExpandedChange={dispatchToolCardToggle}
+        questions={canReviewQuestions ? designQuestions : []}
         ref={cardRootRef}
         state={timedOut ? 'timeout' : 'error'}
-        statusLabel={terminalLabel}
+        statusLabel={canReviewQuestions ? undefined : terminalLabel}
       />
     );
   }
@@ -658,6 +665,7 @@ export const AskUserQuestionCard: React.FC<ToolCardProps> = ({
       answers={presentation.answers}
       aria-label={t('toolCards.askUser.questionsCount', { count: questions.length })}
       customAnswers={presentation.customAnswers}
+      data-flowchat-interaction={canAnswer ? 'response' : undefined}
       data-tool-card-id={toolId ?? ''}
       disabled={!canEditAnswers}
       defaultExpanded={!canFollowUp}
@@ -682,25 +690,10 @@ export const AskUserQuestionCard: React.FC<ToolCardProps> = ({
         }),
       }}
       onClickCapture={handleInteraction}
-      headerTrailing={showTimer && !isSubmitted ? (
-        <Tooltip content={t('toolCards.askUser.timeoutSettingsHint')} placement="top">
-          <Button
-            variant="text"
-            size="xs"
-            labelBehavior="static"
-            aria-label={t('toolCards.askUser.cancelCountdown')}
-            disabled={!sessionId}
-            trailingIcon={<Icon name="xmark" size="xs" />}
-            onClick={startInteraction}
-          >
-            <span role="timer">{countdown}</span>
-          </Button>
-        </Tooltip>
-      ) : undefined}
       onFocusCapture={handleInteraction}
       onAnswersChange={handleAnswersChange}
-      onCustomAnswerChange={(questionId, value, meta) => {
-        handleOtherInputChange(Number(questionId), value, meta.isComposing);
+      onCustomAnswerChange={(questionId, value) => {
+        handleOtherInputChange(Number(questionId), value);
       }}
       onSubmit={handleSubmit}
       questions={designQuestions}
@@ -722,6 +715,7 @@ export const AskUserQuestionCard: React.FC<ToolCardProps> = ({
       submitTitle={!isAllAnswered()
         ? t('toolCards.askUser.answerAllBeforeSubmit')
         : undefined}
+      waitTiming={waitTiming}
     />
   );
 };

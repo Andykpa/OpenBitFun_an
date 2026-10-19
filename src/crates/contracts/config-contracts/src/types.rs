@@ -180,6 +180,10 @@ pub struct AppConfig {
     /// the frontend owns the versioned format (StoredKeybindingsV1).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keybindings: Option<serde_json::Value>,
+    /// Preferred assistant entry sessions, keyed by owning workspace ID on this host.
+    /// An empty map also advertises support to older/newer controller surfaces.
+    #[serde(default)]
+    pub assistant_default_sessions: HashMap<String, String>,
     /// Global, user-defined groups used to organize Agent tool pickers.
     #[serde(default, skip_serializing_if = "UserToolGroupsConfig::is_empty")]
     pub user_tool_groups: UserToolGroupsConfig,
@@ -199,6 +203,10 @@ pub struct AppConfig {
     /// Defaults for opt-in managed Git worktrees.
     #[serde(default)]
     pub worktrees: WorktreeSettings,
+    /// Opt-in discovery of external session history on the serving host.
+    /// Unknown ecosystem keys survive upgrades; only installed readers consume them.
+    #[serde(default)]
+    pub external_session_discovery: HashMap<String, bool>,
 }
 
 /// An explicit empty source list stays empty; defaults apply only to absent settings.
@@ -380,7 +388,7 @@ pub struct AppLoggingConfig {
     /// Allowed values: trace, debug, info, warn, error, off.
     pub level: String,
     /// Whether diagnostic logs may include sensitive troubleshooting payloads.
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub include_sensitive_diagnostics: bool,
     /// Whether the local UI records detailed Flow Chat viewport diagnostics.
     #[serde(default)]
@@ -437,6 +445,27 @@ pub struct AppFlowChatConfig {
         skip_serializing_if = "is_permission_mode_control_visible"
     )]
     pub show_permission_mode_control: bool,
+    /// Automatically show excerpt actions after selecting transcript text.
+    #[serde(default = "default_auto_show_selection_toolbar")]
+    pub auto_show_selection_toolbar: bool,
+    /// How the shared composer submits follow-ups to a running native session.
+    #[serde(skip_serializing_if = "ChatInputSendDuringTurn::is_immediate")]
+    pub send_during_turn: ChatInputSendDuringTurn,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatInputSendDuringTurn {
+    Queue,
+    #[default]
+    #[serde(other)]
+    Immediate,
+}
+
+impl ChatInputSendDuringTurn {
+    fn is_immediate(&self) -> bool {
+        *self == Self::Immediate
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -454,6 +483,10 @@ fn is_permission_mode_control_visible(value: &bool) -> bool {
     *value
 }
 
+fn default_auto_show_selection_toolbar() -> bool {
+    true
+}
+
 impl Default for AppFlowChatConfig {
     fn default() -> Self {
         Self {
@@ -461,6 +494,8 @@ impl Default for AppFlowChatConfig {
             default_mode_id: None,
             last_mode_id: None,
             show_permission_mode_control: default_show_permission_mode_control(),
+            auto_show_selection_toolbar: default_auto_show_selection_toolbar(),
+            send_during_turn: ChatInputSendDuringTurn::default(),
         }
     }
 }
@@ -585,8 +620,6 @@ pub struct AIExperienceConfig {
     pub enable_session_title_generation: bool,
     /// Whether to enable AI analysis of work status on the FlowChat welcome page.
     pub enable_welcome_panel_ai_analysis: bool,
-    /// Whether to enable visual mode.
-    pub enable_visual_mode: bool,
     /// Whether to show the desktop Agent companion.
     pub enable_agent_companion: bool,
     /// Optional Petdex-compatible companion package selected by the user.
@@ -602,6 +635,12 @@ pub struct AIExperienceConfig {
     /// User-defined quick actions (post-coding menu); persisted for the web UI.
     #[serde(default = "default_quick_actions")]
     pub quick_actions: Vec<AiExperienceQuickAction>,
+    /// Whether built-in commit workflows add OpenBitFun as a Git co-author.
+    #[serde(default = "default_true")]
+    pub enable_git_commit_coauthor: bool,
+    /// Whether a completed interactive turn offers a one-sentence next-input suggestion.
+    #[serde(default = "default_true")]
+    pub enable_prompt_suggestion: bool,
 }
 
 fn default_quick_actions() -> Vec<AiExperienceQuickAction> {
@@ -680,7 +719,8 @@ pub struct NotificationConfig {
     /// Whether to show a toast notification when an approval request arrives while the window is not focused.
     #[serde(default = "default_true")]
     pub permission_request_notify: bool,
-    /// Whether to show built-in tip cards on startup (can be disabled by the user).
+    /// Retired startup-tip preference, retained only for configuration round-trip compatibility.
+    /// This field has no runtime effect.
     #[serde(default = "default_true")]
     pub enable_startup_tips: bool,
 }
@@ -883,16 +923,10 @@ impl Default for SubagentModelDefaultsConfig {
     fn default() -> Self {
         Self {
             default_selection: default_subagent_model_selection(),
-            builtin: HashMap::from([
-                (
-                    "GeneralPurpose".to_string(),
-                    SubagentModelSelection::fixed("primary"),
-                ),
-                (
-                    "ResearchSpecialist".to_string(),
-                    SubagentModelSelection::Inherit,
-                ),
-            ]),
+            builtin: HashMap::from([(
+                "ResearchSpecialist".to_string(),
+                SubagentModelSelection::Inherit,
+            )]),
             fork: SubagentModelSelection::Inherit,
         }
     }
@@ -1895,12 +1929,14 @@ impl Default for AppConfig {
             ai_experience: AIExperienceConfig::default(),
             voice_call: VoiceCallConfig::default(),
             keybindings: None,
+            assistant_default_sessions: HashMap::new(),
             user_tool_groups: UserToolGroupsConfig::default(),
             user_skill_groups: UserSkillGroupsConfig::default(),
             skill_market: SkillMarketConfig::default(),
             close_button_behavior: default_close_button_behavior(),
             hooks: AgentHooksConfig::default(),
             worktrees: WorktreeSettings::default(),
+            external_session_discovery: HashMap::new(),
         }
     }
 }
@@ -1910,7 +1946,7 @@ impl Default for AppLoggingConfig {
         Self {
             // Set to Debug in early development for easier diagnostics
             level: "debug".to_string(),
-            include_sensitive_diagnostics: true,
+            include_sensitive_diagnostics: false,
             flow_chat_diagnostics: false,
             model_exchange_tracing: ModelExchangeTracingConfig::default(),
         }
@@ -1930,12 +1966,13 @@ impl Default for AIExperienceConfig {
         Self {
             enable_session_title_generation: true,
             enable_welcome_panel_ai_analysis: false,
-            enable_visual_mode: false,
             enable_agent_companion: true,
             agent_companion_pet: default_agent_companion_pet(),
             enable_workspace_search: false,
             voice_input: VoiceInputConfig::default(),
             quick_actions: default_quick_actions(),
+            enable_git_commit_coauthor: true,
+            enable_prompt_suggestion: true,
         }
     }
 }
@@ -2218,6 +2255,52 @@ impl AIModelConfig {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn git_commit_coauthor_defaults_for_legacy_settings_and_preserves_opt_out() {
+        let legacy = serde_json::json!({
+            "enable_visual_mode": true,
+            "quick_actions": [{
+                "id": "custom", "label": "Review", "prompt": "Review changes", "enabled": false
+            }]
+        });
+        let settings: super::AIExperienceConfig = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(settings.enable_git_commit_coauthor);
+
+        let mut persisted = serde_json::to_value(settings).unwrap();
+        assert!(
+            persisted.get("enable_visual_mode").is_none(),
+            "retired visual mode setting should not be serialized"
+        );
+        assert_eq!(persisted["quick_actions"], legacy["quick_actions"]);
+        persisted["enable_git_commit_coauthor"] = serde_json::json!(false);
+        let opted_out: super::AIExperienceConfig =
+            serde_json::from_value(persisted.clone()).unwrap();
+        assert!(!opted_out.enable_git_commit_coauthor);
+        assert_eq!(serde_json::to_value(opted_out).unwrap(), persisted);
+    }
+
+    #[test]
+    fn prompt_suggestion_defaults_on_for_legacy_settings_and_preserves_opt_out() {
+        let legacy = serde_json::json!({
+            "enable_session_title_generation": false,
+            "enable_git_commit_coauthor": false
+        });
+        let settings: super::AIExperienceConfig = serde_json::from_value(legacy).unwrap();
+        assert!(settings.enable_prompt_suggestion);
+        assert!(!settings.enable_session_title_generation);
+
+        let mut persisted = serde_json::to_value(settings).unwrap();
+        assert_eq!(
+            persisted["enable_prompt_suggestion"],
+            serde_json::json!(true)
+        );
+        persisted["enable_prompt_suggestion"] = serde_json::json!(false);
+        let opted_out: super::AIExperienceConfig =
+            serde_json::from_value(persisted.clone()).unwrap();
+        assert!(!opted_out.enable_prompt_suggestion);
+        assert_eq!(serde_json::to_value(opted_out).unwrap(), persisted);
+    }
+
+    #[test]
     fn global_skill_settings_keep_legacy_values_and_project_scope_on_round_trip() {
         let legacy = r#"{"globally_disabled_user_skills":["user::home.agents::review"]}"#;
         let mut settings: super::SkillSettingsConfig = serde_json::from_str(legacy).unwrap();
@@ -2470,6 +2553,25 @@ mod tests {
     }
 
     #[test]
+    fn retired_startup_tip_preference_round_trips_legacy_notification_config() {
+        let legacy = serde_json::json!({
+            "enabled": true,
+            "position": "bottom-left",
+            "duration": 4000,
+            "dialog_completion_notify": false,
+            "permission_request_notify": true,
+            "enable_startup_tips": false
+        });
+        let config: NotificationConfig = serde_json::from_value(legacy.clone())
+            .expect("legacy notification preferences should remain readable");
+
+        assert!(!config.enable_startup_tips);
+        assert!(!config.dialog_completion_notify);
+        assert!(config.permission_request_notify);
+        assert_eq!(serde_json::to_value(config).unwrap(), legacy);
+    }
+
+    #[test]
     fn agent_profile_defaults_keep_all_collections_empty() {
         let config = AgentProfileConfig::default();
         assert!(config.profile_id.is_empty());
@@ -2623,6 +2725,38 @@ mod tests {
     }
 
     #[test]
+    fn assistant_default_sessions_preserve_legacy_config_and_round_trip() {
+        let mut old_payload = current_global_config_with(serde_json::json!({}));
+        old_payload["app"]
+            .as_object_mut()
+            .unwrap()
+            .remove("assistant_default_sessions");
+        let mut upgraded: GlobalConfig = serde_json::from_value(old_payload).unwrap();
+        assert!(upgraded.app.assistant_default_sessions.is_empty());
+        upgraded
+            .app
+            .assistant_default_sessions
+            .insert("assistant-a".into(), "session-a".into());
+        let serialized = serde_json::to_value(&upgraded).unwrap();
+        let restored: GlobalConfig = serde_json::from_value(serialized.clone()).unwrap();
+        assert_eq!(
+            restored.app.assistant_default_sessions["assistant-a"],
+            "session-a"
+        );
+        #[derive(serde::Deserialize, serde::Serialize)]
+        struct LegacyApp {
+            language: String,
+            telemetry: bool,
+        }
+        let legacy: LegacyApp = serde_json::from_value(serialized["app"].clone()).unwrap();
+        let old_round_trip: super::AppConfig =
+            serde_json::from_value(serde_json::to_value(legacy).unwrap()).unwrap();
+        assert_eq!(old_round_trip.language, upgraded.app.language);
+        assert_eq!(old_round_trip.telemetry, upgraded.app.telemetry);
+        assert!(old_round_trip.assistant_default_sessions.is_empty());
+    }
+
+    #[test]
     fn user_skill_groups_default_to_version_one_without_persisted_groups() {
         let mut value = current_global_config_with(serde_json::json!({}));
         value["app"]
@@ -2761,7 +2895,6 @@ mod tests {
         let config: AIExperienceConfig = serde_json::from_value(serde_json::json!({
             "enable_session_title_generation": true,
             "enable_welcome_panel_ai_analysis": false,
-            "enable_visual_mode": false,
             "enable_agent_companion": true,
             "agent_companion_pet": {
                 "id": "boxcat",
@@ -2830,7 +2963,6 @@ mod tests {
                     "ai_experience": {
                         "enable_session_title_generation": true,
                         "enable_welcome_panel_ai_analysis": false,
-                        "enable_visual_mode": false,
                         "enable_agent_companion": true,
                         "enable_workspace_search": false,
                         "quick_actions": [
@@ -3014,6 +3146,84 @@ mod tests {
     }
 
     #[test]
+    fn app_flow_chat_selection_toolbar_defaults_and_round_trips() {
+        // Old payloads retain automatic display and remain readable after saving.
+        let legacy = serde_json::json!({ "default_mode_id": "Standard" });
+        let config: super::AppFlowChatConfig = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(config.auto_show_selection_toolbar);
+        let written = serde_json::to_value(&config).unwrap();
+        assert_eq!(written["default_mode_id"], legacy["default_mode_id"]);
+        let reloaded: super::AppFlowChatConfig = serde_json::from_value(written).unwrap();
+        assert!(reloaded.auto_show_selection_toolbar);
+
+        let disabled = serde_json::json!({
+            "auto_show_selection_toolbar": false,
+            "show_permission_mode_control": false,
+            "default_mode_id": "Standard"
+        });
+        let config: super::AppFlowChatConfig = serde_json::from_value(disabled.clone()).unwrap();
+        assert!(!config.auto_show_selection_toolbar);
+        let written = serde_json::to_value(&config).unwrap();
+        assert_eq!(written, disabled);
+        let reloaded: super::AppFlowChatConfig = serde_json::from_value(written).unwrap();
+        assert!(!reloaded.auto_show_selection_toolbar);
+
+        let enabled: super::AppFlowChatConfig = serde_json::from_value(serde_json::json!({
+            "auto_show_selection_toolbar": true,
+            "future_field": "tolerated"
+        }))
+        .unwrap();
+        assert!(enabled.auto_show_selection_toolbar);
+        assert_eq!(
+            serde_json::to_value(enabled).unwrap(),
+            serde_json::json!({ "auto_show_selection_toolbar": true })
+        );
+        assert!(super::AppFlowChatConfig::default().auto_show_selection_toolbar);
+    }
+
+    #[test]
+    fn app_flow_chat_send_during_turn_defaults_and_round_trips() {
+        use super::{AppFlowChatConfig, ChatInputSendDuringTurn};
+
+        assert_eq!(
+            AppFlowChatConfig::default().send_during_turn,
+            ChatInputSendDuringTurn::Immediate
+        );
+        let legacy = serde_json::json!({
+            "default_mode_id": "Standard",
+            "auto_show_selection_toolbar": false
+        });
+        let config: AppFlowChatConfig = serde_json::from_value(legacy.clone()).unwrap();
+        assert_eq!(config.send_during_turn, ChatInputSendDuringTurn::Immediate);
+        let written = serde_json::to_value(config).unwrap();
+        assert_eq!(written, legacy);
+        let reloaded: AppFlowChatConfig = serde_json::from_value(written).unwrap();
+        assert_eq!(
+            reloaded.send_during_turn,
+            ChatInputSendDuringTurn::Immediate
+        );
+
+        let queued = serde_json::json!({
+            "send_during_turn": "queue",
+            "auto_show_selection_toolbar": true
+        });
+        let config: AppFlowChatConfig = serde_json::from_value(queued.clone()).unwrap();
+        assert_eq!(config.send_during_turn, ChatInputSendDuringTurn::Queue);
+        let written = serde_json::to_value(config).unwrap();
+        assert_eq!(written, queued);
+        let reloaded: AppFlowChatConfig = serde_json::from_value(written).unwrap();
+        assert_eq!(reloaded.send_during_turn, ChatInputSendDuringTurn::Queue);
+
+        for value in ["immediate", "future_policy"] {
+            let config: AppFlowChatConfig = serde_json::from_value(serde_json::json!({
+                "send_during_turn": value
+            }))
+            .unwrap();
+            assert_eq!(config.send_during_turn, ChatInputSendDuringTurn::Immediate);
+        }
+    }
+
+    #[test]
     fn default_model_serialization_contains_no_retired_reasoning_fields() {
         let config = AIModelConfig::default();
         let value = serde_json::to_value(&config).expect("config should serialize");
@@ -3083,7 +3293,7 @@ mod tests {
                 .subagents
                 .builtin
                 .get("GeneralPurpose"),
-            Some(&SubagentModelSelection::fixed("primary"))
+            None
         );
         assert_eq!(
             config
@@ -3204,22 +3414,65 @@ mod tests {
     }
 
     #[test]
-    fn general_purpose_uses_primary_unless_explicitly_overridden() {
+    fn general_purpose_uses_shared_default_unless_explicitly_overridden() {
         let mut defaults = AgentModelDefaultsConfig::default();
 
         assert_eq!(
             defaults.builtin_subagent_selection("GeneralPurpose"),
-            SubagentModelSelection::fixed("primary")
+            SubagentModelSelection::fixed("fast")
+        );
+
+        defaults.subagents.default_selection = SubagentModelSelection::Inherit;
+        assert_eq!(
+            defaults.builtin_subagent_selection("GeneralPurpose"),
+            SubagentModelSelection::Inherit
         );
 
         defaults.subagents.builtin.insert(
             "GeneralPurpose".to_string(),
-            SubagentModelSelection::fixed("fast"),
+            SubagentModelSelection::fixed("primary"),
         );
         assert_eq!(
             defaults.builtin_subagent_selection("GeneralPurpose"),
-            SubagentModelSelection::fixed("fast")
+            SubagentModelSelection::fixed("primary")
         );
+    }
+
+    #[test]
+    fn general_purpose_legacy_model_defaults_preserve_explicit_selections() {
+        for payload in [
+            serde_json::json!({}),
+            serde_json::json!({"subagents": {}}),
+            serde_json::json!({"subagents": {"builtin": {}}}),
+        ] {
+            let defaults: AgentModelDefaultsConfig = serde_json::from_value(payload).unwrap();
+            assert!(!defaults.subagents.builtin.contains_key("GeneralPurpose"));
+            assert_eq!(
+                defaults.builtin_subagent_selection("GeneralPurpose"),
+                SubagentModelSelection::fixed("fast")
+            );
+        }
+
+        for selection in [
+            SubagentModelSelection::fixed("primary"),
+            SubagentModelSelection::fixed("custom-model"),
+            SubagentModelSelection::Inherit,
+        ] {
+            let payload = serde_json::json!({
+                "subagents": {"builtin": {"GeneralPurpose": selection}}
+            });
+            let defaults: AgentModelDefaultsConfig = serde_json::from_value(payload).unwrap();
+            assert_eq!(
+                defaults.builtin_subagent_selection("GeneralPurpose"),
+                selection
+            );
+            let reloaded: AgentModelDefaultsConfig =
+                serde_json::from_value(serde_json::to_value(defaults).unwrap()).unwrap();
+            assert_eq!(
+                reloaded.builtin_subagent_selection("GeneralPurpose"),
+                selection
+            );
+        }
     }
 
     #[test]
@@ -3490,13 +3743,13 @@ mod tests {
     }
 
     #[test]
-    fn app_logging_defaults_to_sensitive_diagnostics_enabled() {
+    fn app_logging_defaults_to_sensitive_diagnostics_disabled() {
         let config: AppLoggingConfig = serde_json::from_value(serde_json::json!({
             "level": "trace"
         }))
         .expect("logging config without sensitive preference should deserialize");
 
-        assert!(config.include_sensitive_diagnostics);
+        assert!(!config.include_sensitive_diagnostics);
         assert!(!config.flow_chat_diagnostics);
         assert_eq!(
             config.model_exchange_tracing.mode,
@@ -3954,5 +4207,27 @@ mod user_question_timeout_tests {
                 value
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod external_session_discovery_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_configuration_stays_opted_out_and_unknown_agent_preferences_round_trip() {
+        let mut legacy = serde_json::to_value(AppConfig::default()).unwrap();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("external_session_discovery");
+        legacy["language"] = serde_json::json!("en-US");
+        let old: AppConfig = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(old.external_session_discovery.is_empty());
+        assert_eq!(old.language, "en-US");
+        legacy["external_session_discovery"] =
+            serde_json::json!({"codex": true, "zcode": false, "future-agent": true});
+        let config: AppConfig = serde_json::from_value(legacy.clone()).unwrap();
+        assert_eq!(serde_json::to_value(config).unwrap(), legacy);
     }
 }

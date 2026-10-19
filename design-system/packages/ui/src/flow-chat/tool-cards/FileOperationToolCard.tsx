@@ -98,6 +98,7 @@ export function FileOperationToolCard({
   const OperationIcon = OPERATION_ICONS[operation];
   const failed = status === "error";
   const loading = ACTIVE_STATUSES.has(status);
+  const generating = loading && operation !== "delete";
 
   const errorContent = error ? (
     <div className={styles.error} data-guidance={error.guidance ? "true" : "false"}>
@@ -150,6 +151,7 @@ export function FileOperationToolCard({
               <OverflowText className={styles.inlineMessage}>{inlineMessage}</OverflowText>
             ) : (
               <OverflowText
+                behavior="marquee"
                 className={styles.path}
                 data-openbitfun-operation={operation}
                 data-path={path}
@@ -164,11 +166,13 @@ export function FileOperationToolCard({
             ) : changeSummary ? (
               <ToolCardChangeSummary
                 additions={changeSummary.additions}
+                animated={generating}
                 aria-label={changeSummary.label}
                 deletions={changeSummary.deletions}
               />
             ) : undefined}
-            icon={<Icon glyph={OperationIcon} size="sm" />}
+            icon={loading ? <ToolProcessingDots size={16} /> : <Icon glyph={OperationIcon} size="sm" />}
+            textShimmer={generating && !inlineMessage}
             statusIcon={failed && !error?.guidance
               ? (
                 <Icon
@@ -178,9 +182,7 @@ export function FileOperationToolCard({
                   data-openbitfun-icon="warning"
                 />
               )
-              : loading
-                ? <ToolProcessingDots size={16} />
-                : undefined}
+              : undefined}
           />
         )}
         summaryExpandAffordance={hasExpandedContent}

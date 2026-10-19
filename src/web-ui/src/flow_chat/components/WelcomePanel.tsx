@@ -1,6 +1,6 @@
 /**
  * Welcome panel shown in the empty chat state.
- * Layout mirrors WelcomeScene: centered container, left-aligned content.
+ * The heading is centered above the floating composer; supporting content follows below.
  */
 
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
@@ -16,6 +16,11 @@ import { useAgentIdentityDocument } from '@/app/scenes/my-agent/useAgentIdentity
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
 import { useAnchoredPopoverPosition } from '@/shared/utils/useAnchoredPopoverPosition';
 import { useGitState } from '@/tools/git/hooks/useGitState';
+import { useSessionWorkspaceSelection } from '../hooks/useSessionWorkspaceSelection';
+import type { Session } from '../types/flow-chat';
+import { sessionWorkspaceId } from '../utils/sessionWorkspace';
+import { useChatInputState } from '../store/chatInputStateStore';
+import { computeFlowChatInputOverlayInsetPx } from '../utils/flowChatScrollLayout';
 import './WelcomePanel.css';
 import './WelcomePanelSurface.scss';
 
@@ -24,6 +29,7 @@ const log = createLogger('WelcomePanel');
 interface WelcomePanelProps {
   onQuickAction?: (command: string) => void;
   className?: string;
+  session?: Session | null;
   sessionMode?: string;
   /** Owning workspace ID of the session being welcomed; selects the assistant identity document. */
   workspaceId?: string;
@@ -33,12 +39,15 @@ interface WelcomePanelProps {
 export const WelcomePanel: React.FC<WelcomePanelProps> = ({
   onQuickAction,
   className = '',
-  sessionMode,
-  workspaceId,
-  workspacePath = '',
+  session,
+  sessionMode: initialSessionMode,
+  workspaceId: initialWorkspaceId,
+  workspacePath: initialWorkspacePath = '',
 }) => {
   const { t } = useTranslation('flow-chat');
   const { t: tCommon } = useTranslation('common');
+  const inputHeight = useChatInputState(state => state.inputHeight);
+  const inputOverlayInsetPx = computeFlowChatInputOverlayInsetPx(inputHeight);
   const [workspaceDropdownOpen, setWorkspaceDropdownOpen] = useState(false);
   const [isSelectingWorkspace, setIsSelectingWorkspace] = useState(false);
   const workspaceDropdownRef = useRef<HTMLDivElement>(null);
@@ -47,12 +56,23 @@ export const WelcomePanel: React.FC<WelcomePanelProps> = ({
 
   const { switchLeftPanelTab } = useApp();
   const {
-    hasWorkspace,
+    hasWorkspace: hasActiveWorkspace,
     currentWorkspace,
+    openedWorkspaces,
     openedWorkspacesList,
     openWorkspace,
     switchWorkspace,
   } = useWorkspaceContext();
+  const { selectedWorkspace, workspaceControl } = useSessionWorkspaceSelection(session);
+  const workspace = session ? selectedWorkspace
+    : initialWorkspaceId ? openedWorkspaces.get(initialWorkspaceId) : currentWorkspace;
+  const workspaceId = session ? workspaceControl.selectedId : initialWorkspaceId ?? workspace?.id;
+  const workspacePath = session?.draft ? selectedWorkspace?.rootPath ?? ''
+    : session?.workspacePath ?? initialWorkspacePath;
+  const hasWorkspace = session ? Boolean(workspaceId) : hasActiveWorkspace;
+  const sessionMode = session?.mode ?? initialSessionMode;
+  const workspaceLabel = workspace?.name || (session
+    ? t('workspaceStrip.unavailableLabel') : t('shared:features.workspace'));
   const sessionModeLower = (sessionMode || '').toLowerCase();
   const isCoworkSession = sessionModeLower === 'cowork';
   const isClawSession = sessionModeLower === 'claw';
@@ -61,7 +81,9 @@ export const WelcomePanel: React.FC<WelcomePanelProps> = ({
   // branch / worktree changes (including external ones picked up by the
   // GitStateManager poll). When there is no workspace or we are in a
   // cowork/claw session we pass a blank scope so the hook stays idle.
-  const activeWsId = !isCoworkSession && !isClawSession ? currentWorkspace?.id : undefined;
+  const activeWsId = !isCoworkSession && !isClawSession && workspace
+    ? session?.draft?.workspaceId ?? (session ? sessionWorkspaceId(session) : workspace.id)
+    : undefined;
   const gitScope = activeWsId ? { workspaceId: activeWsId } : { workspaceId: '' };
   const {
     isRepository,
@@ -83,14 +105,14 @@ export const WelcomePanel: React.FC<WelcomePanelProps> = ({
   // Derive the same shape the old loadGitState produced so the render and
   // narrative helpers below do not have to change.
   const gitState = useMemo(() => {
-    if (!isRepository || !currentBranch) return null;
+    if (!activeWsId || !isRepository || !currentBranch) return null;
     return {
       currentBranch,
       unstagedFiles: (unstaged?.length || 0) + (untracked?.length || 0),
       stagedFiles: staged?.length || 0,
       unpushedCommits: ahead || 0,
     };
-  }, [isRepository, currentBranch, ahead, staged, unstaged, untracked]);
+  }, [activeWsId, isRepository, currentBranch, ahead, staged, unstaged, untracked]);
 
   const identityWorkspace = useMemo(
     () => (isClawSession && workspaceId ? { id: workspaceId, rootPath: workspacePath } : null),
@@ -123,9 +145,17 @@ export const WelcomePanel: React.FC<WelcomePanelProps> = ({
   const aiPartnerKey = isCoworkSession ? 'welcome.aiPartnerCowork' : isClawSession ? 'welcome.aiPartnerClaw' : null;
 
   const otherWorkspaces = useMemo(
-    () => openedWorkspacesList.filter(ws => ws.id !== currentWorkspace?.id),
-    [openedWorkspacesList, currentWorkspace?.id],
+    () => (session ? workspaceControl.options : openedWorkspacesList).filter(ws => ws.id !== workspaceId),
+    [session, workspaceControl.options, openedWorkspacesList, workspaceId],
   );
+  const canSwitchWorkspace = session
+    ? !workspaceControl.locked && otherWorkspaces.length > 0 : true;
+  // The shell Git panel still follows its active workspace. A draft preview of
+  // another project must not open that unrelated panel or activate the project.
+  const canNavigateGit = !!activeWsId && activeWsId === currentWorkspace?.id;
+  useEffect(() => {
+    setWorkspaceDropdownOpen(false);
+  }, [session?.sessionId, workspaceId, canSwitchWorkspace]);
   const workspaceMenuLayout = useAnchoredPopoverPosition({
     open: workspaceDropdownOpen,
     anchorRef: workspaceTriggerRef,
@@ -137,8 +167,8 @@ export const WelcomePanel: React.FC<WelcomePanelProps> = ({
   });
 
   const handleGitClick = useCallback(() => {
-    switchLeftPanelTab('git');
-  }, [switchLeftPanelTab]);
+    if (canNavigateGit) switchLeftPanelTab('git');
+  }, [canNavigateGit, switchLeftPanelTab]);
 
   const isGitClean = useMemo(
     () => !!gitState && gitState.unstagedFiles === 0 && gitState.stagedFiles === 0 && gitState.unpushedCommits === 0,
@@ -167,6 +197,7 @@ export const WelcomePanel: React.FC<WelcomePanelProps> = ({
               data-openbitfun-product-part="gitAction"
               className="welcome-panel__inline-btn"
               onClick={handleGitClick}
+              disabled={!canNavigateGit}
             >
               {label}
             </Button>
@@ -176,7 +207,7 @@ export const WelcomePanel: React.FC<WelcomePanelProps> = ({
         {t('welcome.period')}
       </>
     );
-  }, [gitState, handleGitClick, t]);
+  }, [gitState, handleGitClick, canNavigateGit, t]);
 
   useEffect(() => {
     if (!workspaceDropdownOpen) return;
@@ -205,9 +236,14 @@ export const WelcomePanel: React.FC<WelcomePanelProps> = ({
   }, [workspaceDropdownOpen]);
 
   const handleSwitchWorkspace = useCallback(async (ws: WorkspaceInfo) => {
-    try { setWorkspaceDropdownOpen(false); await switchWorkspace(ws); }
+    setWorkspaceDropdownOpen(false);
+    if (session) {
+      workspaceControl.onSelect(ws.id);
+      return;
+    }
+    try { await switchWorkspace(ws); }
     catch (err) { log.warn('Failed to switch workspace', err); }
-  }, [switchWorkspace]);
+  }, [session, workspaceControl, switchWorkspace]);
 
   const handleOpenOtherFolder = useCallback(async () => {
     try {
@@ -237,7 +273,8 @@ export const WelcomePanel: React.FC<WelcomePanelProps> = ({
   }, [onQuickAction]);
 
   return (
-    <div data-openbitfun-product-component="welcome-panel" data-openbitfun-product-part="root" className={`welcome-panel ${className}`}>
+    <div data-openbitfun-product-component="welcome-panel" data-openbitfun-product-part="root" className={`welcome-panel ${className}`}
+      style={{ height: `max(0px, calc(100% - ${inputOverlayInsetPx}px))` }}>
       <div data-openbitfun-product-component="welcome-panel" data-openbitfun-product-part="content" className="welcome-panel__content">
         {/* Greeting */}
         <div data-openbitfun-product-component="welcome-panel" data-openbitfun-product-part="greeting" className="welcome-panel__greeting">
@@ -247,163 +284,166 @@ export const WelcomePanel: React.FC<WelcomePanelProps> = ({
               {greeting.title}
               {aiPartnerKey && <>，{t(aiPartnerKey)}{isClawSession && assistantName ? `，${assistantName}` : ''}</>}
             </span>}
-            description={greeting.subtitle ? (
-              <span data-openbitfun-product-component="welcome-panel" data-openbitfun-product-part="tagline">{greeting.subtitle}</span>
-            ) : undefined}
           />
         </div>
 
-        <div data-openbitfun-product-component="welcome-panel" data-openbitfun-product-part="divider" className="welcome-panel__divider" />
+        <div className={`welcome-panel__details${greeting.subtitle ? ' welcome-panel__details--with-tagline' : ''}`}>
+          {greeting.subtitle && (
+            <p data-openbitfun-product-component="welcome-panel" data-openbitfun-product-part="tagline" className="welcome-panel__tagline">{greeting.subtitle}</p>
+          )}
+          <div data-openbitfun-product-component="welcome-panel" data-openbitfun-product-part="divider" className="welcome-panel__divider" />
 
-        {/* Narrative: workspace + git in natural language */}
-        <div data-openbitfun-product-component="welcome-panel" data-openbitfun-product-part="narrative" className="welcome-panel__narrative">
-          <p className="welcome-panel__narrative-text">
-            {isClawSession ? (
-              t('welcome.narrativeClaw')
-            ) : !hasWorkspace ? (
-              <>
-                {t('welcome.noWorkspaceHint')}
-                <Button labelBehavior="static" variant="text"
-                  type="button"
-                  data-openbitfun-product-component="welcome-panel"
-                  data-openbitfun-product-part="openWorkspaceAction"
-                  className="welcome-panel__inline-btn welcome-panel__inline-btn--interactive"
-                  onClick={() => { void handleOpenOtherFolder(); }}
-                  disabled={isSelectingWorkspace}
-                >
-                  {t('welcome.openOne')}
-                </Button>
-                {' '}{t('welcome.toStart')}
-              </>
-            ) : (
-              <>
-                <span className="welcome-panel__narrative-sentence">
-                  <span className="welcome-panel__narrative-sentence__text">
-                    {isCoworkSession ? t('welcome.workingInCowork') : t('welcome.workingIn')}
-                  </span>
-                  <span className="welcome-panel__context-row">
-                    <span className="welcome-panel__workspace-anchor" ref={workspaceDropdownRef}>
-                      <Button
-                        labelBehavior="static"
-                        variant="text"
-                        leadingIcon={<FolderOpen size={13} className="welcome-panel__inline-icon" />}
-                        trailingIcon={
-                          <Icon
-                            name="chevron-down"
-                            size="xs"
-                            className={`welcome-panel__inline-chevron${workspaceDropdownOpen ? ' welcome-panel__inline-chevron--open' : ''}`}
-                          />
-                        }
-                        ref={workspaceTriggerRef}
-                        type="button"
-                        data-openbitfun-product-component="welcome-panel"
-                        data-openbitfun-product-part="workspaceAction"
-                        data-openbitfun-state={workspaceDropdownOpen ? 'open' : undefined}
-                        className={`welcome-panel__inline-btn welcome-panel__inline-btn--interactive${workspaceDropdownOpen ? ' welcome-panel__inline-btn--active' : ''}`}
-                        onClick={() => setWorkspaceDropdownOpen(v => !v)}
-                        disabled={isSelectingWorkspace}
-                        title={currentWorkspace?.rootPath}
-                        aria-haspopup="menu"
-                        aria-expanded={workspaceDropdownOpen}
-                      >
-                        {currentWorkspace?.name || t('shared:features.workspace')}
-                      </Button>
-                      {workspaceDropdownOpen && createOverlayPortal(
-                        <Menu
-                          ref={workspaceMenuRef}
-                          data-openbitfun-product-component="welcome-panel"
-                          data-openbitfun-product-part="workspaceMenu"
-                          data-openbitfun-placement={workspaceMenuLayout?.placement ?? 'bottom'}
-                          className="welcome-panel__dropdown"
-                          style={{
-                            top: `${workspaceMenuLayout?.top ?? 0}px`,
-                            left: `${workspaceMenuLayout?.left ?? 0}px`,
-                            visibility: workspaceMenuLayout ? 'visible' : 'hidden',
-                          }}
-                          autoFocusFirstItem
-                          aria-label={t('shared:features.workspace')}
-                        >
-                          <MenuItem
-                            data-openbitfun-product-component="welcome-panel"
-                            data-openbitfun-product-part="workspaceItem"
-                            leading={<FolderPlus size={12} />}
-                            onClick={() => { void handleCreateWorkspace(); }}
-                          >
-                            {tCommon('header.newProject')}
-                          </MenuItem>
-                          {(hasWorkspace || otherWorkspaces.length > 0) && <MenuSeparator />}
-                          {hasWorkspace && currentWorkspace && (
-                            <MenuItem
-                              role="menuitemradio"
-                              checked
-                              aria-disabled="true"
-                              leading={<FolderOpen size={12} />}
-                              metadata={<Icon name="check-line" size="xs" />}
-                            >
-                              {currentWorkspace.name}
-                            </MenuItem>
-                          )}
-                          {otherWorkspaces.length > 0 && (
-                            <>
-                              {hasWorkspace && currentWorkspace && <MenuSeparator />}
-                              {otherWorkspaces.map(ws => (
-                                <MenuItem
-                                  key={ws.id}
-                                  data-openbitfun-product-component="welcome-panel"
-                                  data-openbitfun-product-part="workspaceItem"
-                                  leading={<FolderOpen size={12} />}
-                                  onClick={() => { void handleSwitchWorkspace(ws); }}
-                                  title={ws.rootPath}
-                                >
-                                  {ws.name}
-                                </MenuItem>
-                              ))}
-                            </>
-                          )}
-                        </Menu>,
-                        getAppearanceOverlayHost(),
-                      )}
+          {/* Narrative: workspace + git in natural language */}
+          <div data-openbitfun-product-component="welcome-panel" data-openbitfun-product-part="narrative" className="welcome-panel__narrative">
+            <p className="welcome-panel__narrative-text">
+              {isClawSession ? (
+                t('welcome.narrativeClaw')
+              ) : !hasWorkspace ? (
+                <>
+                  {t('welcome.noWorkspaceHint')}
+                  <Button labelBehavior="static" variant="text"
+                    type="button"
+                    data-openbitfun-product-component="welcome-panel"
+                    data-openbitfun-product-part="openWorkspaceAction"
+                    className="welcome-panel__inline-btn welcome-panel__inline-btn--interactive"
+                    onClick={() => { void handleOpenOtherFolder(); }}
+                    disabled={isSelectingWorkspace}
+                  >
+                    {t('welcome.openOne')}
+                  </Button>
+                  {' '}{t('welcome.toStart')}
+                </>
+              ) : (
+                <>
+                  <span className="welcome-panel__narrative-sentence">
+                    <span className="welcome-panel__narrative-sentence__text">
+                      {isCoworkSession ? t('welcome.workingInCowork') : t('welcome.workingIn')}
                     </span>
-                    {!isCoworkSession && gitState && (
-                      <>
-                        <span className="welcome-panel__context-sep">/</span>
+                    <span className="welcome-panel__context-row">
+                      <span className="welcome-panel__workspace-anchor" ref={workspaceDropdownRef}>
                         <Button
                           labelBehavior="static"
                           variant="text"
-                          leadingIcon={<Icon name="git" size="sm" className="welcome-panel__inline-icon" />}
+                          leadingIcon={<FolderOpen size={13} className="welcome-panel__inline-icon" />}
+                          trailingIcon={canSwitchWorkspace ? (
+                            <Icon
+                              name="chevron-down"
+                              size="xs"
+                              className={`welcome-panel__inline-chevron${workspaceDropdownOpen ? ' welcome-panel__inline-chevron--open' : ''}`}
+                            />
+                          ) : undefined}
+                          ref={workspaceTriggerRef}
                           type="button"
                           data-openbitfun-product-component="welcome-panel"
-                          data-openbitfun-product-part="gitAction"
-                          className="welcome-panel__inline-btn"
-                          onClick={handleGitClick}
+                          data-openbitfun-product-part="workspaceAction"
+                          data-openbitfun-state={workspaceDropdownOpen ? 'open' : undefined}
+                          className={`welcome-panel__inline-btn welcome-panel__inline-btn--interactive${workspaceDropdownOpen ? ' welcome-panel__inline-btn--active' : ''}`}
+                          onClick={() => setWorkspaceDropdownOpen(v => !v)}
+                          disabled={isSelectingWorkspace || !canSwitchWorkspace}
+                          title={workspace?.rootPath}
+                          aria-haspopup="menu"
+                          aria-expanded={workspaceDropdownOpen}
                         >
-                          {gitState.currentBranch}
+                          {workspaceLabel}
                         </Button>
-                      </>
-                    )}
+                        {workspaceDropdownOpen && canSwitchWorkspace && createOverlayPortal(
+                          <Menu
+                            ref={workspaceMenuRef}
+                            data-openbitfun-product-component="welcome-panel"
+                            data-openbitfun-product-part="workspaceMenu"
+                            data-openbitfun-placement={workspaceMenuLayout?.placement ?? 'bottom'}
+                            className="welcome-panel__dropdown"
+                            style={{
+                              top: `${workspaceMenuLayout?.top ?? 0}px`,
+                              left: `${workspaceMenuLayout?.left ?? 0}px`,
+                              visibility: workspaceMenuLayout ? 'visible' : 'hidden',
+                            }}
+                            autoFocusFirstItem
+                            aria-label={t('shared:features.workspace')}
+                          >
+                            {!session && <MenuItem
+                              data-openbitfun-product-component="welcome-panel"
+                              data-openbitfun-product-part="workspaceItem"
+                              leading={<FolderPlus size={12} />}
+                              onClick={() => { void handleCreateWorkspace(); }}
+                            >
+                              {tCommon('header.newProject')}
+                            </MenuItem>}
+                            {!session && (hasWorkspace || otherWorkspaces.length > 0) && <MenuSeparator />}
+                            {hasWorkspace && workspace && (
+                              <MenuItem
+                                role="menuitemradio"
+                                checked
+                                aria-disabled="true"
+                                leading={<FolderOpen size={12} />}
+                                metadata={<Icon name="check-line" size="xs" />}
+                              >
+                                {workspace.name}
+                              </MenuItem>
+                            )}
+                            {otherWorkspaces.length > 0 && (
+                              <>
+                                {hasWorkspace && workspace && <MenuSeparator />}
+                                {otherWorkspaces.map(ws => (
+                                  <MenuItem
+                                    key={ws.id}
+                                    data-openbitfun-product-component="welcome-panel"
+                                    data-openbitfun-product-part="workspaceItem"
+                                    leading={<FolderOpen size={12} />}
+                                    onClick={() => { void handleSwitchWorkspace(ws); }}
+                                    title={ws.rootPath}
+                                  >
+                                    {ws.name}
+                                  </MenuItem>
+                                ))}
+                              </>
+                            )}
+                          </Menu>,
+                          getAppearanceOverlayHost(),
+                        )}
+                      </span>
+                      {!isCoworkSession && gitState && (
+                        <>
+                          <span className="welcome-panel__context-sep">/</span>
+                          <Button
+                            labelBehavior="static"
+                            variant="text"
+                            leadingIcon={<Icon name="git" size="sm" className="welcome-panel__inline-icon" />}
+                            type="button"
+                            data-openbitfun-product-component="welcome-panel"
+                            data-openbitfun-product-part="gitAction"
+                            className="welcome-panel__inline-btn"
+                            onClick={handleGitClick}
+                            disabled={!canNavigateGit}
+                          >
+                            {gitState.currentBranch}
+                          </Button>
+                        </>
+                      )}
+                    </span>
+                    <span className="welcome-panel__narrative-sentence__text">
+                      {!isCoworkSession && gitState ? t('welcome.project') : t('welcome.projectCowork')}
+                    </span>
                   </span>
-                  <span className="welcome-panel__narrative-sentence__text">
-                    {!isCoworkSession && gitState ? t('welcome.project') : t('welcome.projectCowork')}
-                  </span>
-                </span>
-                {!isCoworkSession && gitState ? (
-                  <span className="welcome-panel__narrative-git">
-                    {isGitClean
-                      ? <span className="welcome-panel__narrative-clean">{t('welcome.gitClean')}</span>
-                      : buildGitNarrative()}
-                  </span>
-                ) : null}
-              </>
-            )}
-          </p>
-        </div>
-
-        {/* Cowork examples */}
-        {isCoworkSession && (
-          <div data-openbitfun-product-component="welcome-panel" data-openbitfun-product-part="cowork" className="welcome-panel__cowork">
-            <CoworkExampleCards resetKey={0} onSelectPrompt={p => handleQuickActionClick(p)} />
+                  {!isCoworkSession && gitState ? (
+                    <span className="welcome-panel__narrative-git">
+                      {isGitClean
+                        ? <span className="welcome-panel__narrative-clean">{t('welcome.gitClean')}</span>
+                        : buildGitNarrative()}
+                    </span>
+                  ) : null}
+                </>
+              )}
+            </p>
           </div>
-        )}
+
+          {/* Cowork examples */}
+          {isCoworkSession && (
+            <div data-openbitfun-product-component="welcome-panel" data-openbitfun-product-part="cowork" className="welcome-panel__cowork">
+              <CoworkExampleCards resetKey={0} onSelectPrompt={p => handleQuickActionClick(p)} />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -78,13 +78,13 @@ describe('concise collection summaries', () => {
     expect(flowGroupPolicies.explore.summarize([items[2]], t, String).summary).toBe('workspaceGroup.summary 1');
     expect(flowGroupPolicies.explore.summarize([tool('read'), items[1]], t, String).summary).toBe('workspaceGroup.summary 2');
   });
-  it('counts tool operations rather than thought/prose and keeps exceptional states visible', () => {
+  it('counts tool operations rather than thought/prose without appending status counts', () => {
     const thought = { id: 'thought', type: 'thinking', status: 'completed' } as FlowItem;
     for (const [category, key] of [['context', 'contextLoadGroup.summary'], ['interface', 'interfaceGroup.summary'],
       ['explore', 'workspaceGroup.summary']] as const) {
       expect(flowGroupPolicies[category].summarize([thought, tool('a'), tool('b')], t, String).summary).toBe(`${key} 2`);
     }
     expect(flowGroupPolicies.explore.summarize([{ ...tool('stopped', 'ExecCommand'), status: 'cancelled' }], t, String).summary)
-      .toBe('workspaceGroup.summary 1 · shellGroup.stopped 1');
+      .toBe('workspaceGroup.summary 1');
   });
 });

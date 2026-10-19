@@ -3942,23 +3942,6 @@ export const forbiddenContentRules = [
     ],
   },
   {
-    path: 'src/crates/assembly/core/src/service/announcement/state_store.rs',
-    patterns: [
-      {
-        regex: /\btokio::fs\b/,
-        message: 'core announcement state store facade must not own filesystem persistence; use the integrations state store',
-      },
-      {
-        regex: /\bserde_json::to_string_pretty\b/,
-        message: 'core announcement state store facade must not own state serialization; use the integrations state store',
-      },
-      {
-        regex: /\bserde_json::from_str\b/,
-        message: 'core announcement state store facade must not own state deserialization; use the integrations state store',
-      },
-    ],
-  },
-  {
     path: 'src/apps/server/src/bootstrap.rs',
     reason:
       'Server must not assemble a second Agent Runtime beside the canonical Core owner',
@@ -4235,6 +4218,7 @@ export const forbiddenContentUnderRules = [
         'src/crates/adapters/codex-adapter/tests/codex_source_contracts/mcp_source.rs',
         'src/crates/assembly/core/src/external_sources.rs',
         'src/crates/assembly/core/src/external_hooks.rs',
+        'src/crates/assembly/core/src/external_session_import.rs',
         'src/crates/assembly/core/src/instruction_sources.rs',
       ],
       message: 'Codex declarative source adapter may only be imported by its fixtures and reviewed composition roots',

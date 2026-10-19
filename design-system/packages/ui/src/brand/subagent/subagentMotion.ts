@@ -61,12 +61,29 @@ export const subagentMotionClips: Record<SubagentMotionId, MotionClip> = {
     },
   },
   working: {
-    duration: 3000, loop: true,
+    duration: 1600, loop: true,
     tracks: {
-      eyes: [frame(0), frame(0.78), frame(0.81, "scaleY(0.08)"), frame(0.85, "scaleY(0.08)"), frame(0.89), frame(1)],
-      body: [frame(0), frame(0.25, "rotate(1.3deg)"), frame(0.45, "rotate(1.3deg)"), frame(0.72, "rotate(-1.1deg)"), frame(0.84, "rotate(-1.1deg)"), frame(1)],
-      lever: [frame(0), frame(0.32, "rotate(7deg)"), frame(0.45, "rotate(7deg)"), frame(0.78, "rotate(-6deg)"), frame(0.88, "rotate(-6deg)"), frame(1)],
-      face: [frame(0), frame(0.25, "translate(2px, 1px)"), frame(0.45, "translate(2px, 1px)"), frame(0.74, "translate(-2px, 1px)"), frame(1)],
+      // Two grounded beats: eyes lead, the body leans, then the joystick follows.
+      // Authored SVG units scale down by about 6x in a 40px card avatar.
+      body: [
+        frame(0), frame(0.2, "rotate(3deg) scale(1.018, 0.97)"),
+        frame(0.3, "rotate(3deg) scale(1.018, 0.97)"), frame(0.46),
+        frame(0.64, "rotate(-3deg) scale(1.018, 0.97)"),
+        frame(0.74, "rotate(-3deg) scale(1.018, 0.97)"), frame(0.94), frame(1),
+      ],
+      lever: [
+        frame(0), frame(0.25, "translateY(3px) rotate(14deg)"),
+        frame(0.33, "translateY(3px) rotate(14deg)"), frame(0.5),
+        frame(0.69, "translateY(3px) rotate(-14deg)"),
+        frame(0.77, "translateY(3px) rotate(-14deg)"), frame(0.98), frame(1),
+      ],
+      face: [
+        frame(0), frame(0.16, "translate(5px, 2px)"),
+        frame(0.28, "translate(5px, 2px)"), frame(0.44),
+        frame(0.6, "translate(-5px, 2px)"),
+        frame(0.72, "translate(-5px, 2px)"), frame(0.92), frame(1),
+      ],
+      eyes: [frame(0), frame(0.8), frame(0.84, "scaleY(0.08)"), frame(0.87, "scaleY(0.08)"), frame(0.91), frame(1)],
     },
   },
   waiting: {

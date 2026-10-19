@@ -44,8 +44,6 @@ extension MobileAppModel {
         remoteExpectedDeviceKey = targetKey
         remoteTargetEpoch = epoch
         guard transition.scopeChanged else { return }
-
-        pairingRetainedAccountAuthority = nil
         clearTargetScopedRemoteProjection(boundTargetKey: targetKey, epoch: epoch)
     }
 
@@ -55,7 +53,6 @@ extension MobileAppModel {
         remoteBoundTargetKey = nil
         remoteBoundTargetEpoch = nil
         remoteTargetEpoch = adapterEpoch
-        pairingRetainedAccountAuthority = nil
     }
 
     private func clearTargetScopedRemoteProjection(boundTargetKey targetKey: String, epoch: UInt64) {
@@ -396,6 +393,7 @@ extension MobileAppModel {
     /// normally arrive inside the grace period; a relay fetch gets an explicit
     /// skeleton instead of leaving the previous session visible.
     func beginRemoteConversationOpen(sessionID: String) {
+        remotePromptSuggestion = nil
         remoteOpenedSessionID = nil
         remoteConversationLoadTask?.cancel()
         remoteConversationLoadGeneration &+= 1
@@ -452,10 +450,11 @@ extension MobileAppModel {
                 "Remote session timeline ready elapsed_ms=\(elapsedMS, privacy: .public) generation=\(self.remoteConversationLoadGeneration, privacy: .public)"
             )
         }
-        resetRemoteConversationOpen()
+        resetRemoteConversationOpen(clearSuggestion: false)
     }
 
-    func resetRemoteConversationOpen() {
+    func resetRemoteConversationOpen(clearSuggestion: Bool = true) {
+        if clearSuggestion { remotePromptSuggestion = nil }
         remoteConversationLoadTask?.cancel()
         remoteConversationLoadTask = nil
         remoteConversationLoadGeneration &+= 1
@@ -1144,9 +1143,12 @@ extension MobileAppModel {
         setPublishedIfChanged(\.remoteHistoryFailed, to: ready.historyLoadState == .failed)
         setPublishedIfChanged(\.remotePermissionMode, to: ready.permissionMode?.name ?? remotePermissionMode)
         setPublishedIfChanged(\.remotePermissionFailure, to: ready.permissionModeFailure?.name)
+        setPublishedIfChanged(\.remotePermissionModeLoaded, to: ready.permissionMode != nil)
         let acceptsTimeline = remoteConversationOpeningSessionID.map {
             ready.timeline?.sessionId == $0
         } ?? true
+        setPublishedIfChanged(\.remotePromptSuggestion,
+            to: acceptsTimeline && ready.selectedSessionId == selectedSessionID ? ready.promptSuggestion : nil)
         activeTurnID = acceptsTimeline ? ready.timeline?.activeTurn?.turnId : nil
         setPublishedIfChanged(\.isSending, to: acceptsTimeline && ready.timeline?.activeTurn != nil)
         let projectedModelOptions = ready.createModelOptions(fallbackLabel: localized("模型")).map { option in
@@ -1155,7 +1157,10 @@ extension MobileAppModel {
                 primaryLabel: option.primaryLabel,
                 secondaryLabel: option.secondaryLabel,
                 source: "REMOTE",
-                selected: option.selected
+                selected: option.selected,
+                role: option.role?.name,
+                roles: option.roles.map { $0.name },
+                fallsBackToPrimary: option.fallsBackToPrimary
             )
         }
         setPublishedIfChanged(\.modelOptions, to: projectedModelOptions)

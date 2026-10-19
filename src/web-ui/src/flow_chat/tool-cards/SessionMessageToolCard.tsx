@@ -46,7 +46,7 @@ export const SessionMessageToolCard: React.FC<ToolCardProps> = React.memo(({
   const source = useCurrentToolSessionParticipant(sessionId, t);
   const target = useToolSessionParticipant(targetSessionId,
     resultData?.target_session_name || inputData.session_name || targetSessionId || t('toolCards.sessionMessage.unknownSession'), t,
-    'session', { parentSessionId: sessionId, enabled: targetSessionId !== sessionId });
+    'session', { parentSessionId: sessionId });
   const targetLabel = target.kind === 'agent' ? target.label
     : resultData?.target_session_name || inputData.session_name || target.label;
   const summary = interactionOutcome(status, t, message.trim() ? t('toolCards.interaction.messageSent')

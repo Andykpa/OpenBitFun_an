@@ -21,6 +21,7 @@ describe('chatInputSessionSubscriptionKey', () => {
     { continuationPolicy: 'fresh_only' }, { historyState: 'hydrating' },
     { persistedStatus: 'archived' }, { parentSessionId: 'new-parent' },
     { config: { dispatchTargetRequest: { kind: 'ssh', connectionId: 'host' } } },
+    { draft: { workspaceId: 'other', phase: 'editing', turnId: 'first' } },
   ])('invalidates target eligibility when conversation facts change: %j', change => {
     expect(chatInputSessionSubscriptionKey(session(change))).not.toBe(chatInputSessionSubscriptionKey(session()));
   });

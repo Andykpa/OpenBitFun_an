@@ -2,13 +2,16 @@
 
 .flow-thinking-item {
   --_thinking-header-size: max(1lh, var(--openbitfun-control-tool-card-ambient-row-min-block-size));
-  --_thinking-continuation-center: calc(var(--_thinking-header-size) / 2);
+  --_thinking-last-center: calc(var(--_thinking-header-size) / 2);
+  --_thinking-continuation-center: var(--_thinking-last-center);
   --_thinking-text-start: 0px;
   --_thinking-text-end: 0px;
   --_thinking-toggle-size: var(--openbitfun-control-icon-button-xs-size);
   --_thinking-side-offset: calc(var(--_thinking-toggle-size) + var(--openbitfun-control-flow-chat-row-icon-gap));
-  --_thinking-fold-duration: 360ms;
-  --_thinking-fold-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --_thinking-fold-duration: var(--openbitfun-motion-duration-base);
+  --_thinking-fold-ease: var(--openbitfun-motion-easing-smooth);
+  --_thinking-fade-duration: var(--openbitfun-motion-duration-instant);
+  --_thinking-fold-delay: 0ms;
   padding: 0;
   margin: 0;
   background: transparent;
@@ -16,7 +19,9 @@
   box-sizing: border-box;
   font-size: var(--openbitfun-type-flow-control-font-size);
   line-height: var(--openbitfun-type-flow-support-line-height);
-  transition: margin-bottom var(--_thinking-fold-duration) var(--_thinking-fold-ease);
+  transition:
+    margin-bottom var(--_thinking-fold-duration) var(--_thinking-fold-ease),
+    min-block-size var(--_thinking-fold-duration) var(--_thinking-fold-ease);
 }
 
 .thinking-header-slot {
@@ -27,10 +32,12 @@
 
 .thinking-collapsed-header {
   position: absolute;
-  inset-block-start: 0;
-  inset-inline-start: 0;
-  inline-size: 100%;
-  min-block-size: var(--_thinking-header-size);
+  /* The live control and the completed annotation share one gutter column.
+     Titles and reasoning keep the successor's original content edge. */
+  inset-block-start: calc((var(--_thinking-header-size) - var(--_thinking-toggle-size)) / 2);
+  inset-inline-start: calc(0px - var(--_thinking-side-offset));
+  inline-size: calc(100% + var(--_thinking-side-offset));
+  block-size: var(--_thinking-toggle-size);
   display: flex;
   align-items: center;
   gap: var(--openbitfun-control-flow-chat-row-icon-gap);
@@ -38,18 +45,13 @@
   font-size: var(--openbitfun-type-flow-control-font-size);
   line-height: var(--openbitfun-type-flow-support-line-height);
   box-sizing: border-box;
-  transition:
-    inline-size var(--_thinking-fold-duration) var(--_thinking-fold-ease),
-    opacity 140ms ease,
-    inset-inline-start var(--_thinking-fold-duration) var(--_thinking-fold-ease),
-    inset-block-start var(--_thinking-fold-duration) var(--_thinking-fold-ease);
+  opacity: 1;
+  transition: opacity var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard);
 }
 
 .thinking-toggle {
-  /* Preserve the disclosure's existing glyph column; the public button owns
-     its size, radius, hover surface, focus ring and native keyboard behavior. */
-  margin-inline: calc((var(--openbitfun-control-flow-chat-row-icon-size) - var(--_thinking-toggle-size)) / 2);
-  transition: margin-inline var(--_thinking-fold-duration) var(--_thinking-fold-ease);
+  margin-inline: 0;
+  flex-shrink: 0;
 }
 
 .thinking-annotation-line {
@@ -70,7 +72,7 @@
   inset-block-start: calc(100% + var(--openbitfun-space-1));
   max-block-size: max(0px, calc(var(--_thinking-text-end) - var(--openbitfun-space-1) - var(--_thinking-continuation-center) - var(--_thinking-toggle-size) / 2 - var(--openbitfun-space-1)));
 }
-.flow-thinking-item[data-thinking-annotation='text'] .thinking-annotation-line {
+.flow-thinking-item[data-thinking-phase='side'][data-thinking-annotation='text'] .thinking-annotation-line {
   display: block;
 }
 
@@ -101,14 +103,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard);
 }
-.thinking-collapsed-header .thinking-leading-icon > [data-openbitfun-component=icon] {
+.thinking-collapsed-header .thinking-leading-icon > :is([data-openbitfun-component=icon], [data-openbitfun-component=thinking-indicator]) {
   position: absolute;
   inset: 0;
   inline-size: 100%;
   block-size: 100%;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard);
 }
 .thinking-collapsed-header .thinking-leading-icon__default {
   opacity: 1;
@@ -123,7 +125,7 @@
   color: var(--openbitfun-color-content-secondary);
   line-height: var(--openbitfun-type-flow-support-line-height);
   opacity: 1;
-  transition: opacity 100ms ease;
+  transition: opacity var(--_thinking-fade-duration) var(--openbitfun-motion-easing-exit);
 }
 
 .flow-thinking-item.summary.collapsed .thinking-collapsed-header {
@@ -151,13 +153,13 @@
   grid-template-rows: 0fr;
   opacity: 0;
   transition:
-    grid-template-rows var(--_thinking-fold-duration) var(--_thinking-fold-ease) 60ms,
-    opacity 100ms ease;
+    grid-template-rows var(--_thinking-fold-duration) var(--_thinking-fold-ease) var(--_thinking-fold-delay),
+    opacity var(--_thinking-fade-duration) var(--openbitfun-motion-easing-exit);
 }
 .thinking-expand-container--open {
   grid-template-rows: 1fr;
   opacity: 1;
-  transition-delay: 0ms, 80ms;
+  transition-delay: 0ms, 0ms;
 }
 .thinking-expand-container > .thinking-content-wrapper {
   overflow: hidden;
@@ -166,23 +168,20 @@
 /* A nonempty successor anchors a side icon in the existing leading gutter.
    Neither the successor nor its descendants reserve or animate any inline space.
    Keep both siblings mounted so docking preserves Markdown, tool state and selection. */
-.flow-thinking-item[data-thinking-attachment='side']:has(+ [data-thinking-continuation] > :not(:empty)) {
+.flow-thinking-item[data-thinking-attachment='side'] {
   margin-bottom: 0;
-  transition-delay: 60ms;
+  transition-delay: var(--_thinking-fold-delay);
 }
 
-.flow-thinking-item[data-thinking-attachment='side']:has(+ [data-thinking-continuation] > :not(:empty)) .thinking-header-slot {
+.flow-thinking-item[data-thinking-attachment='side'] .thinking-header-slot {
   block-size: 0;
-  transition-delay: 60ms;
+  transition-delay: var(--_thinking-fold-delay);
 }
 
-.flow-thinking-item[data-thinking-attachment='side']:has(+ [data-thinking-continuation] > :not(:empty)) .thinking-collapsed-header {
+.flow-thinking-item[data-thinking-phase='side'] .thinking-collapsed-header {
   z-index: 1;
-  inset-inline-start: calc(0px - var(--_thinking-side-offset));
   inset-block-start: calc(var(--_thinking-continuation-center) - var(--_thinking-toggle-size) / 2);
   inline-size: var(--_thinking-toggle-size);
-  min-block-size: var(--_thinking-toggle-size);
-  block-size: var(--_thinking-toggle-size);
   gap: 0;
   opacity: 0;
   pointer-events: none;
@@ -190,33 +189,31 @@
   transition: opacity var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard);
 }
 
-.flow-thinking-item[data-thinking-attachment='side']:has(+ [data-thinking-continuation] > :not(:empty)) .thinking-toggle {
-  margin-inline: 0;
-  transition-delay: 60ms;
-}
-
-.flow-thinking-item[data-thinking-attachment='side']:has(+ [data-thinking-continuation] > :not(:empty)) .thinking-leading-icon__default {
+.flow-thinking-item[data-thinking-phase='side'] .thinking-leading-icon__default {
   opacity: 1;
 }
 
-.flow-thinking-item[data-thinking-attachment='side']:has(+ [data-thinking-continuation] > :not(:empty)) .thinking-leading-icon__collapsed-hover {
+.flow-thinking-item[data-thinking-phase='side'] .thinking-leading-icon__collapsed-hover {
   opacity: 0;
 }
 
-.flow-thinking-item[data-thinking-attachment='side']:has(+ [data-thinking-continuation] > :not(:empty)) .thinking-label-target {
+.flow-thinking-item[data-thinking-phase='side'] .thinking-label-target,
+.flow-thinking-item[data-thinking-phase='leaving'][data-thinking-origin='side'] .thinking-label-target {
   visibility: hidden;
   pointer-events: none;
-  transition: visibility 0s 100ms;
 }
 
-.flow-thinking-item[data-thinking-attachment='side']:has(+ [data-thinking-continuation] > :not(:empty)) .thinking-label {
-  opacity: 0;
-  overflow: hidden;
+.flow-thinking-item[data-thinking-phase='leaving'] .thinking-collapsed-header {
+  /* Freeze the outgoing vertical anchor, including interrupted returns from a
+     long paragraph. The final anchor is applied only at zero opacity. */
+  inset-block-start: var(--_thinking-handoff-top);
   pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--_thinking-fade-duration) var(--openbitfun-motion-easing-exit);
 }
 
 /* Keep the pointer path from the content to its side control continuous. */
-.flow-thinking-item[data-thinking-attachment='side']:has(+ [data-thinking-continuation] > :not(:empty)) .thinking-collapsed-header::after {
+.flow-thinking-item[data-thinking-phase='side'] .thinking-collapsed-header::after {
   content: '';
   position: absolute;
   inset-block: 0;
@@ -227,11 +224,13 @@
 /* The whole leading column belongs to this continuation's hover area. A reader
    can leave any text line and move up to the button without crossing a dead gap.
    This hit area stays outside the content box, below the actual icon button. */
-.flow-thinking-item[data-thinking-attachment='side'] + [data-thinking-continuation]:has(> :not(:empty)) {
+.flow-thinking-item[data-thinking-attachment='side'] + [data-thinking-continuation],
+[data-thinking-continuation][data-thinking-side-target='true'] {
   position: relative;
 }
 
-.flow-thinking-item[data-thinking-attachment='side'] + [data-thinking-continuation]:has(> :not(:empty))::before {
+.flow-thinking-item[data-thinking-attachment='side'] + [data-thinking-continuation]::before,
+[data-thinking-continuation][data-thinking-side-target='true']::before {
   content: '';
   position: absolute;
   inset-block: 0;
@@ -242,32 +241,40 @@
 
 /* Pointer clicks retain native focus without pinning the side control open.
    Only keyboard-visible focus keeps it revealed after the pointer leaves. */
-.flow-thinking-item[data-thinking-attachment='side'][data-thinking-active='true']:has(+ [data-thinking-continuation] > :not(:empty)) .thinking-collapsed-header,
-.flow-thinking-item[data-thinking-attachment='side']:has(+ [data-thinking-continuation] > :not(:empty)):has(.thinking-toggle:focus-visible) .thinking-collapsed-header,
-.flow-thinking-item[data-thinking-attachment='side']:has(+ [data-thinking-continuation] > :not(:empty)):has(.thinking-toggle:active) .thinking-collapsed-header {
+.flow-thinking-item[data-thinking-phase='side'][data-thinking-active='true'] .thinking-collapsed-header,
+.flow-thinking-item[data-thinking-phase='side']:has(.thinking-toggle:focus-visible) .thinking-collapsed-header,
+.flow-thinking-item[data-thinking-phase='side']:has(.thinking-toggle:active) .thinking-collapsed-header {
   opacity: 1;
   pointer-events: auto;
   transition-delay: 0ms;
 }
-.flow-thinking-item[data-thinking-attachment='side'][data-thinking-in-view='false'] .thinking-collapsed-header {
+.flow-thinking-item[data-thinking-phase='side'][data-thinking-in-view='false'] .thinking-collapsed-header {
   opacity: 0;
   pointer-events: none;
 }
 
 /* Extend only the clipping boundary into the gutter. Equal padding/margin keep
    the existing content edge and wrapping, including bounded exploration scroll. */
-.explore-region--expanded:not(.explore-region--hidden):has(.flow-thinking-item[data-thinking-attachment]) {
+.explore-region--expanded:not(.explore-region--hidden):has(.flow-thinking-item) {
   --_explore-thinking-gutter: calc(var(--openbitfun-control-icon-button-xs-size) + var(--openbitfun-control-flow-chat-row-icon-gap) + var(--openbitfun-focus-width) + var(--openbitfun-focus-offset));
   overflow: visible;
 }
 
-.explore-region--expanded:not(.explore-region--hidden):has(.flow-thinking-item[data-thinking-attachment]) > .smooth-height-collapse--open > .explore-region__content-inner {
+.explore-region--expanded:not(.explore-region--hidden):has(.flow-thinking-item) > .smooth-height-collapse--open > .explore-region__content-inner {
   overflow: visible;
 }
 
-.explore-region--expanded:not(.explore-region--hidden):has(.flow-thinking-item[data-thinking-attachment]) > .explore-region__content-wrapper > .explore-region__content-inner > .explore-region__content {
+.explore-region--expanded:not(.explore-region--hidden):has(.flow-thinking-item) > .explore-region__content-wrapper > .explore-region__content-inner > .explore-region__content {
   margin-inline-start: calc(0px - var(--_explore-thinking-gutter));
   padding-inline-start: var(--_explore-thinking-gutter);
+}
+
+/* Measuring a newly mounted history row must not create an entrance/fold. */
+.flow-thinking-item[data-thinking-motion='initial'],
+.flow-thinking-item[data-thinking-motion='initial'] .thinking-header-slot,
+.flow-thinking-item[data-thinking-motion='initial'] .thinking-collapsed-header,
+.flow-thinking-item[data-thinking-motion='initial'] .thinking-expand-container {
+  transition: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -277,7 +284,7 @@
   .thinking-toggle,
   .thinking-label-target,
   .thinking-collapsed-header .thinking-leading-icon,
-  .thinking-collapsed-header .thinking-leading-icon > [data-openbitfun-component=icon],
+  .thinking-collapsed-header .thinking-leading-icon > :is([data-openbitfun-component=icon], [data-openbitfun-component=thinking-indicator]),
   .thinking-collapsed-header .thinking-label,
   .thinking-expand-container {
     transition: none !important;
@@ -302,8 +309,115 @@
   user-select: text;
 }
 
-.flow-thinking-item.streaming .thinking-content {
+.flow-thinking-item[data-openbitfun-state~='streaming'] .thinking-content {
   color: var(--openbitfun-color-content-muted);
+}
+
+/* Keep the outgoing viewport and its inline header geometry through completion.
+   A standalone row reserves its final header; a side annotation occupies none. */
+.flow-thinking-item[data-thinking-viewport] {
+  --_thinking-header-size: max(calc(var(--openbitfun-type-flow-body-font-size) * var(--openbitfun-type-flow-body-line-height)), var(--openbitfun-control-tool-card-ambient-row-min-block-size));
+  min-block-size: var(--_thinking-header-size);
+}
+.flow-thinking-item[data-thinking-viewport][data-thinking-attachment='side'] {
+  min-block-size: 0;
+}
+.flow-thinking-item[data-thinking-viewport] .thinking-header-slot {
+  block-size: 0;
+}
+.flow-thinking-item[data-thinking-viewport]:not([data-thinking-phase='side']):not([data-thinking-phase='leaving']) .thinking-collapsed-header {
+  inset-block-start: calc((var(--openbitfun-type-flow-body-font-size) * var(--openbitfun-type-flow-body-line-height) - var(--_thinking-toggle-size)) / 2);
+}
+.flow-thinking-item[data-streaming-expanded] .thinking-collapsed-header {
+  z-index: 1;
+  pointer-events: none;
+}
+.flow-thinking-item[data-streaming-expanded] .thinking-toggle {
+  pointer-events: auto;
+}
+.flow-thinking-item[data-streaming-expanded] .thinking-label-target {
+  block-size: calc(var(--openbitfun-type-flow-body-font-size) * var(--openbitfun-type-flow-body-line-height));
+}
+.flow-thinking-item[data-thinking-viewport][data-expanded='true'] .thinking-label {
+  opacity: 0;
+  visibility: hidden;
+}
+.flow-thinking-item[data-thinking-viewport][data-expanded='false']:not([data-thinking-attachment='side']) .thinking-label {
+  transition-delay: var(--_thinking-fade-duration);
+}
+.flow-thinking-item[data-streaming-expanded='false'] .thinking-label-target {
+  pointer-events: auto;
+}
+.flow-thinking-item[data-thinking-viewport] .thinking-content {
+  box-sizing: border-box;
+  font-size: var(--openbitfun-type-flow-body-font-size);
+  padding-block: 0;
+  min-height: 1lh;
+  max-height: 7lh;
+}
+.flow-thinking-item[data-thinking-viewport='compact'] .thinking-content {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  block-size: 1lh;
+  max-height: 1lh;
+  overflow: clip;
+}
+.flow-thinking-item[data-thinking-viewport='compact'] .thinking-content-body {
+  /* The latest typeset line replaces the previous one in a fixed slot. The
+     browser owns wrapping; no scroll offset or animated translation is used. */
+  flex: 0 0 auto;
+}
+.thinking-content-body {
+  display: flow-root;
+  min-inline-size: 0;
+}
+.flow-thinking-item[data-thinking-viewport='compact'] .thinking-content-wrapper::before,
+.flow-thinking-item[data-thinking-viewport='compact'] .thinking-content-wrapper::after {
+  display: none;
+}
+
+/* The live predecessor owns this short transaction. The successor keeps its
+   React tree and execution state, but takes no space until the row is ready. */
+[data-thinking-continuation][data-thinking-successor='held'] {
+  /* display:none also removes the line box of an inline capsule. Unlike
+     conditional rendering, it preserves the actual card and its subscriptions. */
+  display: none !important;
+}
+.flow-thinking-item[data-thinking-exchange='closing'],
+.flow-thinking-item[data-thinking-exchange='closing'][data-thinking-viewport] {
+  min-block-size: var(--_thinking-header-size);
+  transition: none;
+}
+.flow-thinking-item[data-thinking-exchange='closing'] .thinking-collapsed-header {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--_thinking-fade-duration) var(--openbitfun-motion-easing-exit);
+}
+.flow-thinking-item[data-thinking-exchange='closing'] .thinking-header-slot {
+  block-size: 0;
+  transition: none;
+}
+.flow-thinking-item[data-thinking-exchange='closing'] .thinking-expand-container {
+  opacity: 0;
+}
+.flow-thinking-item[data-thinking-exchange='closing'][data-thinking-viewport='compact'] .thinking-expand-container {
+  /* A single line fades in place; there is no visible one-line fold. */
+  grid-template-rows: 1fr;
+}
+.flow-thinking-item[data-thinking-exchange='released'] {
+  min-block-size: 0;
+  margin-bottom: 0;
+  transition: none;
+}
+.flow-thinking-item[data-thinking-exchange='released'] .thinking-header-slot {
+  block-size: 0;
+  transition: none;
+}
+.flow-thinking-item[data-thinking-exchange='released'] .thinking-expand-container {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: none;
 }
 
 .thinking-content-wrapper {
@@ -509,6 +623,11 @@
 .explore-region--collapsible :is(.explore-region__content, .flow-group-content-segment) > :is(.flow-text-block, .flow-thinking-item, .flowchat-flow-item,
 .task-with-subagent-wrapper, .subagent-projection-text--truncated) {
   margin: 0 0 var(--openbitfun-control-flow-chat-flow-item-gap) 0;
+}
+/* Side reasoning is positioned beside its successor; the surrounding tools
+   supply the full gap, including across deferred content segments. */
+.explore-region--collapsible :is(.explore-region__content, .flow-group-content-segment) > .flow-thinking-item[data-thinking-attachment='side'] {
+  margin-bottom: 0;
 }
 .explore-region--collapsible :is(.explore-region__content, .flow-group-content-segment) > .flowchat-flow-item:has(> .flow-tool-card-wrapper[data-tool-capsule=true]) {
   inline-size: 100%;

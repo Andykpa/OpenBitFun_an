@@ -18,6 +18,8 @@ export interface EditorAreaProps {
   onTabCloseWithDirtyCheck?: (tabId: string, groupId: EditorGroupId) => Promise<boolean>;
   onTabCloseAllWithDirtyCheck?: (groupId: EditorGroupId) => Promise<boolean>;
   disablePopOut?: boolean;
+  toolbarActions?: React.ReactNode;
+  externalToolbar?: boolean;
   terminalResizeSuspended?: boolean;
 }
 
@@ -30,6 +32,8 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
   onTabCloseWithDirtyCheck,
   onTabCloseAllWithDirtyCheck,
   disablePopOut = false,
+  toolbarActions,
+  externalToolbar = false,
   terminalResizeSuspended = false,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -126,6 +130,10 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
     [setTabFileDeletedFromDisk]
   );
 
+  // Keep host layout controls in the upper-right corner of every split layout.
+  const toolbarGroupId = layout.splitMode === 'horizontal' || layout.splitMode === 'grid'
+    ? 'secondary' : 'primary';
+
   const renderEditorGroup = (groupId: EditorGroupId, group: typeof primaryGroup) => (
     <EditorGroup
       groupId={groupId}
@@ -152,7 +160,9 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
       onOpenMissionControl={groupId === 'primary' ? onOpenMissionControl : undefined}
       onCloseAllTabs={handleCloseAllTabs(groupId)}
       onInteraction={onInteraction}
+      externalToolbar={externalToolbar}
       disablePopOut={disablePopOut}
+      toolbarActions={toolbarActions === undefined || groupId === toolbarGroupId ? toolbarActions : null}
       terminalResizeSuspended={terminalResizeSuspended}
     />
   );

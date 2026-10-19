@@ -14,6 +14,7 @@ import {
   ObservableChatTimelineItem
 } from '../../model/ChatTimelineModels';
 import { ChatSurface } from '../state/ChatSurface';
+import { MessageCopyScope } from '../actions/ConversationIntent';
 import {
   CARD,
   INK,
@@ -25,6 +26,16 @@ import {
 import { ChatMessageBubble, ChatUserMessageRow } from './ChatMessageBubble';
 import { HistoryPageArrivalTracker } from '../policy/HistoryPageArrivalTracker';
 import { RemoteLogger } from '../../services/RemoteLogger';
+
+/**
+ * How far a row inside the staged rollback's local preview is weakened.
+ *
+ * Frozen in the approved artboard (H): the withdrawn rows stay exactly where they
+ * are, at 58% opacity, so the preview reads as a state of the same transcript
+ * rather than as a second list. The user bubble additionally swaps its fill and
+ * its body ink, which is the artboard's own pairing for ghost rows.
+ */
+const GHOST_ROW_OPACITY: number = 0.58;
 
 /**
  * Repeat retains this adapter by row identity while the observed row mutates.
@@ -57,6 +68,12 @@ struct ChatAssistantTimelineRow {
   @Event onAnswerQuestion: (toolId: string, answers: ConversationUiQuestionAnswer) => void =
     (_toolId: string, _answers: ConversationUiQuestionAnswer) => {};
   @Event onCopyMessage: (text: string) => void = (_text: string) => {};
+  @Event onCopyMessageScoped: (text: string, scope: MessageCopyScope) => void =
+    (_text: string, _scope: MessageCopyScope) => {};
+  @Event onOpenFullText: (text: string, turnId: string) => void =
+    (_text: string, _turnId: string) => {};
+  @Event onRollbackMessage: (turnId: string, text: string) => void =
+    (_turnId: string, _text: string) => {};
   @Event onRetryMessage: (text: string) => void = (_text: string) => {};
   @Event onOpenFilePreview: (path: string, label: string) => void = (_path: string, _label: string) => {};
   @Event onBuildPlan: (path: string, name: string) => void = (_path: string, _name: string) => {};
@@ -98,6 +115,9 @@ struct ChatAssistantTimelineRow {
       onCancelTool: this.onCancelTool,
       onAnswerQuestion: this.onAnswerQuestion,
       onCopyMessage: this.onCopyMessage,
+      onCopyMessageScoped: this.onCopyMessageScoped,
+      onOpenFullText: this.onOpenFullText,
+      onRollbackMessage: this.onRollbackMessage,
       onRetryMessage: this.onRetryMessage,
       onOpenFilePreview: this.onOpenFilePreview,
       onBuildPlan: this.onBuildPlan,
@@ -155,6 +175,20 @@ export struct ChatTimeline {
    */
   @Param topInset: number = 0;
   @Param bottomInset: number = 0;
+  /**
+   * Row keys the staged rollback previews as withdrawn.
+   *
+   * Keyed rather than indexed because the rows themselves are virtualized: which
+   * rows are withdrawn is a statement about the turns the pane is showing, and the
+   * pane derives it from row order (see `RollbackPresentationPolicy`). A row whose
+   * key is in here is drawn weakened; nothing about the model changes.
+   */
+  @Param ghostRowKeys: string[] = [];
+  /**
+   * The system hint row a successful rollback leaves behind, drawn as the
+   * transcript's own last line. Empty while no rollback has succeeded.
+   */
+  @Param rollbackNotice: string = '';
   @Event onLoadOlder: () => void = () => {};
   @Event onApproveTool: (toolId: string, updatedInput?: Object) => void =
     (_toolId: string, _updatedInput?: Object) => {};
@@ -163,6 +197,12 @@ export struct ChatTimeline {
   @Event onAnswerQuestion: (toolId: string, answers: ConversationUiQuestionAnswer) => void =
     (_toolId: string, _answers: ConversationUiQuestionAnswer) => {};
   @Event onCopyMessage: (text: string) => void = (_text: string) => {};
+  @Event onCopyMessageScoped: (text: string, scope: MessageCopyScope) => void =
+    (_text: string, _scope: MessageCopyScope) => {};
+  @Event onOpenFullText: (text: string, turnId: string) => void =
+    (_text: string, _turnId: string) => {};
+  @Event onRollbackMessage: (turnId: string, text: string) => void =
+    (_turnId: string, _text: string) => {};
   @Event onRetryMessage: (text: string) => void = (_text: string) => {};
   @Event onOpenFilePreview: (path: string, label: string) => void = (_path: string, _label: string) => {};
   @Event onBuildPlan: (path: string, name: string) => void = (_path: string, _name: string) => {};
@@ -241,8 +281,18 @@ export struct ChatTimeline {
                   ChatUserMessageRow({
                     item: toConversationUiMessage(repeatItem.item.message!),
                     showRetryAction: repeatItem.item.showRetryAction === true,
+                    ghost: this.isGhostRow(repeatItem.item),
+                    onCopyMessage: (text: string) => {
+                      this.onCopyMessage(text);
+                    },
+                    onOpenFullText: (text: string, turnId: string) => {
+                      this.onOpenFullText(text, turnId);
+                    },
                     onRetryMessage: (text: string) => {
                       this.onRetryMessage(text);
+                    },
+                    onRollbackMessage: (turnId: string, text: string) => {
+                      this.onRollbackMessage(turnId, text);
                     }
                   })
                   .reuse({ reuseId: () => 'chat_user' })
@@ -272,6 +322,15 @@ export struct ChatTimeline {
                     onCopyMessage: (text: string) => {
                       this.onCopyMessage(text);
                     },
+                    onCopyMessageScoped: (text: string, scope: MessageCopyScope) => {
+                      this.onCopyMessageScoped(text, scope);
+                    },
+                    onOpenFullText: (text: string, turnId: string) => {
+                      this.onOpenFullText(text, turnId);
+                    },
+                    onRollbackMessage: (turnId: string, text: string) => {
+                      this.onRollbackMessage(turnId, text);
+                    },
                     onRetryMessage: (text: string) => {
                       this.onRetryMessage(text);
                     },
@@ -291,6 +350,7 @@ export struct ChatTimeline {
               .onAppear(() => {
                 this.logRenderedItem(repeatItem.item);
               })
+              .opacity(this.rowOpacity(repeatItem.item))
             }
           })
           .key((item: ObservableChatTimelineItem, _index: number) => ChatTimelineRevisionTracker.itemKey(item))
@@ -317,6 +377,9 @@ export struct ChatTimeline {
                 onCancelTool: this.onCancelTool,
                 onAnswerQuestion: this.onAnswerQuestion,
                 onCopyMessage: this.onCopyMessage,
+                onCopyMessageScoped: this.onCopyMessageScoped,
+                onOpenFullText: this.onOpenFullText,
+                onRollbackMessage: this.onRollbackMessage,
                 onRetryMessage: this.onRetryMessage,
                 onOpenFilePreview: this.onOpenFilePreview,
                 onBuildPlan: this.onBuildPlan,
@@ -331,8 +394,20 @@ export struct ChatTimeline {
                 this.requestFollowToBottom('active-height');
               }
             })
+            .opacity(this.rowOpacity(item))
           }
         }, (item: ObservableChatTimelineItem) => ChatTimelineRevisionTracker.itemKey(item))
+
+        // The one line a successful rollback leaves where the withdrawn rows were.
+        // It is a transcript row rather than a toast because the answer has to
+        // outlive the moment: the authoritative transcript arrives a poll later,
+        // and what it repaired is what this line accounts for.
+        if (this.rollbackNotice.length > 0) {
+          ListItem() {
+            this.RollbackNoticeRow()
+          }
+          .id('chat-timeline-rollback-notice')
+        }
 
       }
       .width('100%')
@@ -450,6 +525,41 @@ export struct ChatTimeline {
 
   private historyTimelineItems(): ObservableChatTimelineItem[] {
     return this.timelineItems.filter((item: ObservableChatTimelineItem) => !this.isVolatileItem(item));
+  }
+
+  /**
+   * The centre-tracked line a successful rollback leaves in place of the rows it
+   * withdrew: what was rolled back, and what came back with it.
+   */
+  @Builder
+  RollbackNoticeRow() {
+    Row({ space: 10 }) {
+      Divider().color(LINE).layoutWeight(1)
+      Text(this.rollbackNotice)
+        .fontSize(MobileDesignTypography.bodySmall.size)
+        .lineHeight(MobileDesignTypography.bodySmall.lineHeight)
+        .fontColor(MUTED)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+      Divider().color(LINE).layoutWeight(1)
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Center)
+    .padding({ top: 4, bottom: 4 })
+  }
+
+  /**
+   * Whether a row is withdrawn by the staged rollback preview.
+   *
+   * Answered by key lookup against the pane's own derivation, so the preview can
+   * never disagree with the rows the timeline is actually showing.
+   */
+  private isGhostRow(item: ObservableChatTimelineItem): boolean {
+    return this.ghostRowKeys.indexOf(ChatTimelineRevisionTracker.itemKey(item)) >= 0;
+  }
+
+  private rowOpacity(item: ObservableChatTimelineItem): number {
+    return this.isGhostRow(item) ? GHOST_ROW_OPACITY : 1;
   }
 
   private activeTimelineItems(): ObservableChatTimelineItem[] {

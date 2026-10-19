@@ -48,11 +48,16 @@ function repositoryPath(root, path) {
   return result;
 }
 
-// This crates.io source is patched only to select the product TLS provider.
-// It is an external dependency, not an OpenBitFun runtime owner. Resolved
-// feature checks below still include it and its full dependency closure.
+// Reviewed crates.io copies remain external dependencies, not product owners.
+// Resolved feature checks still include them and their full dependency closure.
+const VENDORED_EXTERNAL_PACKAGES = new Map([
+  ['third_party/eioc/Cargo.toml', { name: 'eioc', version: '0.5.0' }],
+  ['third_party/tao/Cargo.toml', { name: 'tao', version: '0.36.0' }],
+  ['third_party/wry/Cargo.toml', { name: 'wry', version: '0.56.0' }],
+]);
+
 function isVendoredExternalManifest(root, manifestPath) {
-  return repositoryPath(root, manifestPath) === 'third_party/eioc/Cargo.toml';
+  return VENDORED_EXTERNAL_PACKAGES.has(repositoryPath(root, manifestPath));
 }
 
 function layerForManifest(manifestPath, { root, crateLayoutRules }) {
@@ -140,8 +145,8 @@ function isProcMacroPackage(pkg) {
 
 const SERVICES_INTEGRATIONS_TOKIO_FEATURES = new Map([
   ['account-identity', ['rt', 'sync']],
-  ['announcement', ['fs', 'sync']],
-  ['models-dev', ['fs', 'sync', 'time']],
+  // Large catalog validation/hash work uses spawn_blocking, outside async IO workers.
+  ['models-dev', ['fs', 'rt', 'sync', 'time']],
   ['browser-control', ['time']],
   ['canvas-runtime', ['fs']],
   ['deep-research', []],
@@ -171,6 +176,8 @@ const SERVICES_CORE_TOKIO_FEATURES = new Map([
   ['filesystem', ['fs', 'rt', 'sync']],
   ['json-io', ['fs', 'rt', 'sync', 'time']],
   ['local-storage', ['fs', 'rt', 'sync', 'time']],
+  // Offline repair uses strict atomic storage writes; no processes or network.
+  ['session-recovery', ['fs', 'rt', 'sync', 'time']],
   ['permission', ['rt']],
   ['process-runtime', ['io-util', 'process', 'rt', 'time']],
   ['session-search', ['rt']],
@@ -199,7 +206,7 @@ const CORE_TOKIO_AGGREGATES = new Set([
   'tools-mcp',
 ]);
 const AGENT_RUNTIME_TOKIO_FEATURES = new Map([
-  ['native-hook-runtime', ['io-util', 'macros', 'process', 'rt', 'time']],
+  ['native-hook-runtime', ['io-util', 'macros', 'process', 'rt', 'sync', 'time']],
   ['agent-runtime', ['io-util', 'macros', 'process', 'rt', 'sync', 'time']],
 ]);
 
@@ -556,6 +563,8 @@ const THIRD_PARTY_CAPABILITY_PROFILES = new Map([
       })],
       // Desktop owns bounded controller-local drag thumbnail decoding.
       // Keep only its raster input formats and PNG/JPEG output codecs.
+      // Independent MiniApp windows decode only their host-generated PNG icon.
+      ['openbitfun-miniapp-shell', dependencyProfile(['png'], { useDefaultFeatures: false })],
       ['openbitfun-desktop', dependencyProfile(['bmp', 'gif', 'jpeg', 'png', 'webp'], {
         useDefaultFeatures: false,
       })],
@@ -574,7 +583,8 @@ const THIRD_PARTY_CAPABILITY_PROFILES = new Map([
       ['openbitfun-skin-market-service', dependencyProfile(['gif', 'jpeg', 'png', 'webp'], {
         useDefaultFeatures: false,
       })],
-      ['openbitfun-webdriver', dependencyProfile(['png'], {
+      // The embedded bridge captures PNG and encodes JPEG previews itself.
+      ['openbitfun-webdriver', dependencyProfile(['jpeg', 'png'], {
         useDefaultFeatures: false,
       })],
     ]),
@@ -1058,7 +1068,6 @@ export function findServicesIntegrationsReqwestFeatureViolations(pkg) {
   const ownerFeatures = new Set(servicesReqwestOwnerFeatures);
   const ownerFeatureReferences = new Map([
     ['account-identity', ['reqwest/json']],
-    ['announcement', ['reqwest/json']],
     ['browser-control', ['reqwest/json']],
     ['mcp', ['reqwest/json', 'reqwest/stream']],
     ['miniapp-market', ['reqwest/json', 'reqwest/query', 'reqwest/stream']],
@@ -1554,7 +1563,6 @@ export function findProductEntrypointCoreFeatureViolations(
   const reviewedForbiddenDependencyOwnerFeatures = new Map([
     ['openbitfun-sdk-host-app', new Map([
       ['openbitfun-services-integrations', [
-        'announcement',
         'function-agents',
         'product-full',
         'remote-connect',
@@ -1773,7 +1781,6 @@ export function findProductEntrypointCoreFeatureViolations(
   if (corePackage) {
     const forbiddenCoreFeatures = [
       'product-full',
-      'announcement',
       'dispatch-store',
     ];
     const reportedUnexpectedFeatures = new Set();
@@ -2666,8 +2673,9 @@ export function collectCargoMetadataGraph({
         continue;
       }
       const packageManifestKey = normalizedPath(pkg.manifest_path);
-      if (isVendoredExternalManifest(root, pkg.manifest_path)
-        && pkg.name === 'eioc' && pkg.version === '0.5.0' && !workspaceMemberIds.has(pkg.id)) {
+      const vendor = VENDORED_EXTERNAL_PACKAGES.get(repositoryPath(root, pkg.manifest_path));
+      if (vendor && pkg.name === vendor.name && pkg.version === vendor.version
+        && !workspaceMemberIds.has(pkg.id)) {
         continue;
       }
       if (workspaceMemberIds.has(pkg.id)) {

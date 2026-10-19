@@ -4,11 +4,12 @@
 
 use core_foundation::array::CFArray;
 use core_foundation::base::{CFGetTypeID, CFTypeRef, TCFType};
+use core_foundation::boolean::CFBoolean;
 use core_foundation::dictionary::CFDictionary;
 use core_foundation::number::CFNumber;
 use core_foundation::string::CFString;
-use objc2_app_kit::{NSApplicationActivationPolicy, NSWorkspace};
-use openbitfun_core::agentic::tools::computer_use_host::AppInfo;
+use objc2_app_kit::{NSApplicationActivationPolicy, NSRunningApplication, NSWorkspace};
+use openbitfun_core::agentic::tools::computer_use_host::{AppInfo, AppWindowInfo};
 use openbitfun_core::util::errors::{OpenBitFunError, OpenBitFunResult};
 use std::collections::HashSet;
 use std::ffi::c_void;
@@ -29,7 +30,7 @@ fn number(dictionary: &Dictionary, key: &str) -> Option<f64> {
     unsafe { CFNumber::wrap_under_get_rule(value.cast()) }.to_f64()
 }
 
-fn window_owners() -> OpenBitFunResult<HashSet<i32>> {
+pub(super) fn list_windows() -> OpenBitFunResult<Vec<AppWindowInfo>> {
     #[link(name = "CoreGraphics", kind = "framework")]
     unsafe extern "C" {
         fn CGWindowListCopyWindowInfo(
@@ -46,7 +47,7 @@ fn window_owners() -> OpenBitFunResult<HashSet<i32>> {
         ));
     }
     let windows: CFArray<CFTypeRef> = unsafe { CFArray::wrap_under_create_rule(raw) };
-    let mut owners = HashSet::new();
+    let mut targets = Vec::new();
     for window in windows.iter() {
         if unsafe { CFGetTypeID(*window) } != Dictionary::type_id() {
             continue;
@@ -68,10 +69,61 @@ fn window_owners() -> OpenBitFunResult<HashSet<i32>> {
             continue;
         }
         if let Some(pid) = number(&window, "kCGWindowOwnerPID").filter(|pid| *pid > 0.0) {
-            owners.insert(pid as i32);
+            let Some(id) = number(&window, "kCGWindowNumber").filter(|id| *id > 0.0) else {
+                continue;
+            };
+            let string = |key: &str| {
+                value(&window, key)
+                    .filter(|value| unsafe { CFGetTypeID(*value) } == CFString::type_id())
+                    .map(|value| unsafe { CFString::wrap_under_get_rule(value.cast()) }.to_string())
+            };
+            let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid as i32);
+            let is_on_screen = value(&window, "kCGWindowIsOnscreen")
+                .filter(|value| unsafe { CFGetTypeID(*value) } == CFBoolean::type_id())
+                .map(|value| bool::from(unsafe { CFBoolean::wrap_under_get_rule(value.cast()) }));
+            targets.push(AppWindowInfo {
+                pid: pid as i32,
+                window_id: id as u64,
+                application: string("kCGWindowOwnerName")
+                    .unwrap_or_else(|| format!("Application {}", pid as i32)),
+                title: string("kCGWindowName").unwrap_or_default(),
+                bundle_id: app
+                    .and_then(|app| app.bundleIdentifier())
+                    .map(|id| id.to_string()),
+                is_on_screen,
+            });
         }
     }
-    Ok(owners)
+    Ok(targets)
+}
+
+pub(super) fn list_share_targets(
+) -> OpenBitFunResult<Vec<openbitfun_agent_tools::computer_use_control::ShareTarget>> {
+    Ok(list_windows()?
+        .into_iter()
+        .map(
+            |window| openbitfun_agent_tools::computer_use_control::ShareTarget {
+                selection_id: String::new(),
+                unavailable_reason: None,
+                id: format!("pid:{}/window:{}", window.pid, window.window_id),
+                pid: Some(window.pid),
+                window_id: Some(window.window_id),
+                application: window.application,
+                title: window.title,
+                bundle_id: window.bundle_id,
+                background_pointer: true,
+                background_semantic: true,
+                selection_required: false,
+            },
+        )
+        .collect())
+}
+
+fn window_owners() -> OpenBitFunResult<HashSet<i32>> {
+    Ok(list_share_targets()?
+        .into_iter()
+        .filter_map(|window| window.pid)
+        .collect())
 }
 
 fn include_application(
@@ -126,9 +178,6 @@ pub(super) fn list_running_apps(include_hidden: bool) -> OpenBitFunResult<Vec<Ap
     });
     Ok(apps)
 }
-
-/// Compatibility for launch/quit call sites. Discovery is always fresh now.
-pub(super) fn invalidate_cache() {}
 
 #[cfg(test)]
 mod tests {

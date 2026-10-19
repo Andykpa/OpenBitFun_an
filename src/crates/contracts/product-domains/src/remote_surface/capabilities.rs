@@ -22,6 +22,8 @@ use super::PeerHostKind;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PeerHostCapability {
+    /// Versioned, execution-host-owned background report decisions are persisted and projected.
+    BackgroundResultDeliveryV1,
     DialogQueueV1,
     /// `start_dialog_turn` / `start_acp_dialog_turn` may be retried with the
     /// same `(sessionId, turnId)`; the host coalesces duplicate attempts.
@@ -42,6 +44,8 @@ pub enum PeerHostCapability {
     MiniappAgentContextFilesV1,
     /// WSL profiles and discovery are understood; availability is probed on the host.
     WslWorkspacesV1,
+    /// User-selected native window sharing and explicit permission receipts.
+    ComputerUseSharingV1,
     /// `product_control_invoke` is implemented (shared config contract).
     ProductControlV1,
     /// ProductControl definitions that need a host-native provider run here.
@@ -56,6 +60,8 @@ pub enum PeerHostCapability {
     ChatMcpCatalogV1,
     /// Workspace references can carry the owning host's persisted ID.
     WorkspaceIdReferencesV1,
+    /// `copy_session` copies a whole session without a caller-selected turn id.
+    WholeSessionCopyV1,
     /// `submit_user_answers` is implemented for Runtime-owned questions.
     UserQuestionResponse,
     /// First human interaction disables the unattended question timeout.
@@ -65,6 +71,7 @@ pub enum PeerHostCapability {
 impl PeerHostCapability {
     /// Every capability id, in wire order.
     pub const ALL: &'static [PeerHostCapability] = &[
+        Self::BackgroundResultDeliveryV1,
         Self::DialogQueueV1,
         Self::IdempotentDialogSubmit,
         Self::InlineImageAttachmentsV1,
@@ -75,6 +82,7 @@ impl PeerHostCapability {
         Self::TokenUsageStatistics,
         Self::MiniappAgentContextFilesV1,
         Self::WslWorkspacesV1,
+        Self::ComputerUseSharingV1,
         Self::ProductControlV1,
         Self::ProductControlNativeV1,
         Self::ProductControlPresentationV1,
@@ -82,6 +90,7 @@ impl PeerHostCapability {
         Self::ToolCatalog,
         Self::ChatMcpCatalogV1,
         Self::WorkspaceIdReferencesV1,
+        Self::WholeSessionCopyV1,
         Self::UserQuestionResponse,
         Self::UserQuestionInteractionV1,
     ];
@@ -89,6 +98,7 @@ impl PeerHostCapability {
     /// The key used in the `peer_mode_ping` `capabilities` object.
     pub const fn key(self) -> &'static str {
         match self {
+            Self::BackgroundResultDeliveryV1 => "background_result_delivery_v1",
             Self::DialogQueueV1 => "dialog_queue_v1",
             Self::IdempotentDialogSubmit => "idempotent_dialog_submit",
             Self::InlineImageAttachmentsV1 => "inline_image_attachments_v1",
@@ -99,6 +109,7 @@ impl PeerHostCapability {
             Self::TokenUsageStatistics => "token_usage_statistics",
             Self::MiniappAgentContextFilesV1 => "miniapp_agent_context_files_v1",
             Self::WslWorkspacesV1 => "wsl_workspaces_v1",
+            Self::ComputerUseSharingV1 => "computer_use_sharing_v1",
             Self::ProductControlV1 => "product_control_v1",
             Self::ProductControlNativeV1 => "product_control_native_v1",
             Self::ProductControlPresentationV1 => "product_control_presentation_v1",
@@ -106,6 +117,7 @@ impl PeerHostCapability {
             Self::ToolCatalog => "tool_catalog",
             Self::ChatMcpCatalogV1 => "chat_mcp_catalog_v1",
             Self::WorkspaceIdReferencesV1 => "workspace_id_references_v1",
+            Self::WholeSessionCopyV1 => "whole_session_copy_v1",
             Self::UserQuestionResponse => "user_question_response",
             Self::UserQuestionInteractionV1 => "user_question_interaction_v1",
         }
@@ -122,6 +134,7 @@ const DESKTOP_CAPABILITIES: &[PeerHostCapability] = PeerHostCapability::ALL;
 /// The CLI peer host has no MiniApp runtime, WSL connection setup, host-native
 /// ProductControl providers, or presentation surface.
 const CLI_CAPABILITIES: &[PeerHostCapability] = &[
+    PeerHostCapability::BackgroundResultDeliveryV1,
     PeerHostCapability::DialogQueueV1,
     PeerHostCapability::ControlConversationV1,
     PeerHostCapability::ControlConversationResetV1,
@@ -217,5 +230,10 @@ mod tests {
         assert!(!cli.contains_key("miniapp_agent_context_files_v1"));
         assert!(!cli.contains_key("product_control_native_v1"));
         assert!(!cli.contains_key("product_control_presentation_v1"));
+        assert!(!cli.contains_key("whole_session_copy_v1"));
+        assert_eq!(
+            capability_map(PeerHostKind::Desktop).get("whole_session_copy_v1"),
+            Some(&Value::Bool(true))
+        );
     }
 }

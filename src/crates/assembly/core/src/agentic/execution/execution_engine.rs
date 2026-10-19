@@ -5,13 +5,13 @@
 use super::model_exchange_trace::{
     prepare_model_exchange_trace_for_workspace, ModelExchangeTraceOperation,
 };
+use super::prompt_suggestion::{spawn_prompt_suggestion, PromptSuggestionRequest};
 use super::round_executor::{ModelRoundLifecycle, RoundExecutor};
 use super::types::{ExecutionContext, ExecutionResult, RoundContext, RoundResult};
 use crate::agentic::agents::{
     build_prompt_context_for_workspace, get_agent_registry, get_embedded_prompt,
-    is_swarm_planner_agent_type, render_direct_tool_listing_body, PrependedPromptReminders,
-    PromptBuilder, PromptBuilderContext, RuntimeContextNeeds, ToolListingSections,
-    UserContextPolicy, UserContextSection,
+    render_direct_tool_listing_body, PrependedPromptReminders, PromptBuilder, PromptBuilderContext,
+    RuntimeContextNeeds, ToolListingSections, UserContextPolicy, UserContextSection,
 };
 use crate::agentic::context_profile::{ContextProfilePolicy, ModelCapabilityProfile};
 use crate::agentic::coordination::scheduler::agent_dialog_turn_image_contexts;
@@ -41,7 +41,7 @@ use crate::agentic::session::{
 };
 use crate::agentic::skill_agent_snapshot::build_skill_agent_tool_listing_sections_from_snapshot;
 use crate::agentic::tools::framework::ToolUseContext;
-use crate::agentic::tools::implementations::{SkillTool, TaskTool};
+use crate::agentic::tools::implementations::{AgentExecutionTool, SkillTool};
 use crate::agentic::tools::product_runtime::{
     collect_product_loaded_deferred_tool_specs, GetToolSpecTool,
 };
@@ -68,8 +68,11 @@ use crate::util::types::ToolDefinition;
 use crate::util::{elapsed_ms_u64, truncate_at_char_boundary};
 use dashmap::DashMap;
 use log::{debug, error, info, trace, warn};
-use openbitfun_agent_runtime::output_surface::TOOL_CONTEXT_INLINE_MARKDOWN_IMAGE_DISPLAY_KEY;
 use openbitfun_agent_runtime::permission::PERMISSION_MODE_CONTEXT_KEY;
+use openbitfun_agent_runtime::prompt_suggestion::{
+    turn_outcome_allows_prompt_suggestion, PromptSuggestionRuntime, PromptSuggestionTurnOutcome,
+    PROMPT_SUGGESTION_ELIGIBLE_CONTEXT_KEY,
+};
 use openbitfun_agent_runtime::remote_file_delivery::TOOL_CONTEXT_REMOTE_FILE_DELIVERY_KEY;
 use openbitfun_ai_adapters::ModelExchangeTraceConfig;
 use openbitfun_core_types::{ModelRequestContext, SessionModelBindingPolicy};
@@ -608,6 +611,7 @@ pub struct ExecutionEngine {
     context_compressor: Arc<ContextCompressor>,
     config: ExecutionEngineConfig,
     generation_messages: DashMap<(String, String), Vec<Message>>,
+    prompt_suggestions: PromptSuggestionRuntime,
 }
 
 impl ExecutionEngine {
@@ -688,6 +692,7 @@ impl ExecutionEngine {
             context_compressor,
             config,
             generation_messages: DashMap::new(),
+            prompt_suggestions: PromptSuggestionRuntime::new(),
         }
     }
 
@@ -1438,7 +1443,7 @@ impl ExecutionEngine {
                 None
             },
             agent_listing: if has_tool_definition("Task") || has_tool_definition("AgentSpawn") {
-                TaskTool::build_available_agents_context_section(Some(tool_context)).await
+                AgentExecutionTool::build_available_agents_context_section(Some(tool_context)).await
             } else {
                 None
             },
@@ -1466,6 +1471,7 @@ impl ExecutionEngine {
         supports_image_understanding: bool,
         tool_listing_sections: ToolListingSections,
         runtime_context_needs: RuntimeContextNeeds,
+        user_context_policy: &UserContextPolicy,
     ) -> Option<PromptBuilderContext> {
         let workspace = context.workspace.as_ref()?;
         let remote_file_delivery_channel = context
@@ -1473,12 +1479,6 @@ impl ExecutionEngine {
             .get(TOOL_CONTEXT_REMOTE_FILE_DELIVERY_KEY)
             .and_then(|value| value.parse::<bool>().ok())
             .unwrap_or(false);
-        let inline_markdown_image_display = context
-            .context
-            .get(TOOL_CONTEXT_INLINE_MARKDOWN_IMAGE_DISPLAY_KEY)
-            .and_then(|value| value.parse::<bool>().ok())
-            .unwrap_or(false);
-
         build_prompt_context_for_workspace(
             workspace,
             workspace.workspace_id.as_deref(),
@@ -1487,12 +1487,11 @@ impl ExecutionEngine {
             Some(supports_image_understanding),
             tool_listing_sections,
             runtime_context_needs,
+            user_context_policy,
         )
         .await
         .map(|prompt_context| {
-            prompt_context
-                .with_remote_file_delivery_channel(remote_file_delivery_channel)
-                .with_inline_markdown_image_display(inline_markdown_image_display)
+            prompt_context.with_remote_file_delivery_channel(remote_file_delivery_channel)
         })
     }
 
@@ -1675,11 +1674,8 @@ impl ExecutionEngine {
             built_user_context
         };
         let runtime_context = prompt_builder.build_runtime_context_reminder().await;
-        let (skill_listing, mut agent_listing) =
+        let (skill_listing, agent_listing) =
             skill_agent_listing_reminders(baseline_tool_sections.as_ref());
-        if is_swarm_planner_agent_type(current_agent.id()) {
-            agent_listing = None;
-        }
 
         PrependedPromptReminders {
             deferred_tool_listing: prompt_builder.build_deferred_tool_listing_reminder(),
@@ -1760,6 +1756,7 @@ impl ExecutionEngine {
             input.supports_image_understanding,
             input.tool_listing_sections,
             input.runtime_context_needs,
+            &input.current_agent.user_context_policy(),
         )
         .await;
         let prepended_prompt_reminders = self
@@ -2087,7 +2084,7 @@ impl ExecutionEngine {
             .await
     }
 
-    async fn build_ai_messages_for_send(
+    pub(super) async fn build_ai_messages_for_send(
         messages: &[Message],
         provider: &str,
         workspace: Option<&WorkspaceBinding>,
@@ -2908,6 +2905,12 @@ impl ExecutionEngine {
         let control_owner = context.session_id.clone();
         self.generation_messages
             .remove(&(context.session_id.clone(), dialog_turn_id.clone()));
+        if self.prompt_suggestions.cancel_session(&context.session_id) {
+            debug!(
+                "Cancelled pending prompt suggestion for new dialog turn: session_id={}, dialog_turn_id={}",
+                context.session_id, dialog_turn_id
+            );
+        }
 
         info!("Starting dialog turn: dialog_turn_id={}", dialog_turn_id);
 
@@ -4327,10 +4330,34 @@ impl ExecutionEngine {
             //   (write the answer), and continue.
             // - Model emitted nothing at all     -> partial recovery / truncation.
             //   Retrying without new context will not help, so end the turn.
+            let quiet_model_end = if context
+                .context
+                .contains_key(super::background_delivery::BACKGROUND_DELIVERY_CONTEXT_KEY)
+                && !round_result.has_more_rounds
+                && !round_result.had_assistant_text
+                && !round_result.had_thinking_content
+                && round_result.partial_recovery_reason.is_none()
+            {
+                let delivery = self
+                    .session_manager
+                    .background_delivery_for_turn(&context.session_id, &context.dialog_turn_id)
+                    .await
+                    .ok()
+                    .flatten();
+                openbitfun_agent_runtime::scheduler::result_delivery::accepts_quiet_model_end(
+                    delivery.as_ref(),
+                    false,
+                    false,
+                    false,
+                    false,
+                )
+            } else {
+                false
+            };
             if injection_applied {
                 // fall through to next round so the model can respond to the steering
             } else if !round_result.has_more_rounds {
-                if round_result.had_assistant_text {
+                if round_result.had_assistant_text || quiet_model_end {
                     if let Some(ref reason) = round_result.partial_recovery_reason {
                         if Self::should_continue_after_partial_response(reason) {
                             partial_continuation_attempts += 1;
@@ -4443,6 +4470,9 @@ impl ExecutionEngine {
                             // Continue into the next round so the agent can act
                             // on the hook feedback.
                         } else {
+                            if quiet_model_end {
+                                finalization_reason = Some("background_quiet");
+                            }
                             break;
                         }
                     }
@@ -4684,6 +4714,7 @@ impl ExecutionEngine {
         // so the UI can explain the termination cause inline even when the turn
         // ended without a final assistant reply.
         let success = has_final_response
+            || effective_finish_reason == "background_quiet"
             || matches!(
                 effective_finish_reason,
                 "max_rounds" | "repeated_tool_failures" | "user_steering"
@@ -4718,6 +4749,40 @@ impl ExecutionEngine {
             }
         }
 
+        let background_delivery = if let Some(initial) = context
+            .context
+            .get(super::background_delivery::BACKGROUND_DELIVERY_CONTEXT_KEY)
+            .and_then(|value| {
+                serde_json::from_str::<
+                        openbitfun_core_types::background_delivery::BackgroundDelivery,
+                    >(value)
+                    .ok()
+            })
+            .filter(|delivery| delivery.run_id == context.dialog_turn_id)
+        {
+            let final_message = messages
+                .iter()
+                .rev()
+                .find(|message| message.role == MessageRole::Assistant)
+                .cloned()
+                .unwrap_or_else(|| Message::assistant(String::new()));
+            Some(
+                super::background_delivery::finalize_background_delivery(
+                    self.session_manager.as_ref(),
+                    &context.session_id,
+                    &context.dialog_turn_id,
+                    initial,
+                    success && last_partial_recovery_reason.is_none(),
+                    effective_finish_reason,
+                    &final_message,
+                    &messages,
+                )
+                .await,
+            )
+        } else {
+            None
+        };
+
         if context.emit_lifecycle_events {
             debug!("Preparing to send DialogTurnCompleted event");
 
@@ -4734,12 +4799,55 @@ impl ExecutionEngine {
                         success: Some(success),
                         finish_reason: Some(effective_finish_reason.to_string()),
                         has_final_response: Some(has_final_response),
+                        background_delivery: background_delivery.clone(),
                     },
                     None,
                 )
                 .await;
 
             debug!("DialogTurnCompleted event sent");
+        }
+
+        let prompt_suggestion_eligible = context
+            .context
+            .get(PROMPT_SUGGESTION_ELIGIBLE_CONTEXT_KEY)
+            .is_some_and(|value| value == "true");
+        if prompt_suggestion_eligible
+            && last_partial_recovery_reason.is_none()
+            && turn_outcome_allows_prompt_suggestion(PromptSuggestionTurnOutcome {
+                finish_reason: effective_finish_reason,
+                has_final_response,
+                used_local_final_response_synthesis,
+                emits_lifecycle_events: context.emit_lifecycle_events,
+                is_subagent: context.subagent_parent_info.is_some(),
+            })
+            && !self
+                .round_executor
+                .is_dialog_turn_cancelled(&dialog_turn_id)
+        {
+            spawn_prompt_suggestion(
+                &self.prompt_suggestions,
+                self.event_queue.clone(),
+                self.session_manager.clone(),
+                PromptSuggestionRequest {
+                    session_id: context.session_id.clone(),
+                    turn_id: context.dialog_turn_id.clone(),
+                    messages: messages.clone(),
+                    model_id: resolved_primary_model_id.clone(),
+                    ai_client: ai_client.clone(),
+                    tool_definitions: tool_definitions.clone(),
+                    model_request_context: model_request_context.clone(),
+                    prepended_reminders: turn_prompt_scaffold
+                        .prepended_prompt_reminders
+                        .ordered_reminders()
+                        .into_iter()
+                        .map(str::to_string)
+                        .collect(),
+                    workspace: context.workspace.clone(),
+                    workspace_services: context.workspace_services.clone(),
+                    attach_images: primary_supports_image_understanding,
+                },
+            );
         }
 
         // Print dialog turn token statistics (from model's last returned usage)

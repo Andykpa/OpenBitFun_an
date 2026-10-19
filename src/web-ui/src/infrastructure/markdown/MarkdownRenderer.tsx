@@ -1,3 +1,4 @@
+import { BoundedResourceCache } from '@/shared/utils/BoundedResourceCache';
 import { lazyWithRecovery } from '@/shared/utils/lazyWithRecovery';
 import { useResourceFileAccess, type ResourceFileAccess } from '@/infrastructure/api/ResourceFileContext';
 /**
@@ -9,6 +10,7 @@ import React, { useState, useMemo, useCallback, useEffect, useLayoutEffect, useR
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import { Icon, IconButton, Tooltip } from '@openbitfun/ui';
 import remarkGfm from 'remark-gfm';
+import { remarkCachedParse } from './markdownParseCache';
 import { remarkAutolinkBoundaries } from './remarkAutolinkBoundaries';
 import { remarkStreamingTableLinks } from './remarkStreamingTableLinks';
 import rehypeRaw from 'rehype-raw';
@@ -41,6 +43,7 @@ import { useStreamingTextReveal } from './useStreamingTextReveal';
 import { SessionMarkdownImage, type SessionImageReader } from './SessionMarkdownImage';
 import { ImageLightbox, type ImageLightboxState } from '@/shared/ui/ImageLightbox';
 import { rehypeSourceRange, type MarkdownSourceRange } from './rehypeSourceRange';
+import { rehypeWindowsDrivePaths } from './rehypeWindowsDrivePaths';
 
 const log = createLogger('Markdown');
 const COMPUTER_LINK_PREFIX = 'computer://';
@@ -56,6 +59,12 @@ function markdownUrlTransform(value: string, key?: string): string {
   if (/^openbitfun:\/\/(?:runtime|current-session)\//.test(value)) return value;
   // These references are resolved through the owning host, never by the browser.
   if (/^(computer:\/\/|file:)/i.test(value)) return value;
+  // A Windows drive-letter path looks like a custom URL scheme to the
+  // react-markdown safety filter (for example, `C:/image.png` is parsed as
+  // scheme `c`). Mark it as a local file reference before that filter runs;
+  // the renderer will strip the internal prefix and read it through the
+  // owning workspace/session provider.
+  if (/^[A-Za-z]:[\\/]/.test(value)) return `file:///${value.replace(/\\/g, '/')}`;
   if (key === 'src' && /^data:image\/(png|jpeg|gif|webp|bmp|svg\+xml|avif);base64,/i.test(value)) return value;
   if (value.startsWith(CANVAS_LINK_PREFIX) && parseCanvasArtifactReference(value)) {
     return value;
@@ -220,6 +229,7 @@ const EDITOR_OPENABLE_EXTENSIONS = new Set([
   'gitignore', 'gitattributes', 'editorconfig',
   'log', 'dockerfile', 'makefile', 'mk', 'gradle',
   'properties', 'plist', 'tex', 'mermaid', 'svg',
+  'cj',
 ]);
 const EDITOR_OPENABLE_BASENAMES = new Set([
   'dockerfile',
@@ -254,7 +264,7 @@ const EDITOR_OPENABLE_BASENAMES = new Set([
   'readme.txt',
 ]);
 
-const localImageDataUrlCache = new Map<string, string>();
+const localImageDataUrlCache = new BoundedResourceCache<string, string>(24 * 1024 * 1024);
 const localImageRequestCache = new Map<string, Promise<string>>();
 
 const sanitizeSchema = {
@@ -366,6 +376,9 @@ function normalizeFileLikeHref(rawHref: string): string {
   }
 
   // Normalize URI-style Windows drive paths to native absolute paths.
+  if (/^\/{2,}[A-Za-z]:[\\/]/.test(filePath)) {
+    filePath = filePath.replace(/^\/+/, '/');
+  }
   if (/^\/[A-Za-z]:[\\/]/.test(filePath)) {
     filePath = filePath.slice(1);
   }
@@ -520,7 +533,7 @@ async function getLocalImageDataUrl(
       : await workspaceAPI.readFileContent(localPath, 'base64', owner.remoteConnectionId);
     scope.assertCurrent('read markdown image');
     const dataUrl = `data:${getMimeType(localPath)};base64,${base64Content}`;
-    localImageDataUrlCache.set(cacheKey, dataUrl);
+    localImageDataUrlCache.set(cacheKey, dataUrl, (cacheKey.length + dataUrl.length) * 2);
     localImageRequestCache.delete(requestKey);
     return dataUrl;
   })().catch((error) => {
@@ -780,6 +793,8 @@ function formatCodeLanguageLabel(lang: string): string {
     makefile: 'Makefile',
     toml: 'TOML',
     xml: 'XML',
+    cangjie: 'Cangjie',
+    cj: 'Cangjie',
     rust: 'Rust',
     typescript: 'TypeScript',
     javascript: 'JavaScript',
@@ -890,8 +905,9 @@ function useLiveValueRef<T>(value: T): React.MutableRefObject<T> {
   return ref;
 }
 
-const MarkdownSurface = React.memo<MarkdownRendererProps & { thinking?: boolean }>(({
+const MarkdownSurface = React.memo<MarkdownRendererProps & { thinking?: boolean; singleLinePreview?: boolean }>(({
   thinking = false,
+  singleLinePreview = false,
   content, 
   sourceRange,
   workspaceId,
@@ -1724,7 +1740,7 @@ const MarkdownSurface = React.memo<MarkdownRendererProps & { thinking?: boolean 
     const basicFragment = (
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkAutolinkBoundaries, remarkAutolinkInternalLinks]}
-        rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
+        rehypePlugins={[rehypeRaw, rehypeWindowsDrivePaths, [rehypeSanitize, sanitizeSchema]]}
         urlTransform={markdownUrlTransform}
         components={fragmentComponents}
       >{fragment}</ReactMarkdown>
@@ -1745,8 +1761,8 @@ const MarkdownSurface = React.memo<MarkdownRendererProps & { thinking?: boolean 
   }, [components, isStreaming]);
   const basicMarkdownRenderer = (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, [remarkStreamingTableLinks, { isStreaming }], remarkAutolinkBoundaries, remarkAutolinkInternalLinks]}
-      rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema], [rehypeSourceRange, sourceRange]]}
+      remarkPlugins={[remarkGfm, ...(!isStreaming ? [remarkCachedParse] : []), [remarkStreamingTableLinks, { isStreaming }], remarkAutolinkBoundaries, remarkAutolinkInternalLinks]}
+      rehypePlugins={[rehypeRaw, rehypeWindowsDrivePaths, [rehypeSanitize, sanitizeSchema], [rehypeSourceRange, sourceRange]]}
       urlTransform={markdownUrlTransform}
       components={components}
     >
@@ -1768,7 +1784,7 @@ const MarkdownSurface = React.memo<MarkdownRendererProps & { thinking?: boolean 
       )}
       <MarkdownErrorBoundary fallbackContent={sourceRange ? markdownContent.slice(sourceRange.start, sourceRange.end) : markdownContent}>
         {thinking ? (
-          <React.Suspense fallback={contentStr}>
+          <React.Suspense fallback={<span data-markdown-pending="true">{contentStr}</span>}>
             <ThinkingMarkdown
               content={contentStr}
               isStreaming={isStreaming}
@@ -1777,6 +1793,7 @@ const MarkdownSurface = React.memo<MarkdownRendererProps & { thinking?: boolean 
               urlTransform={markdownUrlTransform}
               renderFragment={renderThinkingFragment}
               environment={thinkingEnvironment}
+              singleLinePreview={singleLinePreview}
             />
           </React.Suspense>
         ) : shouldUseMathRenderer ? (
@@ -1802,4 +1819,7 @@ const MarkdownSurface = React.memo<MarkdownRendererProps & { thinking?: boolean 
 export const MarkdownRenderer = React.memo<MarkdownRendererProps>(props => <MarkdownSurface {...props} />);
 
 /** Deliberately opt in only from the thinking surface, never from response bodies. */
-export const ThinkingMarkdownRenderer = React.memo<Omit<MarkdownRendererProps, 'sourceRange'>>(props => <MarkdownSurface {...props} thinking />);
+export const ThinkingMarkdownRenderer = React.memo<Omit<MarkdownRendererProps, 'sourceRange'> & {
+  /** Inline streaming preview; the full tree remains available for expansion. */
+  singleLinePreview?: boolean;
+}>(props => <MarkdownSurface {...props} thinking />);

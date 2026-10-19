@@ -125,7 +125,7 @@ describe('CanvasToolCard', () => {
     const actionRegion = container.querySelector<HTMLElement>(
       '[data-openbitfun-component="flow-chat-tool-card"][data-openbitfun-part="actionRegion"]',
     );
-    const openButton = actionRegion?.querySelector<HTMLButtonElement>('[data-openbitfun-part="affordanceButton"]');
+    const openButton = actionRegion?.querySelector<HTMLButtonElement>('[data-openbitfun-affordance="open-panel-right"]');
     expect(subject?.textContent).toContain('Architecture Map');
     expect(subject?.querySelector('button')).toBeNull();
     expect(openButton).not.toBeNull();
@@ -144,13 +144,34 @@ describe('CanvasToolCard', () => {
     }));
   });
 
-  it('keeps a failed completed tool from reporting a ready preview and shows its error', () => {
+  it('keeps a failed completed tool compact and exposes its error on request', () => {
     const call = canvasToolItem('CreateCanvas');
     call.toolResult = { success: false, error: 'Canvas compilation failed' };
     act(() => root.render(<CanvasToolCard toolItem={call} config={{} as ToolCardConfig} />));
-    expect(container.textContent).toContain('Canvas compilation failed');
+    expect(container.textContent).not.toContain('Canvas compilation failed');
     expect(container.textContent).not.toContain('Preview ready');
     expect(container.textContent).not.toContain('Saved');
     expect(container.querySelector('[data-openbitfun-status="error"]')).not.toBeNull();
+    act(() => container.querySelector<HTMLButtonElement>('[data-openbitfun-affordance="expand"][aria-expanded]')!.click());
+    expect(container.textContent).toContain('Canvas compilation failed');
+  });
+
+  it('preserves manual source disclosure through completion and failure', () => {
+    const completed = canvasToolItem('CreateCanvas');
+    completed.toolCall.input.source = 'export default function App() { return <div>Canvas</div>; }';
+    const render = (item: FlowToolItem) => act(() => root.render(<CanvasToolCard toolItem={item} config={{} as ToolCardConfig} />));
+    const toggle = () => container.querySelector<HTMLButtonElement>('[data-openbitfun-affordance="expand"][aria-expanded]')!;
+    render({ ...completed, status: 'running', toolResult: undefined });
+    expect(toggle().getAttribute('aria-expanded')).toBe('false');
+    act(() => toggle().click());
+    render(completed);
+    expect(toggle().getAttribute('aria-expanded')).toBe('true');
+    expect(container.querySelector('[data-openbitfun-part="sourcePreview"]')).not.toBeNull();
+    render({ ...completed, status: 'error', toolResult: { success: false, error: 'Render failed' } });
+    expect(toggle().getAttribute('aria-expanded')).toBe('true');
+    expect(container.textContent).toContain('Render failed');
+    act(() => toggle().click());
+    render(completed);
+    expect(toggle().getAttribute('aria-expanded')).toBe('false');
   });
 });

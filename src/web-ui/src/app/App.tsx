@@ -9,7 +9,6 @@ import { NotificationContainer, notificationService } from '../shared/notificati
 import { ComputerUseControlCard } from './components/ComputerUseControlCard';
 import { UpdateNotificationCard } from '@/infrastructure/update/UpdateNotificationCard';
 import { NotificationCenter } from '../shared/notification-system/components/NotificationCenter';
-import { AnnouncementProvider } from '../shared/announcement-system';
 import { ConfirmDialogRenderer } from '@/infrastructure/confirm-dialog';
 import { SessionUsageModal } from '../flow_chat/components/usage/SessionUsageModal';
 import { createLogger } from '@/shared/utils/logger';
@@ -971,9 +970,6 @@ function App() {
                   the request runs below any component, and the report outlives
                   whichever session view is on screen. */}
               <SessionUsageModal />
-
-              {/* Announcement / feature-demo / tips system */}
-              <AnnouncementProvider ready={interactiveShellReady && !startupOverlayVisible} />
 
               {/* AskUserQuestion waiting-state aria-live announcer.
                   Mounted here (inside ToolbarModeProvider, outside LazyAppLayout)

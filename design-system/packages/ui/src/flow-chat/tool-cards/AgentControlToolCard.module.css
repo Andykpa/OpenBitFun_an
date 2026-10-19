@@ -26,11 +26,11 @@
     box-sizing: border-box;
     display: flex;
     align-items: center;
-    gap: var(--openbitfun-space-3);
+    gap: var(--openbitfun-layout-card-gap-md);
     inline-size: 100%;
     max-inline-size: 100%;
     min-block-size: calc(2 * var(--openbitfun-control-activity-item-surface-height) - 2 * var(--openbitfun-border-width-default));
-    padding: var(--openbitfun-space-3);
+    padding: var(--openbitfun-layout-card-padding-md);
     border: 0;
     border-radius: inherit;
     background: transparent;
@@ -64,6 +64,8 @@
     flex: 0 0 var(--openbitfun-space-10);
     inline-size: var(--openbitfun-space-10);
     block-size: var(--openbitfun-space-10);
+    /* Canonical artwork fills 87.5% of its canvas; align its visible leading edge. */
+    margin-inline-start: calc(-1 * var(--openbitfun-space-10) / 16);
     pointer-events: none;
   }
 
@@ -72,7 +74,7 @@
     display: grid;
     flex: 1 1 0;
     min-inline-size: 0;
-    gap: var(--openbitfun-space-2);
+    gap: var(--openbitfun-layout-card-gap-sm);
   }
   .name {
     position: relative;
@@ -80,8 +82,6 @@
     align-items: center;
     gap: var(--openbitfun-space-2);
     min-inline-size: 0;
-    /* Reserve the action slot so hover never shifts the name or status. */
-    padding-inline-end: var(--openbitfun-space-5);
   }
   .title { min-inline-size: 0; flex: 1 1 0; font-weight: var(--openbitfun-type-label-lg-font-weight); }
   .metadata {
@@ -96,8 +96,8 @@
     line-height: var(--openbitfun-type-label-sm-line-height);
   }
   .agentType { flex: 0 1 auto; min-inline-size: 0; max-inline-size: 45%; }
-  .separator { flex: none; }
   .model { flex: 1 1 0; min-inline-size: 0; }
+  .model:not([data-overflow='true']) { text-align: end; }
   .status,
   .statusDot,
   .name > [data-openbitfun-part='statusSlot'] { align-self: center; }
@@ -110,6 +110,7 @@
   }
   .status[data-tone='danger'] { color: var(--openbitfun-color-status-danger-content); }
   .status[data-tone='warning'] { color: var(--openbitfun-color-status-warning-content); }
+  .runningStatus { flex: none; }
   .statusDot {
     flex: none;
     inline-size: calc(var(--openbitfun-space-1) * 1.5);
@@ -134,11 +135,14 @@
     pointer-events: none;
   }
 
-  .surface:not(:disabled, [aria-disabled='true']):is(:hover, :focus-visible) .openIcon { display: block; }
-
-  @media (hover: none), (pointer: coarse) {
-    .surface:not(:disabled, [aria-disabled='true']) .openIcon { display: block; }
+  /* The action replaces the status in place; metadata never moves on hover. */
+  .surface:not(:disabled, [aria-disabled='true']):is(:hover, :focus-visible) .name > :is(.status, .statusDot, [data-openbitfun-part='statusSlot']) {
+    visibility: hidden;
   }
+  .surface:not(:disabled, [aria-disabled='true']):is(:hover, :focus-visible) .name:not(:has(> .status, > .statusDot, > [data-openbitfun-part='statusSlot'])) {
+    padding-inline-end: var(--openbitfun-space-5);
+  }
+  .surface:not(:disabled, [aria-disabled='true']):is(:hover, :focus-visible) .openIcon { display: block; }
 
   .preview {
     display: grid;

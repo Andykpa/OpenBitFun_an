@@ -1,13 +1,11 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
+import { useCallback, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import { CommandToolCard, type CommandToolCardFooterItem } from '@openbitfun/ui/flow-chat';
-import { systemPresentationClock, type ExecProcessCardModel, type ExecToolSnapshot, type PresentationClock, type PresentationTranslate } from './contracts';
+import type { ExecProcessCardModel, ExecToolSnapshot, PresentationClock, PresentationTranslate } from './contracts';
 import { formatSessionViewPreviewText } from '../sessionViewPreview';
 import { ExecRelationPresentation } from './ExecRelationPresentation';
 
 const EXEC_COLLAPSED_STATUSES = new Set(['completed', 'cancelled', 'error', 'rejected']);
-const EXEC_OUTPUT_STREAMING_MAX_ROWS = 4;
 const EXEC_OUTPUT_EXPANDED_MAX_ROWS = 15;
-const EXEC_MINIMUM_EXPANDED_MS = 1000;
 
 export interface ExecStatusPresentation {
   startTime?: number;
@@ -34,16 +32,13 @@ export interface ExecProcessPresentationProps {
   renderStatus: (props: ExecStatusPresentation) => ReactNode;
   clock?: PresentationClock;
   initialExpanded?: boolean;
+  expanded?: boolean;
   /** Public card pseudo-state used only by static component specimens. */
   previewState?: 'hover';
 }
 
 function isCollapsedStatus(status: string): boolean {
   return EXEC_COLLAPSED_STATUSES.has(status);
-}
-
-function getInitialExpandedState(status: string, hasLiveOutput: boolean, prominent: boolean): boolean {
-  return !isCollapsedStatus(status) && (hasLiveOutput || (prominent && status === 'pending_confirmation'));
 }
 
 function isCancelledStatus(status: string): boolean {
@@ -89,7 +84,7 @@ export function ExecProcessPresentation(props: ExecProcessPresentationProps) {
 function ExecCommandPresentation({
   toolItem, model, attention = 'prominent', t, rootRef, onExpandedChange, primaryCopied = false,
   onCopyPrimary, renderOutput, renderOutputAction, renderStatus,
-  clock = systemPresentationClock, initialExpanded, previewState,
+  initialExpanded = false, expanded, previewState,
 }: ExecProcessPresentationProps) {
   const status = toolItem.status || 'pending';
   const isParamsStreaming = Boolean(toolItem.isParamsStreaming);
@@ -107,74 +102,16 @@ function ExecCommandPresentation({
     ? 'toolCards.terminal.rejected'
     : 'toolCards.terminal.cancelled';
   const toolId = toolItem.id ?? toolItem.toolCall?.id;
-  const hasLiveOutput = liveOutput.length > 0;
-
-  const [isExpanded, setIsExpandedState] = useState(() => initialExpanded ?? getInitialExpandedState(status, hasLiveOutput, attention === 'prominent'));
-  const userToggledRef = useRef(initialExpanded !== undefined);
-  const autoExpandedAtRef = useRef<number | null>(null);
+  const [localExpanded, setIsExpandedState] = useState(initialExpanded);
+  const isExpanded = expanded ?? localExpanded;
   const outputRendererRef = useRef<ExecOutputHandle | null>(null);
-  const applyExecExpandedState = useCallback((nextExpanded: boolean) => {
-    if (nextExpanded === isExpanded) {
-      return;
-    }
-
+  const toggleExpanded = useCallback(() => {
+    const nextExpanded = !isExpanded;
     setIsExpandedState(nextExpanded);
     onExpandedChange?.(nextExpanded);
   }, [isExpanded, onExpandedChange]);
 
-  const toggleExpanded = useCallback(() => {
-    userToggledRef.current = true;
-    applyExecExpandedState(!isExpanded);
-  }, [applyExecExpandedState, isExpanded]);
-
-  useLayoutEffect(() => {
-    if (userToggledRef.current) {
-      return;
-    }
-
-    if (isRunning && hasLiveOutput) {
-      // Start once, including when mounting with output already available.
-      autoExpandedAtRef.current ??= clock.now();
-      applyExecExpandedState(true);
-    } else if (isCollapsedStatus(status)) {
-      const remainingMs = autoExpandedAtRef.current === null
-        ? 0
-        : EXEC_MINIMUM_EXPANDED_MS - (clock.now() - autoExpandedAtRef.current);
-      if (isExpanded && remainingMs > 0) {
-        return clock.schedule(() => {
-          if (!userToggledRef.current) {
-            applyExecExpandedState(false);
-          }
-        }, remainingMs);
-      }
-      applyExecExpandedState(false);
-    } else if (isRunning && autoExpandedAtRef.current === null) {
-      applyExecExpandedState(false);
-    }
-  }, [
-    applyExecExpandedState,
-    clock,
-    hasLiveOutput,
-    isExpanded,
-    isRunning,
-    status,
-  ]);
-
-  const compactSettledPreview =
-    isExpanded &&
-    isCollapsedStatus(status) &&
-    !userToggledRef.current;
-  // Keep auto-managed completed cards on the compact preview through the
-  // collapse animation. A manually expanded card remains eligible for the
-  // full output preview.
-  const keepAutoCompletionPreview =
-    status === 'completed' &&
-    !userToggledRef.current;
-  const keepCompactCompletionPreview =
-    keepAutoCompletionPreview || compactSettledPreview;
-  const maxRows = isRunning || keepCompactCompletionPreview
-    ? EXEC_OUTPUT_STREAMING_MAX_ROWS
-    : EXEC_OUTPUT_EXPANDED_MAX_ROWS;
+  const maxRows = EXEC_OUTPUT_EXPANDED_MAX_ROWS;
   const completedDurationMs =
     formatSecondsAsMs(model.wallTimeSeconds) ?? toolItem.toolResult?.duration_ms ?? toolItem.durationMs;
   const timeoutMs = typeof toolItem.toolCall?.input?.yield_time_ms === 'number' && toolItem.toolCall.input.yield_time_ms > 0
@@ -293,8 +230,8 @@ function ExecCommandPresentation({
         output={outputText ? renderOutput({ ref: outputRendererRef, content: outputText, maxRows, surface: 'embedded' }) : undefined}
         outputAction={outputText ? renderOutputAction(getOutputText) : undefined}
         outputLabel={t('toolCards.common.executionResult')}
-        outputDensity={keepCompactCompletionPreview || isRunning ? 'compact' : 'expanded'}
-        outputSizing={isRunning || isParamsStreaming ? 'fixed' : 'content'}
+        outputDensity="expanded"
+        outputSizing="content"
         reserveFooter={isRunning || isParamsStreaming}
         reserveOutput={isRunning || isParamsStreaming}
         requiresConfirmation={status === 'pending_confirmation'}

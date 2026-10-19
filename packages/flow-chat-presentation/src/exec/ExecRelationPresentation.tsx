@@ -37,8 +37,7 @@ export function ExecRelationPresentation({ toolItem, model, t, rootRef, renderOu
   </>;
 
   return <div ref={rootRef} data-openbitfun-adapter="exec-process-tool-card" data-tool-card-id={toolItem.id}>
-    <ToolRelationRow interaction={{ ...interaction, target: { ...interaction.target, details,
-      openLabel: t('toolCards.interaction.inspectProcess') } }} result={summary} status={status}
+    <ToolRelationRow interaction={interaction} result={summary} status={status}
       details={details} detailsTitle={model.actionLabel} detailsSize="md" resultLabel={t('toolCards.interaction.inspectResult')} />
   </div>;
 }

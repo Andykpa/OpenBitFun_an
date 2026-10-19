@@ -36,10 +36,15 @@ export interface InterfaceGroupData extends FlowGroupBase {
   category: 'interface';
 }
 
+export interface FileEditGroupData extends FlowGroupBase {
+  category: 'file-edit';
+}
+
 export interface FlowGroupDataByCategory {
   explore: ExploreGroupData;
   context: ContextLoadGroupData;
   interface: InterfaceGroupData;
+  'file-edit': FileEditGroupData;
 }
 
 export type FlowGroupCategory = keyof FlowGroupDataByCategory;
@@ -62,10 +67,11 @@ export function getFlowGroupStateIds(group: FlowGroupBase): readonly string[] {
   return aliases?.includes(group.groupId) ? aliases : [group.groupId, ...(aliases ?? [])];
 }
 
-export function isFlowGroupExpanded(group: FlowGroupBase, states?: ReadonlyMap<string, boolean>): boolean {
+export function isFlowGroupExpanded(group: FlowGroupBase & { category?: FlowGroupCategory }, states?: ReadonlyMap<string, boolean>): boolean {
   const choice = getFlowGroupDisclosureChoice(group, states);
-  // Completed errors stay in the summary without extending the live disclosure.
-  return choice ?? (group.phase === 'collecting' || group.phase === 'settling'
+  // Failed file revisions stay visible until the reader explicitly folds them.
+  return choice ?? ((group.category === 'file-edit' && group.needsAttention === true)
+    || group.phase === 'collecting' || group.phase === 'settling'
     || (group.phase === undefined && group.isGroupStreaming));
 }
 

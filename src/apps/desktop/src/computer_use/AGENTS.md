@@ -51,6 +51,13 @@ remaining native acceptance scenarios separately.
 ## Module map
 
 - `desktop_host/` — `ComputerUseHost` trait impl; entry for all actions
+- `control_session/admission.rs` — pure mode/owner/lease/start/stop state machine
+- `control_session/sharing.rs`, `desktop_host/sharing.rs` — user-selected window, observe-first sharing and revocable input grant
+- `permissions.rs`, `process_identity.rs`, `grants.rs`, `share_grants.rs` — explicit OS requests and executable-bound remembered preferences
+- `desktop_host/shared_preview.rs` — scoped manual preview input through the same native host/lease as the Agent
+- `desktop_host/background_guard.rs` — before/after desktop witnesses; no focus restoration or replay
+- `desktop_host/observation.rs`, `observation_cache.rs` — observation identity and bounded screenshot geometry; never input authority
+- `desktop_host/state.rs` — derived host feedback and view caches
 - `macos_*` / `windows_*` — platform AX, capture, list-apps, shortcuts
 - `windows_capture.rs` — WGC frame conversion and authoritative window bounds
 - `windows_wgc_capture.rs` — Windows.Graphics.Capture (Direct3D11)
@@ -73,12 +80,15 @@ The directed-input route can change a target application's internal
 focus without changing the human foreground application. Its window-addressed
 focus pair at local `(-8,-8)` must remain outside content; the requested gesture
 must reach content exactly once with unchanged modifiers. Do not validate it
-using a fixture that overrides `acceptsFirstMouse`. Record observer active/key,
+using a fixture that overrides `acceptsFirstMouse`. Record dequeued mouse events
+so standard controls' tracking loops cannot hide a delivered mouse-up. Record observer active/key,
 frontmost PID, stacking order, real text destination and content event counts.
 Do not use missing AX key-state attributes as a substitute for native focus
 validation: fixtures inspect their own `NSWindow.keyWindow`. Preparation caches
 must include generation, PID, window ID, human foreground identity and activation
-epoch, and must not add app-name rules or content-coordinate guesses. An off-frame routing
+epoch plus a passive target-local loss epoch, and must not add app-name rules or
+content-coordinate guesses. Target-local event monitoring must be listen-only;
+unavailable monitoring disables cache reuse, not background input. An off-frame routing
 position is distinct from the actual user-requested content target.
 No after-action raise/restore is allowed. Stop may deactivate a target only when
 it is not the user's actual foreground application. Prototype success is not
@@ -122,7 +132,15 @@ node scripts/test-macos-input-controls.mjs --semantic
 # Full Tool image-coordinate button activation/text focus and wrong-field guard.
 # Target/observer have distinct app bundles; AppKit initializes before the
 # foreground baseline. Activation history catches transient focus changes.
+# Also induces target-local loss while foreground stays fixed, then verifies
+# the next ordinary input prepares focus again without another content click.
 node scripts/test-macos-input-controls.mjs --orchestration
+# Real AX messaging timeout in a stopped disposable process, then one directed
+# click after resumption; retains exact delivery and foreground/cursor checks.
+node scripts/test-macos-input-controls.mjs --busy-ax
+# Identical five-input sequence: five tool calls vs one batch, with default
+# images and AX-only observations. Fresh isolated app/host per case.
+node scripts/test-macos-input-controls.mjs --latency
 # Diagnostic raw-pointer contract, including ordinary non-AX first click and
 # unchanged modifiers/z-order. Both this raw runner and the full Tool five-action
 # fixture passed; do not substitute a permissive first-click implementation.
@@ -131,12 +149,46 @@ node scripts/test-macos-input-controls.mjs
 node scripts/test-macos-control-roundtrip.mjs
 ```
 
+For explicitly selected disposable real applications, the devtools JSONL probe
+uses the same production Tool path and main-thread run loop. It accepts only one
+startup PID (optionally one window), background observations and app actions;
+it rejects activation, global input, clipboard and scripts. Do not use personal
+application windows or infer delivery from `ok: true`. Observe after errors
+before choosing another action; the probe never retries input automatically.
+
+```bash
+cargo test -p openbitfun-desktop --features devtools --test computer_use_native_roundtrip --no-run --message-format=json
+# Use the executable path emitted above; EOF or the total deadline stops control.
+OPENBITFUN_CUA_PROBE_PID=<pid> OPENBITFUN_CUA_PROBE_OUTPUT_DIR=/tmp/cua-probe <executable>
+# stdin JSONL: {"id":"observe","input":{"action":"get_app_state","include_image":true}}
+cargo test -p openbitfun-desktop --features devtools --lib native_control_roundtrip::probe
+# Independent read-only witness; no app launch, permission prompts or input.
+clang -fobjc-arc -fblocks -Wall -Wextra -Werror -framework AppKit -framework ApplicationServices scripts/fixtures/computer-use-background-witness.m -o /tmp/cua-witness
+/tmp/cua-witness --target-pid <pid> --target-window <window-id> --output /tmp/cua-witness.json
+```
+
+Wait for the witness's baseline before input. `SIGUSR1` requests a new baseline;
+wait for its sequence to advance. `SIGTERM` flushes the final record. Check
+sampling gaps and unknown AX reads, and separate concurrent human activity from
+backend-caused changes. The witness records IDs/coordinates, not titles, text or
+pixels; it cannot independently prove key-window state or causal attribution.
+
 The browser fixture runs production snapshot/resolver JavaScript in Chromium,
 then passes the actual DOM payload to compiled Rust presentation tests. The
 optional OCR step compiles the Desktop test target and invokes macOS Vision on
 the rendered JPEG. The AX fixture compiles the Desktop test target and checks
 native AX nodes, text, states, parent indices, cache entries, filtering, and DTO
 round trips. These are local macOS checks, not Windows/Linux or remote evidence.
+
+The latency fixture reports actual returned observations/images, AX node counts
+and native tool wall time including one separately timed fixture JSON check.
+It checks exact Unicode text, immediate shortcut delivery,
+fresh AX-only node identities, recovery of default screenshot observations,
+and the same foreground/cursor invariants as the orchestration fixture. It does
+not invoke a model. Startup and cleanup are outside the reported measurement;
+timings are diagnostic evidence, not machine-dependent pass/fail thresholds.
+The native fixture requires an unlocked desktop; its read-only startup gate
+reports a locked screen as inconclusive without waking or unlocking it.
 
 Observation invariants:
 
@@ -156,3 +208,58 @@ cargo build -p openbitfun-desktop
 ```
 
 Windows-only paths (`windows_wgc_capture`, UIA) compile on CI (`windows-latest`).
+The Windows job also runs the isolated native-module unit suite independently
+of the Tauri test loader; interactive native delivery fixtures remain ignored.
+UIA observation, semantic input, locate, hit-test and shortcut discovery share
+one MTA worker. `provider_worker.rs` bounds admission and caller waits: a request
+has a ten-second deadline and polls control cancellation every 50 ms. UIA also
+uses two-second connection and five-second transaction limits with automatic
+focus disabled. Never release the occupied slot, spawn replacement workers, or
+queue another input just because a caller timed out. Foreign code may still be
+running. Input that has crossed its submission fence has an unknown outcome on
+failure; do not retry it or switch to a coordinate click. Stop fences input still
+in preflight, while already submitted input can complete later. After the native
+call returns, discard abandoned observations and require a fresh read. A provider
+that never returns leaves UIA explicitly busy until it recovers or the host is
+restarted; status and Stop must remain independent of that worker.
+
+The focused desktop `computer_use` tests include portable blocking-provider
+regressions for deadlines, cancellation, late input, busy admission and recovery.
+They simulate foreign-call stalls and do not establish real Windows delivery.
+The isolated native-module harness compiles the production control owner, UIA,
+MSAA, WGC and pointer modules. Its portable error-envelope adapter replaces no
+native APIs or algorithms. Cross-compilation is type-checking, not Windows
+execution; full Desktop compilation and native fixtures still belong on Windows.
+
+```bash
+# Native Windows: unit tests; native delivery fixtures remain opt-in/ignored.
+node scripts/test-windows-computer-use-native.mjs
+# Other hosts with the target installed: compile production native modules only.
+node scripts/test-windows-computer-use-native.mjs --check --target x86_64-pc-windows-msvc
+```
+
+Observation IDs and target revisions are additive wire fields. Keep accepting
+legacy payloads, advertise `observation-id-v1`, and reject explicit stale IDs
+before input. New observations invalidate prior AX/view indices even when the
+content digest is unchanged. Do not replace namespace identity with a digest.
+
+Agent native fixtures must discover and address their target through production
+tools without manual share selection or a separate input grant. Cover explicit
+`start_control` and implicit first-action startup. Optional manual-share fixtures
+exercise target inventory, observe-first capture and grants separately; they must
+not hide an Agent regression by performing those UI steps in fixture setup.
+Permission probes never prompt. Desktop-state witnesses record concurrent human
+activity without revoking Agent control or replaying input.
+
+The Web preview's deterministic cursor is verified against Rust-generated
+`computer-use-rust` samples retained in the repository. The reference source is
+not required to build or run tests. After preview, sharing or permission UI edits:
+
+```bash
+pnpm --dir src/web-ui run test:run src/app/components/ComputerUseControlCard.test.tsx src/app/components/computer-use src/infrastructure/api/adapters/peer-device-adapter.test.ts
+```
+
+These UI tests cover permission requests, stale device/grant responses, geometry,
+gesture cancellation and cursor math. They do not establish native delivery or
+remote end-to-end behavior. The strict macOS fixture also exercises native shared
+preview capture/input and stale preview rejection after revocation.

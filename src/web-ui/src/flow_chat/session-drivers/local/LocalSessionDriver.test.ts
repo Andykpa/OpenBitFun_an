@@ -5,7 +5,8 @@ import type { DialogTurn } from '../../types/flow-chat';
 import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
 import { consumeSubmittedMessageArrival } from '../../services/submittedMessagePresentation';
 
-const { mockStartAcpDialogTurn, mockStartAgenticDialogTurn, mockEnsureCoordinatorSession, mockTransition, mockUpdateSessionMetadata, mockGetMode, mockUpdateMode } = vi.hoisted(() => ({
+const { mockCreateSession, mockStartAcpDialogTurn, mockStartAgenticDialogTurn, mockEnsureCoordinatorSession, mockTransition, mockUpdateSessionMetadata, mockGetMode, mockUpdateMode } = vi.hoisted(() => ({
+  mockCreateSession: vi.fn(),
   mockStartAcpDialogTurn: vi.fn(),
   mockStartAgenticDialogTurn: vi.fn(),
   mockEnsureCoordinatorSession: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock('@/infrastructure/api/service-api/ACPClientAPI', () => ({
 
 vi.mock('@/infrastructure/api/service-api/AgentAPI', () => ({
   agentAPI: {
+    createSession: mockCreateSession,
     startDialogTurn: mockStartAgenticDialogTurn,
     ensureCoordinatorSession: mockEnsureCoordinatorSession,
     getSessionPermissionMode: mockGetMode,
@@ -58,9 +60,57 @@ vi.mock('../../services/flow-chat-manager/PersistenceModule', () => ({
 }));
 
 vi.mock('../../utils/modelSync', () => ({ syncSessionModelSelection: vi.fn() }));
+vi.mock('../../utils/modelResolution', () => ({
+  getModelMaxTokens: vi.fn(async () => 32000),
+  resolveReasoningPresetForSessionCreation: vi.fn(async () => 'balanced'),
+}));
+vi.mock('../../services/sessionTitleMetadata', () => ({
+  initializeSessionTitleMetadata: vi.fn(async (_id, descriptor) => descriptor),
+}));
 
 const SESSION_ID = 'acp_dsh_session';
 const WORKSPACE_PATH = '/Users/user/workspace/project';
+
+describe('localSessionDriver conversation creation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCreateSession.mockResolvedValue({ sessionId: 'host-session', workspaceId: 'project' });
+  });
+
+  function seed(agentType = 'Standard') {
+    return {
+      surfaceScope: getActiveSurfaceScope(), draftId: 'reserved-session',
+      config: { modelName: 'selected-model' }, agentType, sessionName: 'New chat',
+      titleDescriptor: { text: 'New chat', source: 'text' as const },
+      workspaceId: 'project', workspacePath: WORKSPACE_PATH, projectWorkspacePath: WORKSPACE_PATH,
+    };
+  }
+
+  it('reserves a frontend conversation without creating a host session', async () => {
+    const createSession = vi.fn();
+    const context = { flowChatStore: { createSession } } as any;
+    await expect(localSessionDriver.createSession(context, seed())).resolves.toBe('reserved-session');
+    expect(mockCreateSession).not.toHaveBeenCalled();
+    expect(createSession).toHaveBeenCalledTimes(1);
+    expect(createSession.mock.calls[0][0]).toBe('reserved-session');
+    expect(createSession.mock.calls[0][1]).toMatchObject({
+      workspaceId: 'project', modelName: 'selected-model', reasoningPreset: 'balanced',
+    });
+    expect(createSession.mock.calls[0].at(-1)).toEqual({
+      workspaceId: 'project', phase: 'editing', turnId: expect.any(String),
+    });
+  });
+
+  it('keeps assistant bootstrap on the existing immediate creation path', async () => {
+    const createSession = vi.fn();
+    const context = { flowChatStore: { createSession } } as any;
+    await expect(localSessionDriver.createSession(context, seed('Claw'))).resolves.toBe('host-session');
+    expect(mockCreateSession).toHaveBeenCalledWith(expect.objectContaining({
+      agentType: 'Claw', workspaceId: 'project', workspacePath: WORKSPACE_PATH,
+    }));
+    expect(createSession.mock.calls[0][0]).toBe('host-session');
+  });
+});
 
 function persistedTurn(id: string, storageTurnIndex: number): DialogTurn {
   return {

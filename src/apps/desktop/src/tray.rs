@@ -369,6 +369,11 @@ fn macos_tray_icon() -> Result<tauri::image::Image<'static>, image::ImageError> 
 }
 
 pub fn show_main_window(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        crate::cancel_main_window_close_request_on_macos(app);
+        crate::mark_main_window_hidden_on_macos(false);
+    }
     if let Some(window) = app.get_webview_window("main") {
         // Restore before showing: Win+D can leave a visible window minimized.
         if let Err(error) = window.unminimize() {
@@ -387,7 +392,7 @@ pub fn show_main_window(app: &tauri::AppHandle) {
         }
         log::info!("Main window shown via tray");
     } else {
-        log::warn!("Tray: show_main_window called but main window not found");
+        crate::handle_secondary_launch(app);
     }
 }
 
@@ -427,6 +432,6 @@ fn toggle_main_window(app: &tauri::AppHandle) {
             show_main_window(app);
         }
     } else {
-        log::warn!("Tray toggle requested but main window not found");
+        crate::handle_secondary_launch(app);
     }
 }

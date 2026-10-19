@@ -24,7 +24,10 @@ vi.mock('@/infrastructure/markdown', () => ({
   ThinkingMarkdownRenderer: ({ content }: { content: string }) => <div>{content}</div>,
 }));
 vi.mock('../../store/FlowChatStore', () => {
-  const store = { getState: () => ({ sessions: new Map() }) };
+  const store = {
+    getState: () => ({ sessions: new Map() }),
+    retainSessionHistory: () => () => {},
+  };
   return { flowChatStore: store, FlowChatStore: { getInstance: () => store } };
 });
 vi.mock('@/shared/notification-system', () => ({
@@ -48,7 +51,9 @@ vi.mock('./FlowChatContext', () => ({
 // visual appearance are deliberately outside this DOM/lifecycle regression.
 vi.mock('../FlowToolCard', () => ({
   FlowToolCard: ({ toolItem, isLastItem, parallel }: { toolItem: FlowToolItem; isLastItem?: boolean; parallel?: boolean }) => (
-    <div data-test-tool-id={toolItem.id} data-test-last-item={String(isLastItem === true)} data-test-parallel={String(parallel === true)} />
+    <div data-test-tool-id={toolItem.id} data-test-last-item={String(isLastItem === true)} data-test-parallel={String(parallel === true)}>
+      {toolItem.toolName}
+    </div>
   ),
 }));
 
@@ -100,6 +105,9 @@ describe('visible FlowChat item composition', () => {
     exploreState.onExpandGroup.mockClear();
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     vi.useFakeTimers();
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(500);
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(600);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(500);
     vi.stubGlobal('ResizeObserver', class {
       observe() {}
       unobserve() {}
@@ -116,6 +124,55 @@ describe('visible FlowChat item composition', () => {
     vi.clearAllTimers();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('keeps the first live thought compact despite the parent trailing-item hint', () => {
+    const live = { ...thinking, status: 'streaming' as const, isStreaming: true };
+    const round: ModelRound = { id: 'first-round', index: 0, startTime: 1,
+      status: 'streaming', isStreaming: true, isComplete: false, items: [live],
+      renderHints: { disableExploreGrouping: true } };
+    act(() => root.render(<ModelRoundItem round={round} turnId="turn" isLastRound
+      expandedThinkingItemIds={[live.id]} />));
+    const panel = container.querySelector<HTMLElement>('[data-testid="chat-thinking-panel"]')!;
+    const button = container.querySelector<HTMLButtonElement>('[data-testid="chat-thinking-toggle"]')!;
+    expect(panel.dataset.streamingExpanded).toBe('false');
+    act(() => button.click());
+    expect(panel.dataset.streamingExpanded).toBe('true');
+    act(() => button.click());
+    expect(panel.dataset.streamingExpanded).toBe('false');
+  });
+
+  it.each<Host>(['round', 'explore', 'subagent'])('%s keeps a live one-line body mounted', host => {
+    const live = { ...thinking, status: 'streaming' as const, isStreaming: true };
+    act(() => root.render(renderHost(host, [live], true)));
+    const panel = container.querySelector<HTMLElement>('[data-testid="chat-thinking-panel"]')!;
+    expect(panel.dataset.streamingExpanded).toBe('false');
+    expect(panel.querySelector('[data-testid="chat-thinking-content"]')?.textContent).toContain(live.content);
+  });
+
+  it('keeps the first live thought compact despite the parent trailing-item hint', () => {
+    const live = { ...thinking, status: 'streaming' as const, isStreaming: true };
+    const round: ModelRound = { id: 'first-round', index: 0, startTime: 1,
+      status: 'streaming', isStreaming: true, isComplete: false, items: [live],
+      renderHints: { disableExploreGrouping: true } };
+    act(() => root.render(<ModelRoundItem round={round} turnId="turn" isLastRound
+      expandedThinkingItemIds={[live.id]} />));
+    const panel = container.querySelector<HTMLElement>('[data-testid="chat-thinking-panel"]')!;
+    const button = container.querySelector<HTMLButtonElement>('[data-testid="chat-thinking-toggle"]')!;
+    expect(panel.dataset.streamingExpanded).toBe('false');
+    act(() => button.click());
+    expect(panel.dataset.streamingExpanded).toBe('true');
+    act(() => button.click());
+    expect(panel.dataset.streamingExpanded).toBe('false');
+  });
+
+  it.each<Host>(['round', 'explore', 'subagent'])('%s keeps a live one-line body mounted', host => {
+    const live = { ...thinking, status: 'streaming' as const, isStreaming: true };
+    act(() => root.render(renderHost(host, [live], true)));
+    const panel = container.querySelector<HTMLElement>('[data-testid="chat-thinking-panel"]')!;
+    expect(panel.dataset.streamingExpanded).toBe('false');
+    expect(panel.querySelector('[data-testid="chat-thinking-content"]')?.textContent).toContain(live.content);
   });
 
   it.each<Host>(['round', 'explore', 'subagent'])('%s docks thinking beside the next visible card without ghost rows', host => {
@@ -154,7 +211,7 @@ describe('visible FlowChat item composition', () => {
   it.each<Host>(['round', 'explore', 'subagent'])('%s uses the last visible item for reasoning disclosure', host => {
     act(() => root.render(renderHost(host, [thinking, blank, hidden])));
     const panel = container.querySelector('[data-testid="chat-thinking-panel"]');
-    expect(panel?.getAttribute('data-expanded')).toBe(host === 'round' ? 'true' : 'false');
+    expect(panel?.getAttribute('data-expanded')).toBe('false');
     expect(panel?.hasAttribute('data-thinking-attachment')).toBe(false);
   });
 

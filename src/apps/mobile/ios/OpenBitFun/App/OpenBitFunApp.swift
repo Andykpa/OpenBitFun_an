@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct OpenBitFunApp: App {
     @State private var showStartupBrand = !MobileLaunchConfiguration.streamingRegressionPreview
+        && !MobileLaunchConfiguration.promptSuggestionPreview
         && MobileLaunchConfiguration.designPreviewScenario() == nil
         && StartupRevealPreference.claim()
     @State private var showColdStart = false
@@ -40,7 +41,7 @@ struct OpenBitFunApp: App {
                     .onAppear { resolveColdStart() }
                     .onChange(of: model.launchAccountRestored) { _ in resolveColdStart() }
                     .task(id: showStartupBrand || showColdStart || !coldStartConsumed) {
-                        if !showStartupBrand && !showColdStart && coldStartConsumed {
+                        if !showStartupBrand && !showColdStart && coldStartConsumed && !MobileLaunchConfiguration.promptSuggestionPreview {
                             notificationOnboardingOpen = await TaskCompletionNotifier.shouldOfferOnboarding()
                         }
                     }
@@ -58,11 +59,18 @@ struct OpenBitFunApp: App {
                         if phase == .background { Self.coldStartProcessClaimed = true; coldStartConsumed = true; showStartupBrand = false; showColdStart = false }
                         model.handleScenePhase(phase)
                     }
-                    .onOpenURL { _ in
+                    .onOpenURL { url in
                         // The auth page redirects to this scheme after the
                         // browser completes. The shared account poller is
                         // already waiting; opening the URL brings this scene
                         // foreground and the next poll is immediate.
+                        guard url.scheme == "openbitfun",
+                              url.host == "auth",
+                              url.path == "/callback",
+                              url.user == nil,
+                              url.password == nil,
+                              url.query == nil,
+                              url.fragment == nil else { return }
                         model.notifyAuthorizationCallback()
                     }
                     .environment(\.locale, Locale(identifier: model.appLanguage.rawValue))

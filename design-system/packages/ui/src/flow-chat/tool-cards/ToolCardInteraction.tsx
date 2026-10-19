@@ -11,9 +11,8 @@ export interface ToolCardParticipant {
   /** Host-owned identity artwork, shared with the corresponding agent card. */
   avatar?: ReactNode;
   openLabel?: string;
+  /** Navigate to the participant's owning surface; details belong to the outcome. */
   onOpen?: (event: MouseEvent<HTMLButtonElement>) => void;
-  /** Recorded evidence for targets that have no live navigation surface. */
-  details?: ReactNode;
 }
 
 export interface ToolCardInteraction {

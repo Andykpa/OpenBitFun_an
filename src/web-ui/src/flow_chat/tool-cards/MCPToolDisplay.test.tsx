@@ -264,7 +264,7 @@ describe('MCPToolDisplay', () => {
     });
 
     expect(container.querySelector('.mcp-input-code')).toBeNull();
-    expect(container.textContent).toContain('MCP server rejected the request');
+    expect(container.textContent).not.toContain('MCP server rejected the request');
     expect(container.querySelector('[data-openbitfun-component="mcp-tool-display"]')?.getAttribute('data-openbitfun-state')).toBe('error');
 
     act(() => {
@@ -274,6 +274,7 @@ describe('MCPToolDisplay', () => {
     });
 
     expect(container.querySelector('[data-openbitfun-component="mcp-tool-display"]')?.getAttribute('data-openbitfun-state')).toContain('expanded');
+    expect(container.textContent).toContain('MCP server rejected the request');
     expect(container.querySelector('.mcp-input-code')).toBeNull();
 
     act(() => {
@@ -300,7 +301,7 @@ describe('MCPToolDisplay', () => {
     expect(container.querySelector('.mcp-input-code')).toBeNull();
   });
 
-  it('auto-expands an MCP App with input collapsed and resets input when the parent closes', async () => {
+  it('keeps a ready MCP App collapsed until requested and resets input when the parent closes', async () => {
     const resourceUri = 'ui://example/search';
     mcpMocks.getCachedToolInfo.mockReset().mockResolvedValue({
       dynamic_info: {
@@ -335,6 +336,9 @@ describe('MCPToolDisplay', () => {
     });
 
     const cardRoot = container.querySelector('[data-openbitfun-component="mcp-tool-display"]');
+    expect(container.querySelector('.mcp-app-iframe')).toBeNull();
+    expect(cardRoot?.getAttribute('data-openbitfun-state') ?? '').not.toContain('expanded');
+    act(() => container.querySelector<HTMLButtonElement>('[data-testid="mcp-tool-card-toggle"]')!.click());
     expect(container.querySelector('.mcp-app-iframe')).not.toBeNull();
     expect(cardRoot?.getAttribute('data-openbitfun-state')).toContain('expanded');
     expect(container.querySelector<HTMLButtonElement>('.mcp-input-disclosure button[aria-expanded]')?.getAttribute('aria-expanded')).toBe('false');

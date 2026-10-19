@@ -1,8 +1,9 @@
+import { useToolCardDisclosure } from '../timeline/readerState';
 /**
  * Display component for the LS tool.
  */
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getToolCardStatus, getToolCardStatusDescription } from './toolCardStatus';
 import type { ToolCardProps } from '../types/flow-chat';
@@ -23,7 +24,7 @@ export const LSDisplay: React.FC<ToolCardProps> = ({
   const { t } = useTranslation('flow-chat');
   const { toolCall, toolResult } = toolItem;
   const status = getToolCardStatus(toolItem);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useToolCardDisclosure('isExpanded');
   const toolId = toolItem.id ?? toolCall?.id;
   const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
     toolId,
@@ -81,7 +82,8 @@ export const LSDisplay: React.FC<ToolCardProps> = ({
   }, [entries]);
 
   const directoryPath = getDirectoryPath();
-  const hasDetails = status === 'completed' && entries.length > 0;
+  const textOutput = entries.length === 0 && typeof toolResult?.result?.content === 'string' ? toolResult.result.content : '';
+  const hasDetails = (status === 'completed' || Boolean(toolItem.importedSource)) && (entries.length > 0 || textOutput.length > 0);
   const hasResultData = Array.isArray(toolResult?.result?.entries);
 
   const handleClick = useCallback(() => {
@@ -90,7 +92,7 @@ export const LSDisplay: React.FC<ToolCardProps> = ({
         onExpand,
       });
     }
-  }, [applyExpandedState, hasDetails, isExpanded, onExpand]);
+  }, [applyExpandedState, hasDetails, isExpanded, onExpand, setIsExpanded]);
 
   if (!isToolCardVisible(toolItem)) {
     return null;
@@ -108,13 +110,15 @@ export const LSDisplay: React.FC<ToolCardProps> = ({
         statusDescription={getToolCardStatusDescription(status, t, toolResult?.error)}
         details={hasDetails ? [
           { label: `${t('toolCards.ls.labelPath')}:`, value: directoryPath },
-          {
+          ...(hasResultData ? [{
             label: `${t('toolCards.ls.labelStats')}:`,
             value: stats.directories > 0
               ? t('toolCards.ls.filesAndDirs', { files: stats.files, directories: stats.directories })
               : t('toolCards.ls.filesCount', { count: stats.files }),
           },
           { label: `${t('toolCards.ls.labelSort')}:`, value: t('toolCards.ls.sortByModifiedTime') },
+          ] : []),
+          ...(textOutput ? [{ label: t('toolCards.common.executionResult'), value: textOutput }] : []),
         ] : undefined}
         results={hasDetails ? entries.slice(0, 50).map((entry, index) => ({
           icon: entry.is_dir ? 'directory' as const : 'file' as const,

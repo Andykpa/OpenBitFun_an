@@ -98,7 +98,7 @@ describe('execution activity grouping', () => {
     expect((rows[1] as typeof shell).projectedGroups).toEqual([]);
   });
 
-  it('counts inputs and process controls separately from new commands and exposes failures', () => {
+  it('counts inputs and process controls separately from new commands without showing failure counts', () => {
     const calls = [tool('command'), tool('input', 'WriteStdin'), tool('control', 'ExecControl'),
       { ...tool('legacy', 'Bash'), status: 'error' as const, toolResult: { success: false, result: {}, error: 'failed' } }];
     expect(calls.every(isShellActivity)).toBe(true);
@@ -107,12 +107,8 @@ describe('execution activity grouping', () => {
     const t = ((key: string, values?: { count?: string; summary?: string }) =>
       values?.count ? `${key} ${values.count}` : `${key} ${values?.summary ?? ''}`) as Parameters<typeof flowGroupPolicies.explore.summarize>[1];
     const summary = flowGroupPolicies.explore.summarize(calls, t, String);
-    expect(summary.summary).toContain('workspaceGroup.summary 4');
-    expect(summary.summary).toContain('shellGroup.failed 1');
-    expect(summary.summaryDescription).toContain('shellGroup.commands 2');
-    expect(summary.summaryDescription).toContain('shellGroup.interactions 1');
-    expect(summary.summaryDescription).toContain('shellGroup.controls 1');
-    expect(summary.summaryDescription).toContain('shellGroup.failed 1');
+    expect(summary.summary).toBe('workspaceGroup.summary 4');
+    expect(summary.summaryDescription).toBe('workspaceGroup.description shellGroup.commands 2 · shellGroup.interactions 1 · shellGroup.controls 1');
     expect(flowGroupPolicies.explore.attributes(calls)['data-group-status']).toBe('failed');
   });
 

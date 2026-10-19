@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Button, Select } from '@openbitfun/ui';
 import {
-  FlowGroup, ContextLoadGroup, ExploreGroup, FlowChatRuntimeStatus, GetToolSpecToolCard, ReadFileToolCard, SkillToolCard, ThinkingBlock, ToolDuration,
+  FlowGroup, FileOperationToolCard, ContextLoadGroup, ExploreGroup, FlowChatRuntimeStatus, GetToolSpecToolCard, ReadFileToolCard, SkillToolCard, ThinkingBlock, ToolDuration,
   ToolCardActions, ToolCardCopyButton,
 } from '@openbitfun/ui/flow-chat';
 import { themes, themeCssVariables, type ThemeTokenName } from '@openbitfun/theme-openbitfun';
@@ -166,9 +166,30 @@ export function FlowChatScenarios() {
 
 /** Public collection anatomy using the same localized presenter and native cards. */
 export function FlowGroupPreview({ state, interactive = true }: { state: string; interactive?: boolean }) {
-  const [expanded, setExpanded] = useState(state === 'expanded');
+  const [expanded, setExpanded] = useState(state === 'expanded' || state === 'file-expanded' || state === 'file-error');
   const t = usePresentationTranslate();
   const formatNumber = usePresentationFormatNumber();
+  if (state.startsWith('file-')) {
+    const path = 'src/components/Editor.tsx';
+    const summary = t('fileEditGroup.summary', { count: formatNumber(3) });
+    const changes = (add: number, remove: number) => {
+      const additions = formatNumber(add);
+      const deletions = formatNumber(remove);
+      return { additions, deletions, label: t('fileEditGroup.changes', { additions, deletions }) };
+    };
+    return <FlowGroup expanded={expanded} onExpandedChange={interactive ? setExpanded : undefined}
+      summary={summary} summaryDescription={t('fileEditGroup.description', { path, count: formatNumber(3) })}
+      itemCount={3} fileRevision={{ path, label: 'Editor.tsx', countLabel: t('fileEditGroup.label', { count: formatNumber(3) }),
+        expandedLabel: t('fileEditGroup.expanded'),
+        changeSummary: state === 'file-error' ? changes(9, 3) : changes(18, 6),
+        status: state === 'file-error' ? 'error' : undefined,
+        statusLabel: state === 'file-error' ? t('fileEditGroup.failed', { count: formatNumber(1) }) : undefined }}>
+      {[1, 2, 3].map(revision => <FileOperationToolCard key={revision} operation="edit" path={path} pathLabel={null}
+        actionLabel={t('fileEditGroup.revision', { count: formatNumber(revision) })}
+        changeSummary={state === 'file-error' && revision === 3 ? undefined : changes(revision * 3, revision)}
+        status={state === 'file-error' && revision === 3 ? 'error' : 'completed'} />)}
+    </FlowGroup>;
+  }
   return <FlowGroup expanded={expanded} onExpandedChange={interactive ? setExpanded : undefined}
     itemCount={2} streaming={state === 'streaming'} {...buildContextLoadSummary(2, t, formatNumber)}>
     <SkillToolCard status="completed" summary="frontend-design" />

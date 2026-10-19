@@ -1,5 +1,6 @@
+import { useToolCardDisclosure } from '../timeline/readerState';
 import React, { useCallback, useMemo, useState } from 'react';
-import { OverflowText, Icon } from '@openbitfun/ui';
+import { OverflowText, Icon, IconButton } from '@openbitfun/ui';
 import { AlertTriangle } from 'lucide-react';
 import type { ToolCardProps } from '../types/flow-chat';
 import { ProminentToolCard, ProminentToolCardSummary } from '@openbitfun/ui/flow-chat';
@@ -12,6 +13,7 @@ import { useI18n } from '@/infrastructure/i18n';
 import { openCanvasArtifactTab } from '@/shared/utils/tabUtils';
 import { createLogger } from '@/shared/utils/logger';
 import { CanvasPreflight, type CanvasPreflightStatus } from '@/tools/openbitfun-canvas/CanvasPreflight';
+import { useToolCardHeightContract } from './useToolCardHeightContract';
 import './CanvasToolCard.scss';
 
 const log = createLogger('CanvasToolCard');
@@ -77,9 +79,14 @@ function canvasTitle(result: CanvasToolResult | null, fallback: unknown): string
 
 const TERMINAL_STATUSES = new Set(['completed', 'error', 'cancelled', 'rejected']);
 
-export const CanvasToolCard: React.FC<ToolCardProps> = ({ toolItem, sessionId }) => {
+export const CanvasToolCard: React.FC<ToolCardProps> = ({ toolItem, sessionId, onExpand }) => {
   const { t, formatNumber } = useI18n('flow-chat');
   const { toolCall, toolResult, partialParams, isParamsStreaming } = toolItem;
+  const [isExpanded, setIsExpanded] = useToolCardDisclosure('isExpanded');
+  const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
+    toolId: toolItem.id ?? toolCall?.id,
+    toolName: toolItem.toolName,
+  });
   const status = getToolCardStatus(toolItem);
   const actionLabels: Record<string, string> = {
     CreateCanvas: t('toolCards.canvas.create'), ReadCanvas: t('toolCards.canvas.read'),
@@ -113,19 +120,19 @@ export const CanvasToolCard: React.FC<ToolCardProps> = ({ toolItem, sessionId })
 
   // CreateCanvas/UpdateCanvas stream their `source` argument; render it live like Write does.
   const liveSource = typeof liveParams?.source === 'string' ? liveParams.source : '';
+  const previewSource = liveSource || source || '';
   const isSourceAnimating =
     Boolean(isParamsStreaming) && !TERMINAL_STATUSES.has(status) && liveSource.length > 0;
-  const sourceTypewriter = useTypewriter(liveSource, isSourceAnimating);
+  const sourceTypewriter = useTypewriter(previewSource, isSourceAnimating, { revealImmediately: !isExpanded });
   useReportTypewriterReveal(
     `${toolCall?.id ?? toolItem.id}:canvas-source`,
     sourceTypewriter.isRevealing,
   );
   const isSourceVisuallyStreaming = isSourceAnimating || sourceTypewriter.isRevealing;
-  const showSourcePreview =
-    liveSource.length > 0 && !isFailed && (status !== 'completed' || sourceTypewriter.isRevealing);
-  const sourceDisplayContent = isSourceVisuallyStreaming ? sourceTypewriter.displayText : liveSource;
-  const metaText = liveSource.length > 0
-    ? t('toolCards.canvas.sourceLength', { count: formatNumber(liveSource.length) })
+  const showSourcePreview = previewSource.length > 0;
+  const sourceDisplayContent = isSourceVisuallyStreaming ? sourceTypewriter.displayText : previewSource;
+  const metaText = previewSource.length > 0
+    ? t('toolCards.canvas.sourceLength', { count: formatNumber(previewSource.length) })
     : isOpenable ? t('toolCards.canvas.artifact') : t('toolCards.canvas.waiting');
 
   const handleOpenPanel = useCallback(() => {
@@ -198,6 +205,12 @@ export const CanvasToolCard: React.FC<ToolCardProps> = ({ toolItem, sessionId })
       icon={<span className="canvas-tool-card__icon"><Icon name="panels-top-left" size="md" /></span>}
       action={toolDisplayName}
       content={<span data-openbitfun-component="canvas-tool-card" data-openbitfun-part="title" className="canvas-tool-card__title">{title}</span>}
+      contentActions={isOpenable ? (
+        <IconButton size="sm" variant="quiet" aria-label={t('toolCards.canvas.read')}
+          data-openbitfun-affordance="open-panel-right"
+          icon={<Icon name="arrow-up-right" size="sm" />}
+          onClick={event => { event.stopPropagation(); handleOpenPanel(); }} />
+      ) : undefined}
       extra={(
         <div data-openbitfun-component="canvas-tool-card" data-openbitfun-part="extra" className="canvas-tool-card__extra">
           {diagnostics.length > 0 && (
@@ -257,6 +270,8 @@ export const CanvasToolCard: React.FC<ToolCardProps> = ({ toolItem, sessionId })
 
   return (
     <div
+      ref={cardRootRef}
+      data-tool-card-id={toolItem.id ?? toolCall?.id ?? ''}
       data-openbitfun-component="canvas-tool-card"
       data-openbitfun-part="root"
       data-openbitfun-state={[isOpenable && 'clickable', isFailed && 'failed', isLoading && 'loading'].filter(Boolean).join(' ')}
@@ -274,15 +289,14 @@ export const CanvasToolCard: React.FC<ToolCardProps> = ({ toolItem, sessionId })
       ) : null}
       <ProminentToolCard
         status={status}
-        isExpanded={!isOpenable || diagnostics.length > 0 || isFailed}
-        onToggle={isOpenable ? handleOpenPanel : undefined}
+        isExpanded={isExpanded}
+        onToggle={() => applyExpandedState(isExpanded, !isExpanded, setIsExpanded, { onExpand })}
+        allowExpandedWhenFailed
         className={`canvas-tool-card ${isOpenable ? 'clickable' : ''}`.trim()}
         summary={summary}
         expandedContent={body}
-        errorContent={isFailed ? body : undefined}
         isFailed={isFailed}
-        summaryExpandAffordance={isOpenable}
-        summaryAffordanceKind="open-panel-right"
+        summaryExpandAffordance
       />
     </div>
   );

@@ -387,6 +387,26 @@ test("prominent error status can opt into expandable supporting details", () => 
   assert.match(markup, /Command failed/);
 });
 
+test("ordinary failure details honor disclosure for commands, diffs, pages and compression", () => {
+  const views = [
+    [CommandToolCard, { action: 'Run', command: 'build' }],
+    [FileDiffToolCard, { action: 'Diff', path: '/repo/a.ts', pathLabel: 'a.ts' }],
+    [GitToolCard, { action: 'Git', command: 'git status' }],
+    [PageDeployToolCard, { action: 'Deploy', subject: 'Page' }],
+    [PagePublishToolCard, { action: 'Publish', subject: 'Page' }],
+    [ContextCompressionToolCard, { title: 'Compress context' }],
+  ];
+  for (const [View, props] of views) {
+    const render = isExpanded => renderToStaticMarkup(createElement(View, {
+      ...props, status: 'error', error: 'Detailed failure', isExpanded, onToggle() {},
+    }));
+    assert.doesNotMatch(render(false), /Detailed failure/);
+    assert.match(render(false), /aria-expanded="false"/);
+    assert.match(render(true), /Detailed failure/);
+    assert.match(render(true), /aria-expanded="true"/);
+  }
+});
+
 test("cancelled and rejected tool cards rely on status copy instead of a duplicate x glyph", () => {
   for (const [status, statusLabel] of [
     ["cancelled", "Cancelled"],
@@ -495,7 +515,7 @@ test("auxiliary actions reveal on hover or keyboard focus and remain available w
   const styles = await readFile(new URL("../src/flow-chat/tool-cards/FlowChatToolCard.module.css", import.meta.url), "utf8");
 
   assert.match(styles, /data-openbitfun-preview-state="hover"/);
-  assert.match(styles, /:focus-within/);
+  assert.match(styles, /:has\(:focus-visible\)/);
   assert.match(styles, /@media \(hover: none\), \(pointer: coarse\)/);
   assert.match(styles, /opacity:\s*0/);
   assert.match(styles, /pointer-events:\s*none/);
@@ -555,7 +575,7 @@ test("ambient disclosure keeps compact headers and puts detail in a separate tok
   assert.match(resultRule, /background:\s*var\(--openbitfun-color-action-neutral-surface\)/);
 });
 
-test("prominent summary geometry stays stable when actions appear and empty slots stay inert", async () => {
+test("prominent headers keep their height while hidden actions and empty slots release their space", async () => {
   const styles = await readFile(
     new URL("../src/flow-chat/tool-cards/FlowChatToolCard.module.css", import.meta.url),
     "utf8",
@@ -564,11 +584,15 @@ test("prominent summary geometry stays stable when actions appear and empty slot
   const prominentSummaryRule = styles.match(/\.prominentSummary\s*\{([^}]*)\}/s)?.[1];
   const actionRegionRule = styles.match(/\.prominentSummary \.actionRegion\s*\{([^}]*)\}/s)?.[1];
   const hiddenActionRule = styles.match(/\.toolCardActions\[data-reveal="hover"\]\s*\{([^}]*)\}/s)?.[1];
+  const hiddenLayoutRule = styles.match(/\.prominentSummary \.hoverActions\s*\{([^}]*)\}/s)?.[1];
+  const revealedLayoutRule = styles.match(/\.prominentSummary:is\(:hover, :has\(:focus-visible\)\) \.hoverActions,[^{]*\{([^}]*)\}/s)?.[1];
 
   assert.ok(rootRule, "root token block");
   assert.ok(prominentSummaryRule, "prominent summary rule");
   assert.ok(actionRegionRule, "right-aligned prominent action region");
   assert.ok(hiddenActionRule, "shared auxiliary action reveal");
+  assert.ok(hiddenLayoutRule, "hidden trailing controls leave the flex layout");
+  assert.ok(revealedLayoutRule, "hover and keyboard focus restore trailing controls");
 
   // The 40px outer surface includes its borders. A 20px layout slot lets the
   // existing larger button hit targets remain usable without growing the row.
@@ -580,10 +604,15 @@ test("prominent summary geometry stays stable when actions appear and empty slot
   assert.match(prominentSummaryRule, /padding-inline:\s*var\(--openbitfun-control-flow-chat-card-padding-inline\);/);
   assert.match(styles, /\.prominentSummary \.actionRegion\s*\{\s*block-size:\s*var\(--openbitfun-space-5\);/);
 
-  // Reveal only changes visibility. The text and trailing controls keep their widths.
+  // Hidden trailing controls leave no width or flex gap, but remain focusable.
   assert.match(actionRegionRule, /margin-inline-start:\s*auto;/);
   assert.match(hiddenActionRule, /opacity:\s*0;/);
-  assert.doesNotMatch(hiddenActionRule, /(?:inline-size|margin|padding|transform|visibility):/);
+  assert.match(hiddenLayoutRule, /position:\s*absolute;/);
+  assert.match(hiddenLayoutRule, /pointer-events:\s*none;/);
+  assert.doesNotMatch(hiddenLayoutRule, /display:\s*none|visibility:\s*hidden/);
+  assert.match(revealedLayoutRule, /position:\s*static;/);
+  assert.match(revealedLayoutRule, /pointer-events:\s*auto;/);
+  assert.match(styles, /@media \(hover: none\), \(pointer: coarse\)\s*\{\s*\.prominentSummary \.hoverActions\s*\{[^}]*position:\s*static;/s);
 
   // A fragment whose conditions are all false still mounts the slot.
   assert.match(styles, /\.extra:empty\s*\{[^}]*display:\s*none/);
@@ -1090,6 +1119,11 @@ test("concrete tool views expose semantic parts instead of legacy CSS selectors"
     status: "running",
     statusLabel: "Running",
     summary: "Review the shared FlowChat boundary",
+    preview: {
+      agentType: "Reviewer",
+      model: "Model",
+      labels: { agentType: "Agent type", model: "Model", description: "Task" },
+    },
   }));
   const fetchMarkup = renderToStaticMarkup(createElement(WebFetchToolCard, {
     details: ["markdown"],
@@ -1111,6 +1145,7 @@ test("concrete tool views expose semantic parts instead of legacy CSS selectors"
 
   assert.match(agentMarkup, /data-openbitfun-part="agentSummary"/);
   assert.match(agentMarkup, /data-openbitfun-part="agentStatus"/);
+  assert.match(agentMarkup, /data-openbitfun-component="shimmer-text"[^>]*>Running<\/span>/);
   assert.match(agentMarkup, /data-agent-capsule-trigger="true"/);
   assert.match(agentMarkup, /data-openbitfun-affordance="open-panel-right"/);
   assert.doesNotMatch(agentMarkup, /aria-expanded|expandedCollapse|interruptAgentButton|lucide-chevron-down/);

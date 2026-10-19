@@ -1,9 +1,10 @@
+import { useToolCardDisclosure } from '../timeline/readerState';
 /**
  * Default tool card component
  * Used for tool types without specific customization
  */
 
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Icon } from '@openbitfun/ui';
 import { isShellToolName } from '../grouping/activityClassification';
@@ -94,14 +95,14 @@ export const DefaultToolCard: React.FC<ToolCardProps> = ({
   const { t } = useTranslation('flow-chat');
   const { toolCall, toolResult, requiresConfirmation, userConfirmed } = toolItem;
   const status = getToolCardStatus(toolItem);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useToolCardDisclosure('isExpanded');
   const toolId = toolItem.id ?? toolCall?.id;
   const { cardRootRef, applyExpandedState, dispatchToolCardToggle } = useToolCardHeightContract({
     toolId,
     toolName: config.toolName,
   });
 
-  const filteredInput = useMemo(() => sanitizeToolInput(toolCall?.input), [toolCall?.input]);
+  const filteredInput = useMemo(() => toolItem.importedSource ? toolCall?.input : sanitizeToolInput(toolCall?.input), [toolCall?.input, toolItem.importedSource]);
   const hasInput = useMemo(() => hasVisibleValue(filteredInput), [filteredInput]);
   const hasResult = toolResult !== undefined && toolResult !== null && config.resultDisplayType !== 'hidden';
   const errorMessage = status === 'error' ? toolResult?.error || t('toolCards.default.failed') : null;
@@ -130,7 +131,7 @@ export const DefaultToolCard: React.FC<ToolCardProps> = ({
     applyExpandedState(isExpanded, nextExpanded, setIsExpanded, {
       onExpand,
     });
-  }, [applyExpandedState, canExpand, isExpanded, onExpand]);
+  }, [applyExpandedState, canExpand, isExpanded, onExpand, setIsExpanded]);
 
   const resultSummary = hasResult && status === 'completed' ? getInlinePreview(toolResult?.result) : undefined;
 

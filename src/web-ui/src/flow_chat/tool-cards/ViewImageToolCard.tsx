@@ -1,4 +1,5 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useToolCardDisclosure } from '../timeline/readerState';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useI18n } from '@/infrastructure/i18n';
 import { getToolCardStatus, getToolCardStatusDescription } from './toolCardStatus';
 import type { ToolCardProps } from '../types/flow-chat';
@@ -52,21 +53,14 @@ export const ViewImageToolCard: React.FC<ToolCardProps> = ({ toolItem, onExpand 
   const status = getToolCardStatus(toolItem);
   const result = useMemo(() => parseResult(toolItem.toolResult?.result), [toolItem.toolResult?.result]);
   const source = useMemo(() => imageSource(toolItem), [toolItem]);
-  const [isExpanded, setIsExpanded] = useState(Boolean(source));
+  const [isExpanded, setIsExpanded] = useToolCardDisclosure('isExpanded');
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
-  const didAutoExpand = useRef(Boolean(source));
   const toolId = toolItem.id ?? toolItem.toolCall?.id;
   const { cardRootRef, applyExpandedState } = useToolCardHeightContract({
     toolId,
     toolName: toolItem.toolName,
   });
-
-  useLayoutEffect(() => {
-    if (!source || didAutoExpand.current) return;
-    didAutoExpand.current = true;
-    applyExpandedState(isExpanded, true, setIsExpanded);
-  }, [applyExpandedState, isExpanded, source]);
 
   useEffect(() => {
     setImageFailed(false);

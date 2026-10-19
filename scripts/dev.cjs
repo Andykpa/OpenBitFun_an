@@ -387,10 +387,7 @@ function getNewestTrackedInput(entryPath) {
       return null;
     }
 
-    const isEmbeddedMarkdown = entryPath.includes(`${path.sep}prompts${path.sep}`)
-      || entryPath.includes(
-        `${path.sep}service${path.sep}announcement${path.sep}content${path.sep}`,
-      );
+    const isEmbeddedMarkdown = entryPath.includes(`${path.sep}prompts${path.sep}`);
     if (ext === '.md' && !isEmbeddedMarkdown) {
       return null;
     }
@@ -669,6 +666,11 @@ async function main() {
   ];
 
   if (desktopMode) {
+    prepTasks.push({
+      name: 'Prepare lightweight MiniApp shell',
+      hint: 'Hint: run `pnpm run prepare:miniapp-shell`',
+      promise: runCommandPrefixed('miniapp-shell', 'node', ['scripts/prepare-miniapp-shell.mjs']),
+    });
     prepTasks.push({
       name: 'Prepare OpenCode extension Host',
       hint: 'Hint: install Bun, then run `pnpm run plugin-host:prepare`',

@@ -130,16 +130,6 @@ final class MobileCoreAdapter {
         )
     }
 
-    func resolveDeviceLink(url: String) -> AccountDeviceLinkResult {
-        let result = AccountDeviceLinkKt.resolveAccountDeviceLink(
-            url: url, state: SkieSwiftStateFlow<AccountUiState>(account.state).value
-        )
-        if result.status == .signInRequired, let relayUrl = result.relayUrl {
-            account.dispatch(intent: AccountIntentSelectRelay(relayUrl: relayUrl))
-        }
-        return result
-    }
-
     func beginAccountOperation() -> (accountGeneration: UInt64, remoteTargetEpoch: UInt64) {
         accountGeneration &+= 1
         desiredRemoteTarget = nil

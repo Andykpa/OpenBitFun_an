@@ -483,7 +483,7 @@ const TaskLaunchDisplay: React.FC<ToolCardProps> = ({
         ? t('flowChatHeader.agentTreeStatus.cancelled')
         : capsuleLifecycle === 'completed'
           ? undefined
-          : t(`flowChatHeader.agentTreeStatus.${capsuleLifecycle}`);
+          : t(`flowChatHeader.agentTreeStatus.${capsuleLifecycle === 'finishing' ? 'running' : capsuleLifecycle}`);
   const statusTone = hasFailedOutcome
     ? isReviewPartialTimeout ? 'warning' : 'danger'
     : 'neutral';

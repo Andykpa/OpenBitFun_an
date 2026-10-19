@@ -5,20 +5,21 @@ pub use crate::agentic::tools::computer_use_optimizer::{ActionRecord, LoopDetect
 pub use openbitfun_agent_tools::computer_use::{
     clamp_point_crop_half_extent, parse_windows_accelerator_display,
     suggested_point_crop_half_extent_from_native_bounds, AppClickParams, AppInfo, AppInputAction,
-    AppMenuShortcut, AppSelector, AppShortcutsSnapshot, AppStateSnapshot, AppWaitPredicate, AxNode,
-    ClickIndexTarget, ClickTarget, ComputerScreenshot, ComputerUseDisplayInfo,
-    ComputerUseForegroundApplication, ComputerUseImageContentRect, ComputerUseImageGlobalBounds,
-    ComputerUseImplicitScreenshotCenter, ComputerUseInteractionScreenshotKind,
-    ComputerUseInteractionState, ComputerUseLastMutationKind, ComputerUseNavigateQuadrant,
-    ComputerUseNavigationRect, ComputerUsePermissionSnapshot, ComputerUsePointerGlobal,
-    ComputerUseScreenshotParams, ComputerUseScreenshotRefinement, ComputerUseSessionSnapshot,
-    InteractiveActionResult, InteractiveClickParams, InteractiveElement, InteractiveScrollParams,
-    InteractiveTypeTextParams, InteractiveView, InteractiveViewOpts, OcrAccessibilityHit,
-    OcrRegionNative, OcrTextMatch, OpenAppResult, ScreenshotCropCenter, UiElementLocateQuery,
-    UiElementLocateResult, VisualActionResult, VisualClickParams, VisualImageRegion, VisualMark,
-    VisualMarkView, VisualMarkViewOpts, COMPUTER_USE_POINT_CROP_HALF_DEFAULT,
-    COMPUTER_USE_POINT_CROP_HALF_MAX, COMPUTER_USE_POINT_CROP_HALF_MIN,
-    COMPUTER_USE_QUADRANT_CLICK_READY_MAX_LONG_EDGE, COMPUTER_USE_QUADRANT_EDGE_EXPAND_PX,
+    AppMenuShortcut, AppSelector, AppShortcutsSnapshot, AppStateSnapshot, AppWaitPredicate,
+    AppWindowInfo, AxNode, ClickIndexTarget, ClickTarget, ComputerScreenshot,
+    ComputerUseDisplayInfo, ComputerUseForegroundApplication, ComputerUseImageContentRect,
+    ComputerUseImageGlobalBounds, ComputerUseImplicitScreenshotCenter,
+    ComputerUseInteractionScreenshotKind, ComputerUseInteractionState, ComputerUseLastMutationKind,
+    ComputerUseNavigateQuadrant, ComputerUseNavigationRect, ComputerUsePermissionSnapshot,
+    ComputerUsePointerGlobal, ComputerUseScreenshotParams, ComputerUseScreenshotRefinement,
+    ComputerUseSessionSnapshot, InteractiveActionResult, InteractiveClickParams,
+    InteractiveElement, InteractiveScrollParams, InteractiveTypeTextParams, InteractiveView,
+    InteractiveViewOpts, OcrAccessibilityHit, OcrRegionNative, OcrTextMatch, OpenAppResult,
+    ScreenshotCropCenter, UiElementLocateQuery, UiElementLocateResult, VisualActionResult,
+    VisualClickParams, VisualImageRegion, VisualMark, VisualMarkView, VisualMarkViewOpts,
+    COMPUTER_USE_POINT_CROP_HALF_DEFAULT, COMPUTER_USE_POINT_CROP_HALF_MAX,
+    COMPUTER_USE_POINT_CROP_HALF_MIN, COMPUTER_USE_QUADRANT_CLICK_READY_MAX_LONG_EDGE,
+    COMPUTER_USE_QUADRANT_EDGE_EXPAND_PX,
 };
 
 use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
@@ -38,6 +39,14 @@ pub trait ComputerUseHost: Send + Sync + std::fmt::Debug {
     /// This is an observation fact, independent of the legacy navigation enum.
     fn capture_scope(&self) -> Option<&'static str> {
         None
+    }
+
+    /// Validate an opaque observation reference against the prepared target.
+    /// Older hosts must reject explicit references they cannot validate.
+    fn validate_observation(&self, _observation_id: &str) -> OpenBitFunResult<()> {
+        Err(OpenBitFunError::tool(
+            "[OBSERVATION_REFERENCE_UNSUPPORTED] This host cannot validate observation_id",
+        ))
     }
 
     async fn prepare_control_target(&self, _app: AppSelector) -> OpenBitFunResult<()> {
@@ -422,6 +431,17 @@ pub trait ComputerUseHost: Send + Sync + std::fmt::Debug {
         Ok(vec![])
     }
 
+    /// Native window inventory. Omit `app` to discover windows across process
+    /// boundaries; explicit selectors filter the inventory without binding it.
+    async fn list_windows(
+        &self,
+        _app: Option<AppSelector>,
+    ) -> OpenBitFunResult<Vec<AppWindowInfo>> {
+        Err(OpenBitFunError::tool(
+            "[WINDOW_DISCOVERY_UNSUPPORTED] This host cannot enumerate native windows; use list_apps and supported app observations",
+        ))
+    }
+
     /// Dump the accessibility tree of a target application, returning a
     /// stable [`AppStateSnapshot`] (Codex's `get_app_state`). Default:
     /// unsupported. Implementations cache `idx → element` so
@@ -435,6 +455,26 @@ pub trait ComputerUseHost: Send + Sync + std::fmt::Debug {
         Err(OpenBitFunError::tool(
             "get_app_state is not available on this host.".to_string(),
         ))
+    }
+
+    /// Select whether an observation needs pixels. Older providers keep their
+    /// existing capture behavior, then omit the image from the result. Native
+    /// providers can override this to avoid capture and encoding altogether.
+    /// Omitting the tool option retains the original image-bearing observation.
+    async fn get_app_state_with_options(
+        &self,
+        app: AppSelector,
+        max_depth: u32,
+        focus_window_only: bool,
+        include_image: bool,
+    ) -> OpenBitFunResult<AppStateSnapshot> {
+        let mut snapshot = self
+            .get_app_state(app, max_depth, focus_window_only)
+            .await?;
+        if !include_image {
+            snapshot.screenshot = None;
+        }
+        Ok(snapshot)
     }
 
     /// Whether this host can enumerate a target application's menu-bar

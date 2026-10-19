@@ -108,6 +108,15 @@ deliberate layout transitions or animate virtualized content. Rely on CI for
 full lint, build, and broad test coverage unless the local change specifically
 needs it.
 
+For navigation-divider dragging, elastic feedback, cancellation, and keyboard resizing:
+
+```bash
+pnpm --dir src/web-ui run test:run src/app/layout/useNavResize.test.tsx src/app/layout/WorkspaceBody.presentation.test.ts
+```
+
+These local DOM fixtures cover gesture state and spring settling, not native
+WebView rendering or live remote scenarios.
+
 For Appearance descriptor changes, also exercise production registration; its ID
 and property validation goes beyond the static DOM audit:
 
@@ -122,11 +131,34 @@ also run the focused state contracts:
 pnpm --dir src/web-ui run test:run src/app/services/sessionSceneLifecycle.test.ts src/flow_chat/services/sessionActivation.test.ts src/flow_chat/services/storeSync.test.ts src/app/stores/sceneStore.test.ts
 ```
 
+For cross-device undo/redo/rollback history invalidation and settled-Turn fences,
+run `pnpm --dir src/web-ui run test:run src/flow_chat/services/flow-chat-manager/EventHandlerModule.test.ts`.
+Missing fence identities (including legacy payloads) must reload authoritative
+history; an explicit settled-Turn identity must preserve newer live Turns.
+
+For text-entry guards, composer sanitization, or keyboard focus routing, run
+`pnpm --dir src/web-ui run test:run src/shared/utils/textInputGuard.test.tsx src/flow_chat/components/RichTextInput.test.tsx src/flow_chat/hooks/useComposerDefaultFocus.test.tsx src/flow_chat/utils/chatInputKeyOwnership.test.ts`.
+These cover DOM event ownership, controlled fields, IME and selection preservation;
+they do not establish native OS keyboard or remote transport behavior.
+
 For ecosystem discovery, import, or compatibility status presentation changes:
 
 ```bash
 pnpm --dir src/web-ui run test:run src/app/scenes/ecosystem-compatibility
 ```
+
+For followed external session views, refresh-on-open and first-send forks:
+
+```bash
+pnpm --dir src/web-ui run test:run src/flow_chat/components/ExternalHistoryNotice.test.tsx src/flow_chat/utils/externalHistory.test.ts src/flow_chat/services/flow-chat-manager/MessageModule.test.ts src/flow_chat/services/flow-chat-manager/SessionModule.test.ts src/flow_chat/store/FlowChatStore.test.ts src/flow_chat/components/modern/UserMessageItem.test.tsx src/flow_chat/hooks/useMessageSender.test.tsx
+```
+
+These local store/DOM fixtures cover source-version pinning, device switches and
+explicit Peer gating; they do not validate native WebView or remote-host behavior.
+
+For workspace catalog pagination, source filters, count/expansion behavior and
+old-host fallback, run `pnpm --dir src/web-ui run test:run src/app/components/NavPanel/sections/sessions src/app/components/NavPanel/workspaceSessionView.test.ts src/flow_chat/store/FlowChatStore.test.ts src/infrastructure/api/service-api/SessionAPI.test.ts`.
+These fixtures verify bounded page requests and transport payloads, not live remote connections.
 
 For application update discovery, skip persistence, notification timing, and
 download/install transitions, run the focused behavior tests (these do not
@@ -135,6 +167,11 @@ establish visual fidelity):
 ```bash
 pnpm --dir src/web-ui run test:run src/infrastructure/update src/infrastructure/api/service-api/SystemAPI.test.ts src/shared/notification-system/components/NotificationContainer.test.tsx
 ```
+
+For Markdown parse prewarming or dependency resolution, run
+`pnpm --dir src/web-ui run test:run src/infrastructure/markdown/markdownParse.worker.test.ts src/infrastructure/markdown/markdownParseCache.test.ts`.
+This builds the real Worker entry with the product aliases, checks parsing without
+a DOM, and covers failure fallback. Build configuration changes also need `pnpm run build:web`.
 
 For shared overlay ordering, dismissal, focus or presence changes, run the
 focused DOM and ownership contracts in addition to `check:web` (these do not

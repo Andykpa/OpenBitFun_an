@@ -3,7 +3,7 @@ import type { ComponentMeta } from '../../registry.types';
 export const toolRelationRowMeta = {
   category: 'flow-chat',
   name: 'ToolRelationRow',
-  description: 'Plain actor and target identities, a data-flow arrow and a tinted outcome. Entities and dialog details are independently accessible; the row never expands.',
+  description: 'Plain actor and target identities navigate to their owning surfaces. Only the tinted outcome opens dialog details; the row never expands.',
   maturity: 'stable',
   props: [
     { name: 'interaction', type: 'ToolCardInteraction' },

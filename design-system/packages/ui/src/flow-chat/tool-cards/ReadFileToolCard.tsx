@@ -1,5 +1,7 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { Icon } from "../../components/Icon/Icon";
+import { IconButton } from "../../components/IconButton/IconButton";
+import { useDesignSystem } from "../../overlay/useDesignSystem";
 import {
   AmbientToolCard,
   AmbientToolCardHeader,
@@ -29,6 +31,7 @@ export function ReadFileToolCard({
   statusDescription,
   ...props
 }: ReadFileToolCardProps) {
+  const { messages } = useDesignSystem();
   const canOpen = interactive && Boolean(onOpen);
 
   return (
@@ -41,7 +44,18 @@ export function ReadFileToolCard({
         <AmbientToolCardHeader
           action={action}
           content={content}
-          contentActions={canOpen ? <Icon name="arrow-up-right" size="sm" aria-hidden="true" /> : undefined}
+          contentActions={canOpen ? (
+            <IconButton
+              aria-label={messages.toolCardOpenDetails}
+              title={messages.toolCardOpenDetails}
+              data-openbitfun-affordance="open-panel-right"
+              data-openbitfun-part="affordanceButton"
+              icon={<Icon name="arrow-up-right" size="sm" />}
+              onClick={onOpen}
+              size="sm"
+              variant="quiet"
+            />
+          ) : undefined}
           statusDescription={statusDescription}
           icon={(
             <ToolCardStatusSlot

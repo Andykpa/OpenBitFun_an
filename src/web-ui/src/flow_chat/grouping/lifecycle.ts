@@ -17,7 +17,7 @@ export function flowGroupLifecycle(items: readonly FlowItem[], sealed: boolean):
   return {
     phase: !sealed ? 'collecting' : active ? 'settling' : 'settled',
     isGroupStreaming: active,
-    needsAttention: shell.failed > 0 || shell.stopped > 0 || items.some(item => item.status === 'error' || item.status === 'pending_confirmation'
+    needsAttention: shell.failed > 0 || shell.stopped > 0 || items.some(item => ['error', 'pending_confirmation', 'cancelled', 'rejected'].includes(item.status)
       || (item.type === 'tool' && (item as FlowToolItem).toolResult?.success === false)),
   };
 }

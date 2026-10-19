@@ -1,3 +1,4 @@
+import { useToolCardDisclosure } from '../timeline/readerState';
 /**
  * Display component for MCP tools.
  * Supports MCP Apps: when tool result contains ui:// resource, renders interactive UI in sandboxed iframe.
@@ -203,8 +204,8 @@ export const MCPToolDisplay: React.FC<ToolCardProps> = ({
     userConfirmed,
     isParamsStreaming,
   } = toolItem;
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [isInputExpanded, setIsInputExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useToolCardDisclosure('isExpanded');
+  const [isInputExpanded, setIsInputExpanded] = useToolCardDisclosure('isInputExpanded');
   // Tool-result images are inline content of this card, so the card owns their overlay.
   const [imagePreview, setImagePreview] = useState<ImageLightboxState | null>(null);
   const toolId = toolItem.id ?? toolCall?.id;
@@ -279,7 +280,6 @@ export const MCPToolDisplay: React.FC<ToolCardProps> = ({
   const isFailed = status === 'error';
 
   const mcpAppIframeRef = useRef<HTMLIFrameElement | null>(null);
-  const autoExpandedMcpAppRef = useRef<{ toolId: string | undefined; uri: string } | null>(null);
   const [mcpAppHeight, setMcpAppHeight] = useState<number | undefined>(undefined);
   const bridgeDataRef = useRef({ config, toolCall, resultData, status, isFailed });
   bridgeDataRef.current = { config, toolCall, resultData, status, isFailed };
@@ -321,22 +321,6 @@ export const MCPToolDisplay: React.FC<ToolCardProps> = ({
       .then((uri) => setToolMetaUiUri(uri))
       .catch(() => setToolMetaUiUri(null));
   }, [config.toolName, uiResourceUriFromResult, status, isFailed, toolId]);
-
-  // Auto-expand once when this tool call's MCP App UI becomes ready. Mark an
-  // already-open card as handled too, so a later user collapse is preserved.
-  useLayoutEffect(() => {
-    if (!mcpAppState?.html) return;
-
-    const autoExpandedApp = autoExpandedMcpAppRef.current;
-    if (autoExpandedApp?.toolId === toolId && autoExpandedApp.uri === mcpAppState.uri) {
-      return;
-    }
-
-    autoExpandedMcpAppRef.current = { toolId, uri: mcpAppState.uri };
-    if (!isExpanded) {
-      applyExpandedState(isExpanded, true, setIsExpanded);
-    }
-  }, [applyExpandedState, isExpanded, mcpAppState?.html, mcpAppState?.uri, toolId]);
 
   // Iframe <-> parent postMessage bridge (MCP App protocol). Register in useLayoutEffect so listener is attached before iframe script runs.
   useLayoutEffect(() => {
@@ -668,7 +652,7 @@ export const MCPToolDisplay: React.FC<ToolCardProps> = ({
   const hasResultContent =
     status === 'completed' &&
     (!!uiResourceUri || (resultData?.content && resultData.content.length > 0));
-  const hasExpandableDetails = hasToolInput || hasResultContent;
+  const hasExpandableDetails = hasToolInput || hasResultContent || isFailed;
   const isLoading = status === 'preparing' || status === 'streaming' || status === 'running';
   const needsConfirmation =
     requiresConfirmation && !userConfirmed && status !== 'completed' && status !== 'cancelled' && status !== 'rejected' && status !== 'error';
@@ -679,12 +663,12 @@ export const MCPToolDisplay: React.FC<ToolCardProps> = ({
       setIsInputExpanded(false);
     }
     applyExpandedState(isExpanded, nextExpanded, setIsExpanded);
-  }, [applyExpandedState, isExpanded]);
+  }, [applyExpandedState, isExpanded, setIsExpanded, setIsInputExpanded]);
 
   const handleInputOpenChange = useCallback((open: boolean) => {
     setIsInputExpanded(open);
     dispatchToolCardToggle();
-  }, [dispatchToolCardToggle]);
+  }, [dispatchToolCardToggle, setIsInputExpanded]);
 
   const getErrorMessage = () => {
     if (toolResult && 'error' in toolResult) {
@@ -874,8 +858,9 @@ export const MCPToolDisplay: React.FC<ToolCardProps> = ({
         summary={renderSummary()}
         expandedContent={renderExpandedContent()}
         errorContent={renderErrorContent()}
+        collapsibleErrorContent
         isFailed={isFailed}
-        allowExpandedWhenFailed={isFailed && hasToolInput}
+        allowExpandedWhenFailed
         requiresConfirmation={needsConfirmation}
         toggleTestId="mcp-tool-card-toggle"
       />

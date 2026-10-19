@@ -22,7 +22,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../components/panels/content-canvas', () => ({
-  ContentCanvas: () => <div data-testid="content-canvas" />,
+  ContentCanvas: ({ toolbarActions }: { toolbarActions?: React.ReactNode }) => (
+    <div data-testid="content-canvas">{toolbarActions}</div>
+  ),
   useCanvasStore: (selector: (state: typeof mocks.canvasStore) => unknown) => (
     selector(mocks.canvasStore)
   ),
@@ -80,6 +82,24 @@ describe('AuxPane session canvas switching', () => {
     });
 
     expect(mocks.switchAgentCanvasScope).toHaveBeenCalledWith('session-a');
+  });
+
+  it('offers reversible fullscreen without a duplicate hide control or closing its tabs', () => {
+    const onToggleFullscreen = vi.fn();
+    act(() => root.render(<AuxPane onToggleFullscreen={onToggleFullscreen} />));
+    expect(container.querySelector('[aria-label="canvas.hidePanel"]')).toBeNull();
+    const maximize = container.querySelector<HTMLButtonElement>('[aria-label="canvas.maximizePanel"]')!;
+    expect(maximize.getAttribute('aria-pressed')).toBe('false');
+    act(() => maximize.click());
+    expect(onToggleFullscreen).toHaveBeenCalledTimes(1);
+
+    act(() => root.render(<AuxPane isFullscreen onToggleFullscreen={onToggleFullscreen} />));
+    const restore = container.querySelector<HTMLButtonElement>('[aria-label="canvas.restorePanel"]')!;
+    expect(restore.getAttribute('aria-pressed')).toBe('true');
+    act(() => restore.click());
+    expect(onToggleFullscreen).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[aria-label="canvas.hidePanel"]')).toBeNull();
+    expect(mocks.canvasStore.closeAllTabs).not.toHaveBeenCalled();
   });
 
   it('swaps canvas snapshots synchronously before the target session content can open', () => {

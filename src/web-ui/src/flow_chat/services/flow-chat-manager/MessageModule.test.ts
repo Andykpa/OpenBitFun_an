@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+const mockActivateMainSession = vi.hoisted(() => vi.fn());
+vi.mock('../sessionActivation', () => ({ activateMainSession: mockActivateMainSession }));
 import {
   cancelSessionTask,
   drainPendingQueue,
@@ -38,6 +40,7 @@ const mockDispatchProgress = vi.fn();
 const mockDispatchRefresh = vi.fn();
 const mockBindSession = vi.fn();
 const mockEnsureBackendSession = vi.fn();
+const mockForkChatSession = vi.fn();
 const mockNotificationError = vi.fn();
 const mockNotificationDismiss = vi.fn();
 const mockPendingList = vi.fn((): unknown[] => []);
@@ -129,6 +132,7 @@ vi.mock('../../../shared/notification-system', () => ({
 }));
 
 vi.mock('./SessionModule', () => ({
+  forkChatSession: (...args: unknown[]) => mockForkChatSession(...args),
   ensureBackendSession: (...args: unknown[]) => mockEnsureBackendSession(...args),
   getModelMaxTokens: vi.fn(async (modelId: string) => modelId === 'primary' ? 32000 : 64000),
   retryCreateBackendSession: vi.fn(),
@@ -255,6 +259,99 @@ describe('MessageModule session writer conflict', () => {
     expect(mockHostQueueSubmit).not.toHaveBeenCalled();
     expect(mockStartDialogTurn).not.toHaveBeenCalled();
     expect(session.dialogTurns).toEqual([]);
+  });
+
+  it('forks the viewed source before submitting and leaves source history untouched', async () => {
+    const { context, session } = conflictContext('external-source');
+    Object.assign(session, {
+      historyState: 'ready', externalHistory: { mode: 'follow', contentVersion: 'newer-source' },
+      dialogTurns: [{ id: 'viewed-turn', userMessage: { metadata: { externalContentVersion: 'viewed-version' } } }],
+    });
+    const branch = { ...session, sessionId: 'native-branch', externalHistory: undefined, dialogTurns: [...session.dialogTurns] };
+    const sessions = new Map([[session.sessionId, session], [branch.sessionId, branch]]);
+    context.flowChatStore.getState = () => ({ sessions, activeSessionId: branch.sessionId });
+    context.flowChatStore.addDialogTurn.mockImplementation((id: string, turn: any) => sessions.get(id)!.dialogTurns.push(turn));
+    mockForkChatSession.mockResolvedValue('native-branch');
+    mockEnsureBackendSession.mockResolvedValue(undefined);
+    mockGetConfigs.mockResolvedValue({});
+    const onSessionForked = vi.fn();
+    await sendMessage(context, 'Continue here', session.sessionId, undefined, undefined, undefined, { onSessionForked });
+    expect(mockForkChatSession).toHaveBeenCalledWith(context, 'external-source', 'viewed-turn');
+    expect(onSessionForked).toHaveBeenCalledExactlyOnceWith('external-source', 'native-branch');
+    expect(mockStartDialogTurn).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'native-branch', userInput: 'Continue here' }));
+    expect(session.dialogTurns).toHaveLength(1);
+  });
+
+  it('keeps the draft and source untouched when a fork fails', async () => {
+    const { context, session } = conflictContext('external-source');
+    Object.assign(session, {
+      historyState: 'ready', externalHistory: { mode: 'follow' },
+      dialogTurns: [{ id: 'viewed-turn', userMessage: { metadata: { externalContentVersion: 'viewed-version' } } }],
+    });
+    mockForkChatSession.mockRejectedValue(new Error('Source version unavailable'));
+    await expect(sendMessage(context, 'Keep my draft', session.sessionId)).rejects.toThrow('Source version unavailable');
+    expect(mockStartDialogTurn).not.toHaveBeenCalled();
+    expect(context.flowChatStore.addDialogTurn).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['primary', 'primary', 'Standard'],
+    ['primary', undefined, 'Standard'],
+    ['primary', 'Creative', 'Creative'],
+    ['Creative', 'Creative', 'Creative'],
+  ])('submits the native fork mode instead of an inherited source placeholder (%s, %s)', async (sourceMode, requestedMode, expectedMode) => {
+    const { context, session } = conflictContext('legacy-external-source');
+    Object.assign(session, {
+      mode: sourceMode,
+      historyState: 'ready', externalHistory: { mode: 'follow' },
+      dialogTurns: [{ id: 'viewed-turn', userMessage: { metadata: { externalContentVersion: 'viewed-version' } } }],
+    });
+    const branch = { ...session, sessionId: 'native-branch', mode: 'Standard', externalHistory: undefined, dialogTurns: [...session.dialogTurns] };
+    const sessions = new Map([[session.sessionId, session], [branch.sessionId, branch]]);
+    context.flowChatStore.getState = () => ({ sessions, activeSessionId: branch.sessionId });
+    context.flowChatStore.addDialogTurn.mockImplementation((id: string, turn: any) => sessions.get(id)!.dialogTurns.push(turn));
+    mockForkChatSession.mockResolvedValue(branch.sessionId);
+    mockEnsureBackendSession.mockResolvedValue(undefined);
+    mockGetConfigs.mockResolvedValue({});
+    mockStartDialogTurn.mockImplementation(async ({ agentType }: { agentType: string }) => {
+      if (agentType === 'primary') throw new Error('Unknown session mode: primary');
+    });
+
+    await sendMessage(context, 'Continue here', session.sessionId, undefined, requestedMode);
+
+    expect(mockStartDialogTurn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      sessionId: branch.sessionId, agentType: expectedMode, userInput: 'Continue here',
+    }));
+    expect(session.mode).toBe(sourceMode);
+    expect(session.dialogTurns).toHaveLength(1);
+  });
+
+  it.each(['codex', 'zcode', undefined])('retries an old queued mode using the repaired native branch (%s)', async ecosystemId => {
+    const { context, session } = conflictContext('existing-branch');
+    if (ecosystemId) Object.assign(session, {
+      externalBranchOf: { sessionId: 'source', ecosystemId, sourceSessionId: 'original', contentVersion: 'pinned' },
+    });
+    mockEnsureBackendSession.mockResolvedValue(undefined);
+    mockGetConfigs.mockResolvedValue({});
+
+    // Failed queue entries retain the mode from before the metadata migration.
+    await sendMessage(context, 'Retry retained draft', session.sessionId, undefined, 'primary', undefined, { bypassPendingQueue: true });
+
+    expect(mockStartDialogTurn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      sessionId: session.sessionId, agentType: ecosystemId ? 'Standard' : 'primary', userInput: 'Retry retained draft',
+    }));
+    expect(mockForkChatSession).not.toHaveBeenCalled();
+  });
+
+  it('does not fork an archived source before rejecting submission', async () => {
+    const { context, session } = conflictContext('archived-source');
+    Object.assign(session, {
+      historyState: 'ready', persistedStatus: 'archived', externalHistory: { mode: 'follow' },
+      dialogTurns: [{ id: 'viewed-turn', userMessage: { metadata: { externalContentVersion: 'viewed-version' } } }],
+    });
+    await expect(sendMessage(context, 'Keep this draft', session.sessionId)).rejects.toMatchObject({ reason: 'archived' });
+    expect(mockForkChatSession).not.toHaveBeenCalled();
+    expect(mockStartDialogTurn).not.toHaveBeenCalled();
   });
 
   it('rechecks capability after backend readiness without creating an optimistic turn', async () => {
@@ -480,6 +577,76 @@ describe('MessageModule session writer conflict', () => {
     expect(mockPendingEnqueue).not.toHaveBeenCalled();
     expect(mockEnsureBackendSession).not.toHaveBeenCalled();
     expect(mockStartDialogTurn).not.toHaveBeenCalled();
+  });
+});
+
+describe('MessageModule first draft submission', () => {
+  function draftContext() {
+    let state: any = { activeSessionId: 'draft-first', sessions: new Map([['draft-first', {
+      sessionId: 'draft-first', mode: 'Standard', workspaceId: 'b', workspacePath: '/b',
+      dialogTurns: [], config: { modelName: 'primary' }, titleStatus: 'generated',
+      maxContextTokens: 32000, draft: { workspaceId: 'b', phase: 'ready', turnId: 'reserved-first-turn' },
+    }]]) };
+    const store = { getState: () => state, getSurfaceGeneration: () => 0,
+      setState: (update: any) => { state = update(state); },
+      updateSessionLastSubmittedMode: (id: string, mode: string) => {
+        state.sessions.set(id, { ...state.sessions.get(id), lastSubmittedMode: mode });
+      },
+      updateSessionModelName: vi.fn(), updateSessionMaxContextTokens: vi.fn(),
+      deleteDialogTurn: vi.fn(),
+    };
+    return { store, context: { flowChatStore: store, pendingHistoryLoads: new Map(),
+      processingManager: { registerStatus: vi.fn(), clearSessionStatus: vi.fn() },
+      contentBuffers: new Map(), activeTextItems: new Map(),
+    } as any };
+  }
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    activateSurface(LOCAL_SURFACE_ID);
+    mockGetCurrentState.mockReturnValue('idle');
+    mockPendingList.mockReturnValue([]);
+    mockEnsureBackendSession.mockResolvedValue(undefined);
+    mockHostQueueSupported.mockReturnValue(true);
+    mockHostQueueSubmit.mockResolvedValue({ receipt: { status: 'queued' } });
+    mockUpdateSessionModel.mockResolvedValue(undefined);
+    mockGetConfigs.mockResolvedValue({});
+  });
+
+  afterEach(() => {
+    mockHostQueueSupported.mockReturnValue(false);
+  });
+
+  it('commits the draft and selects the target session only after the host accepts its first message', async () => {
+    const { context, store } = draftContext();
+    mockHostQueueSubmit.mockImplementation(async () => {
+      expect(store.getState().sessions.get('draft-first').draft.phase).toBe('submitting');
+      expect(mockActivateMainSession).not.toHaveBeenCalled();
+      return { receipt: { status: 'queued' } };
+    });
+    await sendMessage(context, 'First message', 'draft-first');
+    expect(mockHostQueueSubmit.mock.calls[0][2]).toBe('reserved-first-turn');
+    expect(store.getState().sessions.get('draft-first').draft).toBeUndefined();
+    expect(store.getState().sessions.get('draft-first').lastSubmittedMode).toBe('Standard');
+    expect(mockActivateMainSession).toHaveBeenCalledWith('draft-first', expect.any(Object));
+  });
+
+  it('preserves the first turn identity and locked target across an ambiguous acknowledgement', async () => {
+    const { context, store } = draftContext();
+    mockHostQueueSubmit.mockRejectedValueOnce(new Error('Connection lost'));
+    await expect(sendMessage(context, 'First message', 'draft-first')).rejects.toThrow('Connection lost');
+    expect(store.getState().sessions.get('draft-first').draft.phase).toBe('submitting');
+    await sendMessage(context, 'First message', 'draft-first');
+    expect(mockHostQueueSubmit.mock.calls.map(call => call[2])).toEqual(['reserved-first-turn', 'reserved-first-turn']);
+    expect(mockActivateMainSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fail an accepted submission when workspace navigation fails', async () => {
+    const { context, store } = draftContext();
+    mockActivateMainSession.mockRejectedValueOnce(new Error('Workspace activation failed'));
+    await expect(sendMessage(context, 'First message', 'draft-first')).resolves.toBeUndefined();
+    expect(store.getState().sessions.get('draft-first').draft).toBeUndefined();
+    expect(mockHostQueueSubmit).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -1169,6 +1336,8 @@ describe('MessageModule model synchronization', () => {
     });
     const { context, session } = modelSyncContext('asdf');
     await syncSessionModelSelection(context, session.sessionId, 'Standard');
+    expect(mockGetConfigs).toHaveBeenCalledTimes(1);
+    expect(mockGetConfigs).toHaveBeenCalledWith(['ai.models', 'ai.default_models']);
     expect(context.flowChatStore.updateSessionModelName).not.toHaveBeenCalled();
     expect(context.flowChatStore.updateSessionMaxContextTokens).toHaveBeenCalledWith(session.sessionId, 64000);
     expect(mockUpdateSessionModel).toHaveBeenCalledWith(expect.objectContaining({

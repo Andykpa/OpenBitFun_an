@@ -52,7 +52,7 @@ import com.openbitfun.mobile.core.feature.session.RemoteSessionUiState
 import com.openbitfun.mobile.core.feature.workspace.RemoteWorkspaceIntent
 import com.openbitfun.mobile.core.feature.workspace.RemoteWorkspaceUiState
 
-/** The account-device route, which bypasses the QR pairing form entirely. */
+/** The account-device route: the only way this app reaches a desktop. */
 @Composable
 internal fun AccountRemoteScreen(
     remoteState: RemoteSessionUiState,
@@ -340,7 +340,7 @@ private fun RemoteShellHeader(
         if (onOpenRemoteSettings != null) CircleControl(
             icon = R.drawable.ic_symbol_gearshape,
             glyphSize = 19,
-            contentDescription = stringResource(R.string.remote_settings_title),
+            contentDescription = stringResource(R.string.navigation_settings),
             onClick = onOpenRemoteSettings,
             modifier = Modifier,
         ) else Box(Modifier.size(com.openbitfun.mobile.app.ui.theme.generated.MobileDesignGeometry.ControlTouchSize))

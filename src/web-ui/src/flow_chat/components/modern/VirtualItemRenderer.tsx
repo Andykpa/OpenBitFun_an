@@ -19,10 +19,14 @@ import { useFlowChatSearchPresentation } from './useFlowChatSearchPresentation';
 import { ConversationExcerptMarkers } from '../../selection/ConversationExcerptMarkers';
 import { getKnownVirtualItemHeightPx } from './virtualItemHeightEstimators';
 import { Icon } from '@openbitfun/ui';
+import { TimelineContentBlock } from '../../timeline/TimelineContentBlock';
+import { useTurnFooterInteraction } from './useTurnFooterInteraction';
+import { BackgroundRunItem } from './BackgroundRunItem';
 
 interface VirtualItemRendererProps {
   item: VirtualItem;
   index: number;
+  isLatestTurn?: boolean;
   /** Stable projection facts used for spacing across virtual-row boundaries. */
   endsBeforeUserTurn?: boolean;
   continuesAmbientToolRunAfter?: boolean;
@@ -36,10 +40,13 @@ interface VirtualItemRendererProps {
 }
 
 export const VirtualItemRenderer = React.memo<VirtualItemRendererProps>(
-  ({ item, index, endsBeforeUserTurn = false, continuesAmbientToolRunAfter = false, measureRef }) => {
+  ({ item, index, isLatestTurn = false, endsBeforeUserTurn = false, continuesAmbientToolRunAfter = false, measureRef }) => {
+    const turnInteraction = useTurnFooterInteraction(item.turnId);
     const { searchQuery, searchMatchesByVirtualIndex, searchCurrentMatch } = useFlowChatVolatileContext();
-    const matches = searchMatchesByVirtualIndex?.get(index);
-    const currentMatch = searchCurrentMatch?.virtualItemIndex === index ? searchCurrentMatch : undefined;
+    const sourceIndex = item.timeline?.sourceIndex ?? index;
+    const ownsMatch = (match: { flowItemId?: string }) => !item.timeline || !match.flowItemId || item.timeline.memberIds.includes(match.flowItemId);
+    const matches = searchMatchesByVirtualIndex?.get(sourceIndex)?.filter(ownsMatch);
+    const currentMatch = searchCurrentMatch?.virtualItemIndex === sourceIndex && ownsMatch(searchCurrentMatch) ? searchCurrentMatch : undefined;
     const isSearchMatch = Boolean(matches?.length);
     const isSearchCurrent = Boolean(currentMatch);
     const isCollectedEmpty = getKnownVirtualItemHeightPx(item) === 0;
@@ -52,6 +59,8 @@ export const VirtualItemRenderer = React.memo<VirtualItemRendererProps>(
 
     const content = (() => {
       switch (item.type) {
+        case 'background-run':
+          return <BackgroundRunItem turn={item.turn} absoluteTurnIndex={item.absoluteTurnIndex} forceOpen={isSearchMatch} expandedThinkingItemIds={matches?.flatMap(match => [...match.expandableIds ?? []]) ?? []} />;
         case 'user-message':
           return (
             <UserMessageItem
@@ -59,6 +68,10 @@ export const VirtualItemRenderer = React.memo<VirtualItemRendererProps>(
               turnId={item.turnId}
               absoluteTurnIndex={item.absoluteTurnIndex}
               turnStatus={item.turnStatus}
+              submissionPhase={item.submissionPhase}
+              submissionError={item.submissionError}
+              hostQueueStatus={item.hostQueueStatus}
+              hostQueueAttachmentCount={item.hostQueueAttachmentCount}
             />
           );
 
@@ -72,16 +85,22 @@ export const VirtualItemRenderer = React.memo<VirtualItemRendererProps>(
           );
         
         case 'model-round':
+          if (item.timeline?.kind === 'group-header') return <FlowGroupRenderer data={item.timeline.group!}
+            turnId={item.turnId} placement="standalone" timelineExpanded={item.timeline.expanded} />;
+          if (item.timeline?.kind === 'group-members' || item.timeline?.kind === 'content') return <TimelineContentBlock item={item} />;
           return (
             <ModelRoundItem 
+              blockPart={item.timeline ? item.timeline.kind === 'round-header' ? 'header' : item.timeline.kind === 'round-footer' ? 'footer' : 'content' : undefined}
               round={item.data} 
               projectedGroups={item.projectedGroups}
               turnId={item.turnId} 
               isLastRound={item.isLastRound}
+              isLatestTurn={isLatestTurn}
               isTurnComplete={item.isTurnComplete}
               turnStartedAt={item.turnStartedAt}
               turnEndedAt={item.turnEndedAt}
               turnDurationMs={item.turnDurationMs}
+              turnOutputDurationMs={item.turnOutputDurationMs}
               turnTokenUsage={item.turnTokenUsage}
               canvasArtifactItems={item.canvasArtifactItems}
               expandedThinkingItemIds={item.layoutHints?.expandedThinkingItemIds ?? []}
@@ -127,6 +146,7 @@ export const VirtualItemRenderer = React.memo<VirtualItemRendererProps>(
     // data-turn-id is used for long-image export.
     return (
       <div
+        {...turnInteraction}
         ref={rowRef}
         data-openbitfun-component="virtual-item"
         data-openbitfun-part="root"
@@ -135,6 +155,8 @@ export const VirtualItemRenderer = React.memo<VirtualItemRendererProps>(
         data-testid="flowchat-message-item"
         data-turn-id={item.turnId}
         data-item-type={item.type}
+        data-timeline-kind={item.timeline?.kind}
+        data-timeline-group-id={item.timeline?.group?.groupId}
         data-collected-empty={isCollectedEmpty ? 'true' : undefined}
         data-turn-boundary-after={endsBeforeUserTurn ? 'true' : undefined}
         data-ambient-tool-run-continuation-after={continuesAmbientToolRunAfter ? 'true' : undefined}
@@ -158,6 +180,7 @@ export const VirtualItemRenderer = React.memo<VirtualItemRendererProps>(
   (prev, next) => (
     prev.item === next.item &&
     prev.index === next.index &&
+    prev.isLatestTurn === next.isLatestTurn &&
     prev.endsBeforeUserTurn === next.endsBeforeUserTurn &&
     prev.continuesAmbientToolRunAfter === next.continuesAmbientToolRunAfter &&
     prev.measureRef === next.measureRef
