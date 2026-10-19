@@ -44,7 +44,7 @@ Codex 与 DeepSeek Harness 中受支持的安全声明，并在用户显式确�
 
 | 内容与生态 | 此页发现范围 | 原生副本导入 | 使用与限制 |
 |---|---|---|---|
-| Session：Codex、Zcode | 本地 Desktop 按工作区自动发现已保存会话 | 打开来源时刷新只读历史，首次发送创建独立原生分支；可移除和重新添加来源 | Zcode 读取本地 SQLite 主任务历史；Remote workspace、Peer、IM 和 Detached Dispatch 的来源续聊入口未提供 |
+| Session：Codex、Zcode、Claude Code、OpenCode、Pi、DeepSeek Harness | 本地 Desktop 按工作区自动发现已保存会话 | 打开来源时刷新只读历史，首次发送创建独立原生分支；可移除和重新添加来源 | 各 adapter 读取原生存储；Remote workspace、Peer、IM 和 Detached Dispatch 的来源续聊入口未提供 |
 | Skill：Claude Code、Codex、OpenCode、Pi、DSH | 已接入各自受支持目录/文件子集；不代表完整包或动态配置解析 | 本地 Desktop 可复制受支持格式；按主机导入版本保留旧格式路径 | 未导入外部 Skill 不进入原生运行目录；导入后由 Skill owner 选择 |
 | MCP：Claude Code、Codex、OpenCode、DSH | 已接入安全声明子集；Pi 没有 provider | 本地 Desktop、根 CLI 可规划并复制；副本默认禁用 | 原生连接状态由 MCP owner 确认；前三类另有持续兼容路径，DSH 发现不意味着 DSH 持续运行兼容 |
 | Hook：五种生态 | 静态来源和事件声明 | 仅 Claude Code/Codex 的受支持同步 command，经审阅导入 | 目录本身不执行；原生 Hook 仍受开关控制；Pi/DSH/OpenCode 目录只读 |
@@ -71,9 +71,52 @@ MCP 副本的连接状态不借用外部来源 activation，页面明确“尚�
 其中远程工作区和 Peer 为前端能力门禁模拟，不是 SSH、IM、Peer 或 Detached Dispatch 端到端证据；手工步骤见
 [Web UI 使用说明](../../../src/web-ui/README.zh-CN.md#外部导入状态检查)。
 
+### Claude Code 会话来源
+
+`adapters/claude-code-adapter::session` 只读 `CLAUDE_CONFIG_DIR`（缺省 `~/.claude`）下
+`projects/*/*.jsonl`。发现只读有界首尾元数据，标题优先使用 `customTitle` / `aiTitle`，排除子代理记录。
+打开历史时沿最新主分支的 `parentUuid` 读取，工具结果按 `tool_use_id` 关联，保留思考、错误及中断状态。
+完整历史通过压缩边界的 `logicalParentUuid` 或明确记录的 `preservedSegment.tailUuid` 保留已有历史，
+不会把重复摘要当成新的用户请求，也不按文件相邻顺序猜测分支。缺失父节点、未知内容块和损坏记录明确失败。
+复用既有发现、不可变缓存、原生续聊分支和工具卡片；查看历史不启动 Claude Code 或执行其 Hook、插件、工具。
+新来源的发现开关先用既有只读来源操作核对服务主机支持；旧主机接受任意配置键不代表能读取新格式。
+
+### OpenCode 会话来源
+
+`adapters/opencode-adapter::session` 读取 `XDG_DATA_HOME/opencode/opencode.db`，
+缺省路径为 `~/.local/share/opencode/opencode.db`。格式基线为本机 OpenCode 1.2.25 的 SQLite 存储。
+与 Zcode 共享已验证的只读事务、消息排序、父消息关联和工具结果转换，来源路径和身份由各自 reader 选择。
+OpenCode 的 `providerID` / `modelID` 与兼容存储的旧拼写均可读取；工具卡片只投影字段名，不改写持久化参数。
+待执行的 `/undo` 记录按来源 `revert` 边界排除已撤销消息/片段，不修改数据库。派生子任务不作为主会话列出。
+
+### Pi 会话来源
+
+`adapters/pi-adapter::session` 读取 `PI_CODING_AGENT_DIR`（缺省 `~/.pi/agent`）的 `sessions`，
+以及 `PI_CODING_AGENT_SESSION_DIR` 或全局 `settings.json.sessionDir` 指定的绝对目录。
+格式基线为 Pi 1.3.0 的 v3 JSONL，保留 v1/v2 的内存读取兼容，不迁移或改写来源文件。
+按 `parentId` 读取当前分支，应用已保存的 context edit，保留已有压缩前历史、思考、工具结果和错误。
+分支摘要及可见扩展消息显示为来源说明，不生成假用户轮次；附件和隐藏扩展上下文不复制。
+相对自定义目录无法从全局发现可靠定位，返回明确诊断；不执行 Pi 扩展来推断目录。
+
+### DeepSeek Harness 会话来源
+
+`adapters/dsh-adapter::session` 读取 `DSH_HOME`（缺省 `~/.dsh`）下
+`sessions/<project>/<session>/session.jsonl` 或 `session.jsonl.zstd`。
+格式基线为 DSH 0.1.0-rc.6 的 v0 日志；压缩输入和解压输出都有界，连续 Zstandard 帧完整读取。
+只按 `surfaceOp: append` 重建人类对话；模型压缩替换副本不覆盖原记录，也不重复导入。
+流式 chunk 和 packed chunk 仅用于序号校验，正文、思考及工具调用来自 assembled message，结果按 call ID 关联。
+子代理会话不列入主目录，runtime/plugin 注入上下文与附件保留在来源，导入提供相应提示。
+未知版本、必需事件和损坏压缩数据明确报错，不修复、截断或覆盖原始日志。
+自定义 Cordis 持久化根及外部 persistence provider 不在默认目录发现范围，不执行配置来推断它们。
+
+四种新增来源复用同一原生索引、缓存与续聊分叉路径。验证包含各真实安装 Agent 产生的两轮会话、
+文件读写及失败工具记录，以及生产 reader → 来源缓存 → 原生分支持久化回读；模拟测试覆盖旧主机能力门禁。
+这些本机验证不代表 SSH、Peer、IM 或 Detached Dispatch 的实机验证。
+
 ### Zcode 会话来源与原生副本
 
-`adapters/zcode-adapter` 独立读取 `~/.zcode/cli/db/db.sqlite` 的 `session`、`message`、`part`。
+`adapters/zcode-adapter` 选择 `~/.zcode/cli/db/db.sqlite` 及 Zcode 来源身份，复用 OpenCode adapter
+的 `session`、`message`、`part` 只读协议实现。它不加载 OpenCode 配置或运行时。
 格式基线是 Zcode 3.15.1 所附 CLI 0.16.9 的本地记录。SQLite 只读事务包含已提交的 WAL 数据，
 不复制正在写入的数据库主文件，不读取凭据，也不从 `model-io-*.jsonl` 请求日志重建历史。
 不存在的数据库返回空目录；权限、损坏或缺少必要列返回明确错误，不修改或重建来源。
@@ -84,7 +127,7 @@ MCP 副本的连接状态不借用外部来源 activation，页面明确“尚�
 进行中的工具保留中断状态。附件仅保留名称引用，并返回和持久化导入提示；不复制来源附件文件。
 不支持的消息角色、工具状态、损坏记录和超出读取预算的历史明确失败，不以空历史伪装成功。
 
-产品装配按来源选择 Codex 或 Zcode reader，复用工作区映射、原子写入及 Session owner；
+产品装配按来源选择对应 reader，复用工作区映射、原子写入及 Session owner；
 续聊分支使用宿主当前配置的主模型，自动发现的来源视图以 `Standard` 作为原生续聊模式；模型选择值
 `primary` 不作为会话模式。旧索引、快照及已有续聊分支中带 Codex/Zcode 来源身份的 `primary` 模式
 在读取时兼容为 `Standard`，不重写原始历史；其他自定义模式和外部运行时绑定保持原样。

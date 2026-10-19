@@ -5,7 +5,11 @@ pub(crate) mod deferred;
 mod lifecycle;
 pub use lifecycle::{list_removed_external_sessions, restore_removed_external_session};
 
+use openbitfun_claude_code_adapter::session::ClaudeCodeSessionReader;
 use openbitfun_codex_adapter::session::CodexSessionReader;
+use openbitfun_dsh_adapter::session::DshSessionReader;
+use openbitfun_opencode_adapter::session::OpenCodeSessionReader;
+use openbitfun_pi_adapter::session::PiSessionReader;
 use openbitfun_product_domains::external_sources::{
     ExternalSourceOperationError, ExternalSourceOperationErrorCode, ExternalSourceOperationResult,
 };
@@ -44,6 +48,10 @@ fn codex_reader() -> &'static CodexSessionReader {
 enum ImportSource {
     Codex,
     Zcode,
+    ClaudeCode,
+    OpenCode,
+    Pi,
+    Dsh,
 }
 
 impl ImportSource {
@@ -51,6 +59,10 @@ impl ImportSource {
         match id {
             "codex" => Ok(Self::Codex),
             "zcode" => Ok(Self::Zcode),
+            "claude-code" => Ok(Self::ClaudeCode),
+            "opencode" => Ok(Self::OpenCode),
+            "pi" => Ok(Self::Pi),
+            "deepseek-harness" => Ok(Self::Dsh),
             _ => Err(operation(
                 ExternalSourceOperationErrorCode::Unsupported,
                 "This external agent does not support session import",
@@ -71,6 +83,10 @@ impl ImportSource {
         match self {
             Self::Codex => "Codex",
             Self::Zcode => "Zcode",
+            Self::ClaudeCode => "Claude Code",
+            Self::OpenCode => "OpenCode",
+            Self::Pi => "Pi",
+            Self::Dsh => "DeepSeek Harness",
         }
     }
 
@@ -78,6 +94,10 @@ impl ImportSource {
         match self {
             Self::Codex => "codex-rollout-jsonl",
             Self::Zcode => "zcode-session-sqlite",
+            Self::ClaudeCode => "claude-code-transcript-jsonl",
+            Self::OpenCode => "opencode-session-sqlite",
+            Self::Pi => "pi-session-jsonl",
+            Self::Dsh => "dsh-session-jsonl",
         }
     }
 
@@ -85,6 +105,10 @@ impl ImportSource {
         match self {
             Self::Codex => openbitfun_codex_adapter::session::SOURCE_REVISION,
             Self::Zcode => openbitfun_zcode_adapter::session::SOURCE_REVISION,
+            Self::ClaudeCode => openbitfun_claude_code_adapter::session::SOURCE_REVISION,
+            Self::OpenCode => openbitfun_opencode_adapter::session::SOURCE_REVISION,
+            Self::Pi => openbitfun_pi_adapter::session::SOURCE_REVISION,
+            Self::Dsh => openbitfun_dsh_adapter::session::SOURCE_REVISION,
         }
     }
 
@@ -95,6 +119,27 @@ impl ImportSource {
             }
             Self::Zcode => ZcodeSessionReader::default()
                 .read_candidate(candidate, ExternalSessionImportMode::Full),
+            Self::ClaudeCode => ClaudeCodeSessionReader::default()
+                .read_candidate(candidate, ExternalSessionImportMode::Full),
+            Self::OpenCode => OpenCodeSessionReader::default()
+                .read_candidate(candidate, ExternalSessionImportMode::Full),
+            Self::Pi => PiSessionReader::default()
+                .read_candidate(candidate, ExternalSessionImportMode::Full),
+            Self::Dsh => DshSessionReader::default()
+                .read_candidate(candidate, ExternalSessionImportMode::Full),
+        }
+    }
+
+    fn discover_all(
+        self,
+    ) -> Result<openbitfun_product_domains::session_import::ExternalSessionCatalog, String> {
+        match self {
+            Self::Codex => codex_reader().discover_all(),
+            Self::Zcode => ZcodeSessionReader::default().discover_all(),
+            Self::ClaudeCode => ClaudeCodeSessionReader::default().discover_all(),
+            Self::OpenCode => OpenCodeSessionReader::default().discover_all(),
+            Self::Pi => PiSessionReader::default().discover_all(),
+            Self::Dsh => DshSessionReader::default().discover_all(),
         }
     }
 }
