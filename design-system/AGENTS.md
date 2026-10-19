@@ -49,3 +49,10 @@ pnpm --dir design-system run build:ui && node --test design-system/packages/ui/t
 ```
 
 Do not use browser automation or mock screenshots as visual proof. Design Lab is the manual authoring surface; source, build, HTTP, and package checks do not establish final visual fidelity.
+
+For SplitView geometry, drag cancellation, and cached resize bounds:
+
+```bash
+pnpm --dir design-system run build:ui && node --test design-system/packages/ui/tests/split-view.test.mjs
+pnpm --dir src/web-ui exec vitest run src/shared/ui/SplitView.test.tsx
+```

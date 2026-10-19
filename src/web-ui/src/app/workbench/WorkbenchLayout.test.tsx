@@ -22,8 +22,18 @@ vi.mock('@/infrastructure/i18n', () => ({ useI18n: () => ({ t: (key: string) => 
 vi.mock('../hooks/useApp', () => ({
   useApp: () => ({ state: { layout: { bottomTerminalPanelCollapsed: true } }, updateBottomTerminalPanelHeight: vi.fn() }),
 }));
-vi.mock('../scenes/session/ChatPane', () => ({ default: () => <textarea data-testid="chat-draft" defaultValue="draft" /> }));
-vi.mock('../scenes/session/AuxPane', () => ({ default: () => <iframe title="Editor" /> }));
+vi.mock('../scenes/session/ChatPane', () => ({
+  default: ({ isDragging = false, resizeSuspended = false }: { isDragging?: boolean; resizeSuspended?: boolean }) => (
+    <textarea data-testid="chat-draft" data-dragging={String(isDragging)}
+      data-resize-suspended={String(resizeSuspended)} defaultValue="draft" />
+  ),
+}));
+vi.mock('../scenes/session/AuxPane', () => ({
+  default: ({ resizeSuspended = false, terminalResizeSuspended = false }: {
+    resizeSuspended?: boolean; terminalResizeSuspended?: boolean;
+  }) => <iframe title="Editor" data-resize-suspended={String(resizeSuspended)}
+    data-terminal-resize-suspended={String(terminalResizeSuspended)} />,
+}));
 vi.mock('../scenes/session/BottomTerminalPane', () => ({ default: () => null }));
 vi.mock('../scenes/session/sessionPanelLayout', () => ({ collapseSessionBottomTerminalPane: vi.fn(), expandSessionBottomTerminalPane: vi.fn() }));
 vi.mock('@/tools/terminal/services/terminalPanelPreferenceService', () => ({
@@ -60,6 +70,7 @@ describe('workbench pane layout integration', () => {
     localStorage.clear();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it('applies the settings selection to a mounted scene and routes resizing to independent preferences', () => {
@@ -92,6 +103,52 @@ describe('workbench pane layout integration', () => {
     expect(split().style.getPropertyValue('--_split-view-right-size')).toBe('600px');
     expect(container.querySelector('[data-testid="chat-draft"]')).toBe(draft);
     expect(draft.value).toBe('unsent edit');
+    expect(container.querySelector('iframe')).toBe(editor);
+  });
+
+  it.each(['split', 'overlay'] as const)('suspends both transcripts through drag and settle in %s mode', layout => {
+    vi.useFakeTimers();
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => setTimeout(() => callback(0), 16));
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => clearTimeout(id));
+    const pane = sessionPaneLayoutStore.getState();
+    pane.setDisplayMode(layout);
+    pane.showContent();
+    act(() => root.render(<WorkbenchLayout><SessionScene /></WorkbenchLayout>));
+    const chat = container.querySelector<HTMLTextAreaElement>('[data-testid="chat-draft"]')!;
+    const editor = container.querySelector('iframe')!;
+    const handle = container.querySelector<HTMLElement>('[role="separator"]')!;
+    const pointer = (type: string, clientX: number) => act(() => {
+      const event = new MouseEvent(type, { clientX, button: 0, bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'pointerId', { value: 1 });
+      handle.dispatchEvent(event);
+    });
+    const expectSuspended = (suspended: boolean) => {
+      expect(chat.dataset.resizeSuspended).toBe(String(suspended));
+      expect(editor.dataset.resizeSuspended).toBe(String(suspended));
+      expect(editor.dataset.terminalResizeSuspended).toBe(String(suspended));
+    };
+    act(() => vi.advanceTimersByTime(32));
+    expectSuspended(false);
+    chat.value = 'unsent edit';
+    pointer('pointerdown', 600);
+    expectSuspended(true);
+    expect(chat.dataset.dragging).toBe('true');
+    pointer('pointermove', 560);
+    act(() => vi.advanceTimersByTime(16));
+    expectSuspended(true);
+    pointer('pointerup', 560);
+    expect(chat.dataset.dragging).toBe('false');
+    expectSuspended(true);
+    act(() => vi.advanceTimersByTime(16));
+    expectSuspended(true);
+    act(() => vi.advanceTimersByTime(16));
+    expectSuspended(false);
+    pointer('pointerdown', 600);
+    expectSuspended(true);
+    pointer('pointercancel', 600);
+    expectSuspended(false);
+    expect(container.querySelector('[data-testid="chat-draft"]')).toBe(chat);
+    expect(chat.value).toBe('unsent edit');
     expect(container.querySelector('iframe')).toBe(editor);
   });
 
