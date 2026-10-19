@@ -163,7 +163,7 @@ export async function installFrontendLogLevelConfigWatcher(): Promise<void> {
       }
 
       if (path === LOGGING_INCLUDE_SENSITIVE_PATH) {
-        setIncludeSensitiveDiagnostics(typeof newValue === 'boolean' ? newValue : true);
+        setIncludeSensitiveDiagnostics(newValue === true);
         return;
       }
 

@@ -16,6 +16,15 @@ Follow `src/web-ui/AGENTS.md` for shared frontend rules.
 
 ## Focused verification
 
+For logging preference changes and sensitive-data redaction before startup reads finish:
+
+```bash
+pnpm --dir src/web-ui run test:run src/infrastructure/config/services/FrontendLogLevelSync.test.ts src/infrastructure/config/services/FrontendLogLevelSync.privacy.test.ts src/shared/utils/logger.test.ts src/flow_chat/services/EventBatcher.test.ts
+```
+
+These fixtures exercise the real frontend logger and event batcher with delayed
+configuration reads; they do not establish live remote transport behavior.
+
 For loading states, warm snapshots, asynchronous reads, and device isolation:
 
 ```bash

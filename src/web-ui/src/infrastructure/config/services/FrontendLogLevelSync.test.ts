@@ -6,6 +6,10 @@ const configApiMocks = vi.hoisted(() => ({
   getRuntimeLoggingInfo: vi.fn(),
 }));
 
+const configManagerMocks = vi.hoisted(() => ({
+  onConfigChange: vi.fn(),
+}));
+
 const loggerMocks = vi.hoisted(() => ({
   getLevel: vi.fn(),
   setLevel: vi.fn(),
@@ -18,6 +22,10 @@ const loggerMocks = vi.hoisted(() => ({
 
 vi.mock('@/infrastructure/api/service-api/ConfigAPI', () => ({
   configAPI: configApiMocks,
+}));
+
+vi.mock('./ConfigManager', () => ({
+  configManager: configManagerMocks,
 }));
 
 vi.mock('@/shared/utils/logger', () => ({
@@ -114,4 +122,25 @@ describe('FrontendLogLevelSync startup reads', () => {
     expect(loggerMocks.setIncludeSensitiveDiagnostics).toHaveBeenCalledWith(false);
     expect(loggerMocks.setFlowChatDiagnosticsEnabled).toHaveBeenCalledWith(false);
   });
+});
+
+describe('FrontendLogLevelSync config changes', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it.each([undefined, null, 'true', false, true])(
+    'requires an explicit boolean opt-in for changed value %s',
+    async (newValue) => {
+      const { installFrontendLogLevelConfigWatcher } = await importSyncModule();
+      await installFrontendLogLevelConfigWatcher();
+
+      const onConfigChange = configManagerMocks.onConfigChange.mock.calls[0][0];
+      onConfigChange(LOGGING_INCLUDE_SENSITIVE_PATH, true, newValue);
+
+      expect(loggerMocks.setIncludeSensitiveDiagnostics).toHaveBeenCalledExactlyOnceWith(
+        newValue === true,
+      );
+    },
+  );
 });
