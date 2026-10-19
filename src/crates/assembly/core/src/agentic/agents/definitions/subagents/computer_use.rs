@@ -62,9 +62,7 @@ impl Agent for ComputerUseMode {
     }
 
     fn user_context_policy(&self) -> UserContextPolicy {
-        UserContextPolicy::empty()
-            .with_workspace_instructions()
-            .with_project_layout()
+        UserContextPolicy::empty().with_workspace_instructions()
     }
 
     fn is_readonly(&self) -> bool {
@@ -97,6 +95,9 @@ mod tests {
             .expect("ComputerUse prompt");
 
         assert!(prompt.contains("When `ControlHub` appears in your current tool list"));
-        assert!(prompt.contains("If `ControlHub` is unavailable"));
+        assert!(prompt.contains("If `ControlHub` lacks the required technical capability"));
+        assert!(prompt.contains(
+            "Permission denial or user Disconnect is not a technical limitation to work around"
+        ));
     }
 }

@@ -196,9 +196,9 @@ block-beta
 | Shared frontend | `src/shared` | `shared` |
 | Interfaces | `src/crates/interfaces/*` | `acp`、`app-server`、`app-server-client`、`app-server-protocol`、`sdk-host` |
 | Assembly | `src/crates/assembly/*` | `agent-content`、`core`、`external-sources`、`product-capabilities` |
-| Adapters | `src/crates/adapters/*` | `agent-runtime-ipc`、`ai-adapters`、`claude-code-adapter`、`codex-adapter`、`dsh-adapter`、`opencode-adapter`、`static-hook-support`、`transport`、`webdriver` |
+| Adapters | `src/crates/adapters/*` | `agent-runtime-ipc`、`ai-adapters`、`claude-code-adapter`、`codex-adapter`、`zcode-adapter`、`dsh-adapter`、`opencode-adapter`、`static-hook-support`、`transport`、`webdriver` |
 | Services | `src/crates/services/*` | `services-core`、`services-integrations`、`miniapp-market-service`、`skin-market-service`、`relay-service`、`page-function-runtime`、`terminal` |
-| Execution | `src/crates/execution/*` | `agent-runtime`、`agent-workflows`、`agent-stream`、`plugin-runtime-client`、`runtime-services`、`tool-contracts`、`tool-provider-groups`、`tool-execution`、`tool-call-jsonrepair` |
+| Execution | `src/crates/execution/*` | `agent-runtime`、`agent-workflows`、`agent-stream`、`plugin-runtime-client`、`runtime-services`、`tool-contracts`、`tool-provider-groups`、`tool-execution` |
 | Contracts | `src/crates/contracts/*` | `core-types`、`events`、`runtime-ports`、`product-domains` |
 
 Installer、E2E 以及 MiniApp/Skin market server 和对应 service 在 Level 0 图中分别归入交付入口、测试范围或 Services 家族，不作为独立架构模块。
@@ -375,6 +375,7 @@ flowchart LR
 | Web Server | Embedded Agent Runtime、WebSocket App Server、Health/Info；当前只允许 loopback 单用户模式 |
 | Relay Server | WebSocket/HTTP bridge、账户与同步；不包含 Agent Runtime |
 | Plugin Host | 可选的受管 Bun 子进程；执行配置中显式声明的 OpenCode package plugin，由本地 Agent Runtime 进程监督，不按 Session 或插件各启一个进程 |
+| MiniApp Shell | 单独编译的轻量窗口程序，通过私有本机 IPC 复用 Desktop host 中的执行与状态 owner；不链接 Core/Agent Runtime，不复制 Desktop 主程序。macOS 导出包只有 Shell、图标与身份，Windows/Linux 使用随主产品安装的 Shell。旧 v1 启动记录与实例身份保持兼容。自定义窗口栏由 MiniApp 的可选 `chrome.titlebar` 元数据声明，Shell 与草稿预览共享轻量渲染器；macOS 保留原生红绿灯，Windows 复用主应用右侧窗口按钮，系统控件位置与形状不可由 MiniApp 覆盖；原生窗口操作仍归 Shell，应用内操作通过 SceneChrome 进入主顶部栏 |
 
 ### 2.5 Scenarios (+1) · Level 0
 
@@ -900,7 +901,7 @@ Shared Agent Runtime 是第一方多实例的目标部署，不是上表新增�
 
 ## 独立数据迁移工具的依赖边界
 
-Data Migrator 是独立发布的本地离线工具，不依赖 Core、Product Assembly、Desktop 或 Web UI。
+Data Tools 是独立发布的本地离线工具，不依赖 Core、Product Assembly、Desktop 或 Web UI。
 主应用不检测、启动或捆绑迁移器。两者在同一源码工作区复用稳定的数据格式与存储实现：
 
 - contracts/config-contracts：配置 DTO、默认值、版本校验及到共享模型 DTO 的纯转换；Core 原路径保留转发，ConfigProvider 仍在 Core。
@@ -912,7 +913,7 @@ Data Migrator 是独立发布的本地离线工具，不依赖 Core、Product As
 WorkspaceInfo/WorkspaceIdentity 的运行操作由 Core 的 runtime extension traits 保留，稳定记录无需导入这些能力。
 原 Core 存储入口保留错误映射；可选 legacy-migration facade 保留旧导入路径，但不再由 product-full 启用。
 远程四种场景不提供迁移工具的执行入口；仅转换本机保存的连接记录，不连接远端。
-使用与发行契约以 [独立迁移器说明](../../src/apps/data-migrator/README.zh-CN.md) 为准。
+使用与发行契约以 [独立数据工具说明](../../src/apps/data-tools/README.zh-CN.md) 为准。
 
 
 ## Agent 身份与产品概念

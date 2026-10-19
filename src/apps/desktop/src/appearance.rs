@@ -178,6 +178,14 @@ impl Default for AppearanceConfig {
 }
 
 impl AppearanceConfig {
+    pub(crate) fn miniapp_mode() -> &'static str {
+        if Self::load_startup_bootstrap_config().appearance.is_light {
+            "light"
+        } else {
+            "dark"
+        }
+    }
+
     pub fn get_builtin_appearance(appearance_id: &str) -> Option<Self> {
         Self::startup_appearance_bootstrap_manifest()
             .appearances
@@ -553,20 +561,15 @@ pub fn create_main_window(
     let materialization_workbench = Arc::clone(&frontend_workbench);
     #[cfg(target_os = "macos")]
     let builder = {
-        // Configure both Tao's native window and Wry's WebView. The builder's
-        // traffic_light_position setter only configures Wry, so native window
-        // lifecycle events otherwise restore the default button placement.
+        // Configure the native window as well as its WebView. The WebView-only
+        // builder setter misses Tao's title/resize/fullscreen restoration path.
+        // Both framework paths receive one inset derived from AppKit metrics.
         let config = tauri::utils::config::WindowConfig {
             label: "main".into(),
             url: main_url,
             title_bar_style: tauri::TitleBarStyle::Overlay,
             hidden_title: true,
-            // Native button center = inset + height / 2 - origin.y.
-            // AppKit's 16pt button at y=6 needs 20.5 for the 45px toolbar.
-            traffic_light_position: Some(tauri::utils::config::LogicalPosition {
-                x: 12.0,
-                y: 20.5,
-            }),
+            traffic_light_position: crate::macos_window_chrome::traffic_light_position(),
             ..Default::default()
         };
         match tauri::WebviewWindowBuilder::from_config(app_handle, &config) {
@@ -596,6 +599,10 @@ pub fn create_main_window(
         .on_page_load({
             let startup_trace_id = startup_trace_id.to_string();
             move |_window, payload| {
+                #[cfg(target_os = "macos")]
+                if matches!(payload.event(), PageLoadEvent::Started) {
+                    crate::macos_window_chrome::reset_renderer(_window.app_handle());
+                }
                 if matches!(payload.event(), PageLoadEvent::Finished) {
                     let _ = startup_page_ready.send(true);
                 }
@@ -656,8 +663,9 @@ pub fn create_main_window(
     // target and disables every HTML5 drag/drop interaction in the page. Keep
     // the browser handler there. The frontend keeps dropped File wrappers alive
     // briefly while the Desktop host resolves their original paths through
-    // WebView2, without copying file contents. WKWebView/WebKitGTK do not have
-    // that conflict, so their native handler remains enabled and supplies paths.
+    // WebView2, without copying file contents. The reviewed Wry macOS adapter
+    // delegates non-file drags to WebKit; its native file handler and WebKitGTK's
+    // remain enabled to supply original paths. See third_party/wry/OPENBITFUN-PATCH.md.
     #[cfg(target_os = "windows")]
     {
         builder = builder.disable_drag_drop_handler();
@@ -678,6 +686,10 @@ pub fn create_main_window(
     let build_started_at = Instant::now();
     match builder.build() {
         Ok(window) => {
+            #[cfg(target_os = "macos")]
+            if let Err(error) = crate::macos_window_chrome::install(&window) {
+                error!("Failed to install native fullscreen chrome synchronization: {error}");
+            }
             #[cfg(target_os = "windows")]
             if let Err(error) = crate::window_webview_geometry::install(&window) {
                 error!("Failed to install main WebView geometry protection: {error}");
@@ -1125,7 +1137,7 @@ pub async fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
 
         #[cfg(target_os = "macos")]
         {
-            crate::cancel_main_window_close_request_on_macos();
+            crate::cancel_main_window_close_request_on_macos(&app);
             crate::mark_main_window_hidden_on_macos(false);
         }
 

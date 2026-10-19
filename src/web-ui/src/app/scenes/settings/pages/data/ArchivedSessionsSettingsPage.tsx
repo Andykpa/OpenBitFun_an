@@ -12,6 +12,7 @@ import { flowChatManager } from '@/flow_chat/services/FlowChatManager';
 import { sessionAPI } from '@/infrastructure/api/service-api/SessionAPI';
 import {
   ConfigMessage,
+  ConfigLoadingState,
   ConfigPageContent,
   ConfigPageHeader,
   ConfigPageLayout,
@@ -23,6 +24,7 @@ import { useWorkspaceContext } from '@/infrastructure/contexts/WorkspaceContext'
 import { i18nService, useI18n } from '@/infrastructure/i18n';
 import { notificationService } from '@/shared/notification-system';
 import type { SessionMetadata } from '@/shared/types/session-history';
+import { externalHistoryFromMetadata } from '@/flow_chat/utils/externalHistory';
 import { createLogger } from '@/shared/utils/logger';
 import { Button, Empty, Icon, OverflowText } from '@openbitfun/ui';
 import { Inbox, RotateCcw } from 'lucide-react';
@@ -111,6 +113,7 @@ const ArchivedRow: React.FC<ArchivedRowProps> = ({
   t,
 }) => {
   const { session } = entry;
+  const sourceView = !!externalHistoryFromMetadata(session.customMetadata);
   const displayName = session.sessionName || t('nav.sessions.untitled');
   const dateStr = formatDateTime(session.lastActiveAt);
 
@@ -143,9 +146,9 @@ const ArchivedRow: React.FC<ArchivedRowProps> = ({
           disabled={disabled}
           loading={pendingAction?.entryKey === archivedEntryIdentityKey(entry)
             && pendingAction.type === 'delete'}
-          aria-label={t('nav.sessions.deleteArchived')}
+          aria-label={t(sourceView ? 'nav.sessions.removeSource' : 'nav.sessions.deleteArchived')}
         >
-          {t('nav.sessions.deleteArchived')}
+          {t(sourceView ? 'nav.sessions.removeSource' : 'nav.sessions.deleteArchived')}
         </Button>
       </div>
     </div>
@@ -345,9 +348,10 @@ const ArchivedSessionsSettingsPage: React.FC = () => {
 
   const handleDelete = useCallback(async (entry: ArchivedEntry) => {
     if (pendingAction || bulkDeleting) return;
+    const sourceView = !!externalHistoryFromMetadata(entry.session.customMetadata);
     const confirmed = await confirmDanger(
-      t('nav.sessions.deleteArchivedConfirmTitle'),
-      t('nav.sessions.deleteArchivedConfirmMessage', {
+      t(sourceView ? 'nav.sessions.removeSourceConfirmTitle' : 'nav.sessions.deleteArchivedConfirmTitle'),
+      t(sourceView ? 'nav.sessions.removeSourceConfirmMessage' : 'nav.sessions.deleteArchivedConfirmMessage', {
         name: entry.session.sessionName || t('nav.sessions.untitled'),
         workspace: workspaceScopeLabel(
           entry.workspaceName,
@@ -355,6 +359,7 @@ const ArchivedSessionsSettingsPage: React.FC = () => {
           entry.remoteSshHost,
         ),
       }),
+      { confirmText: t(sourceView ? 'nav.sessions.removeSource' : 'nav.sessions.deleteArchived') },
     );
     if (!confirmed) return;
 
@@ -362,7 +367,7 @@ const ArchivedSessionsSettingsPage: React.FC = () => {
     try {
       await sessionAPI.deleteSession(entry.session.sessionId, entry.workspaceId);
       removeEntry(entry);
-      notificationService.success(t('nav.sessions.deleteArchivedSucceeded', {
+      notificationService.success(t(sourceView ? 'nav.sessions.removedSourceSucceeded' : 'nav.sessions.deleteArchivedSucceeded', {
         name: entry.session.sessionName || t('nav.sessions.untitled'),
         workspace: workspaceScopeLabel(
           entry.workspaceName,
@@ -385,13 +390,16 @@ const ArchivedSessionsSettingsPage: React.FC = () => {
 
   const handleDeleteAll = useCallback(async () => {
     if (pendingAction || bulkDeleting || entries.length === 0) return;
+    const sourceCount = entries.filter(entry => externalHistoryFromMetadata(entry.session.customMetadata)).length;
+    const onlySources = sourceCount === entries.length;
     const workspaceCount = new Set(entries.map(entry => workspaceIdentityKey(entry.workspaceId))).size;
     const confirmed = await confirmDanger(
-      t('nav.sessions.deleteAllArchivedConfirmTitle'),
-      t('nav.sessions.deleteAllArchivedConfirmMessage', {
+      t(onlySources ? 'nav.sessions.bulkRemoveSourceConfirmTitle' : 'nav.sessions.deleteAllArchivedConfirmTitle'),
+      t(onlySources ? 'nav.sessions.bulkRemoveSourceConfirmMessage' : 'nav.sessions.deleteAllArchivedConfirmMessage', {
         count: entries.length,
         workspaceCount,
-      }),
+      }) + (sourceCount && !onlySources ? ` ${t('nav.sessions.removeSourceExplanation')}` : ''),
+      { confirmText: t(onlySources ? 'nav.sessions.removeSelected' : 'nav.sessions.deleteAllArchived') },
     );
     if (!confirmed) return;
 
@@ -424,7 +432,7 @@ const ArchivedSessionsSettingsPage: React.FC = () => {
         )));
       }
       if (failedWorkspaceCount === 0) {
-        notificationService.success(t('nav.sessions.deleteAllArchivedSucceeded', {
+        notificationService.success(t(sourceCount ? 'nav.sessions.removedSelected' : 'nav.sessions.deleteAllArchivedSucceeded', {
           count: deletedCount,
         }));
       } else if (deletedWorkspaceKeys.size > 0) {
@@ -469,7 +477,8 @@ const ArchivedSessionsSettingsPage: React.FC = () => {
           disabled={pendingAction !== null || bulkDeleting}
           loading={bulkDeleting}
         >
-          {t('nav.sessions.deleteAllArchived')}
+          {t(entries.length > 0 && entries.every(entry => !!externalHistoryFromMetadata(entry.session.customMetadata))
+            ? 'nav.sessions.removeSelected' : 'nav.sessions.deleteAllArchived')}
         </Button>
       )}
     </div>
@@ -501,7 +510,7 @@ const ArchivedSessionsSettingsPage: React.FC = () => {
           ))}
           {loading ? (
             <div data-openbitfun-component="archived-sessions-config" data-openbitfun-part="loading" className="archived-sessions-config__loading">
-              {t('nav.sessions.loading')}
+              <ConfigLoadingState label={t('nav.sessions.loading')} variant="list" />
             </div>
           ) : !hasEntries && loadFailures.length === 0 ? (
             <div data-openbitfun-component="archived-sessions-config" data-openbitfun-part="empty" className="archived-sessions-config__empty">

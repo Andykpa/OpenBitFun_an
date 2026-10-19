@@ -37,6 +37,7 @@ unsafe extern "C" {
         error: *mut c_char,
         capacity: usize,
     ) -> i32;
+    fn obf_capture_bind_revision(handle: *mut c_void, revision: u64);
     fn obf_capture_mark_input(handle: *mut c_void);
     fn obf_capture_free(bytes: *mut c_void);
     fn obf_capture_stop(handle: *mut c_void);
@@ -56,8 +57,7 @@ pub(super) struct CaptureFrame {
     pub height: u32,
     pub window_id: u32,
     pub bounds: [f64; 4],
-    pub sequence: u64,
-    pub generation: u64,
+    pub scope: openbitfun_agent_tools::computer_use_control::ObservationScope,
 }
 
 struct CaptureSession {
@@ -65,6 +65,7 @@ struct CaptureSession {
     pid: i32,
     window_id: u32,
     generation: u64,
+    target_revision: u64,
 }
 // Native state is protected by NSCondition. All Rust accesses additionally use
 // CAPTURE; AppKit presentation is explicitly dispatched to the main queue.
@@ -97,6 +98,7 @@ impl CaptureSession {
             pid,
             window_id: window_id.unwrap_or(0),
             generation,
+            target_revision: u64::MAX,
         };
         session.window_id = session.frame()?.window_id;
         Ok(session)
@@ -144,8 +146,11 @@ impl CaptureSession {
             height,
             window_id,
             bounds,
-            sequence,
-            generation: self.generation,
+            scope: openbitfun_agent_tools::computer_use_control::ObservationScope {
+                generation: self.generation,
+                target_revision: self.target_revision,
+                target: Some(format!("pid:{}/window:{}", self.pid, window_id)),
+            },
         })
     }
 }
@@ -160,6 +165,23 @@ fn capture() -> &'static Mutex<Option<CaptureSession>> {
 }
 
 pub(super) fn ensure_capture(pid: i32, mut window_id: Option<u32>) -> Result<(), String> {
+    let selected = super::control_session::snapshot();
+    if selected.sharing.is_some() {
+        let prefix = format!("pid:{pid}/window:");
+        let shared_window = selected
+            .target
+            .as_deref()
+            .and_then(|target| target.strip_prefix(&prefix))
+            .and_then(|id| id.parse::<u32>().ok())
+            .ok_or("[SHARED_TARGET_ONLY] Application was not shared by the user")?;
+        if window_id.is_some_and(|window| window != shared_window) {
+            return Err("[SHARED_TARGET_ONLY] Window was not shared by the user".into());
+        }
+        window_id = Some(shared_window);
+        super::control_session::shared_target_allowed(&format!(
+            "pid:{pid}/window:{shared_window}"
+        ))?;
+    }
     super::control_session::capture_allowed()?;
     let mut active = capture().lock().map_err(|_| "Capture lock poisoned")?;
     let generation = super::control_session::capture_token()?.generation();
@@ -169,8 +191,7 @@ pub(super) fn ensure_capture(pid: i32, mut window_id: Option<u32>) -> Result<(),
                 "CAPTURE_GENERATION_CHANGED: Previous capture cleanup is still pending".into(),
             );
         }
-        if session.pid == pid {
-            validate_bound_window(session.window_id, window_id)?;
+        if session.pid == pid && reuse_bound_window(session.window_id, window_id) {
             return session.check();
         }
         // A bad target request must not destroy a healthy stream. Resolve the
@@ -191,20 +212,21 @@ pub(super) fn ensure_capture(pid: i32, mut window_id: Option<u32>) -> Result<(),
     }
     active.take();
     super::control_session::capture_allowed()?;
-    let session = CaptureSession::start(pid, window_id)?;
+    let mut session = CaptureSession::start(pid, window_id)?;
     // Stop can race a slow permission/capture callback.
     super::control_session::capture_allowed()?;
     super::control_session::bind_target(format!("pid:{pid}/window:{}", session.window_id))?;
+    session.target_revision = super::control_session::observation_scope()?.target_revision;
+    unsafe { obf_capture_bind_revision(session.handle.as_ptr(), session.target_revision) };
+    session.check()?;
     *active = Some(session);
     Ok(())
 }
 // The sharing indicator itself may be reported as this application's front
-// window. Once selected, a window stays bound until the session is stopped.
-fn validate_bound_window(bound: u32, requested: Option<u32>) -> Result<(), String> {
-    if requested.is_some_and(|id| id != bound) {
-        return Err("TARGET_WINDOW_CHANGED: Existing capture remains active; use the bound window or start a new control session to select another window".into());
-    }
-    Ok(())
+// window. Omitted selection keeps the binding; only an explicit window ID may
+// request a replacement, validated above before the old stream is released.
+fn reuse_bound_window(bound: u32, requested: Option<u32>) -> bool {
+    requested.is_none_or(|id| id == bound)
 }
 
 pub(super) fn bound_window_id(pid: i32) -> Result<u32, String> {
@@ -228,10 +250,9 @@ pub(super) fn capture_frame(pid: i32, window_id: Option<u32>) -> Result<CaptureF
     }
     let frame = session.frame()?;
     drop(active);
-    let target = format!("pid:{pid}/window:{}", frame.window_id);
-    super::control_session::publish_rgba_generation(
-        frame.generation,
-        &target,
+    super::control_session::validate_observation_scope(&frame.scope)?;
+    super::control_session::publish_rgba(
+        &frame.scope,
         &frame.rgba,
         frame.width,
         frame.height,
@@ -296,6 +317,7 @@ pub(super) fn hide_pointer() {
 #[unsafe(no_mangle)]
 extern "C" fn obf_control_native_stopped(
     generation: u64,
+    target_revision: u64,
     pid: i32,
     window_id: u32,
     reason: *const c_char,
@@ -307,6 +329,7 @@ extern "C" fn obf_control_native_stopped(
     };
     super::control_session::native_stopped_target(
         generation,
+        target_revision,
         &format!("pid:{pid}/window:{window_id}"),
         &message,
     );
@@ -314,14 +337,12 @@ extern "C" fn obf_control_native_stopped(
 
 #[cfg(test)]
 mod tests {
-    use super::validate_bound_window;
+    use super::reuse_bound_window;
 
     #[test]
     fn sharing_badge_cannot_retarget_an_existing_window_capture() {
-        assert!(validate_bound_window(100, None).is_ok());
-        assert!(validate_bound_window(100, Some(100)).is_ok());
-        assert!(validate_bound_window(100, Some(101))
-            .unwrap_err()
-            .starts_with("TARGET_WINDOW_CHANGED:"));
+        assert!(reuse_bound_window(100, None));
+        assert!(reuse_bound_window(100, Some(100)));
+        assert!(!reuse_bound_window(100, Some(101)));
     }
 }

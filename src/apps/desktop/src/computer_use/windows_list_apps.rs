@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::Mutex;
 
-use openbitfun_core::agentic::tools::computer_use_host::AppInfo;
+use openbitfun_core::agentic::tools::computer_use_host::{AppInfo, AppWindowInfo};
 use openbitfun_core::util::errors::OpenBitFunResult;
 use windows::core::BOOL;
 use windows::Win32::Foundation::{HWND, LPARAM, TRUE};
@@ -41,6 +41,7 @@ extern "system" {
 
 /// One visible top-level window discovered during enumeration.
 struct WindowEntry {
+    hwnd: usize,
     pid: u32,
     title: String,
 }
@@ -80,6 +81,45 @@ pub(super) fn list_running_apps(_include_hidden: bool) -> OpenBitFunResult<Vec<A
 
     sort_apps_by_name(&mut apps);
     Ok(apps)
+}
+
+pub(super) fn list_share_targets() -> Vec<openbitfun_agent_tools::computer_use_control::ShareTarget>
+{
+    enumerate_windows()
+        .into_iter()
+        .map(
+            |window| openbitfun_agent_tools::computer_use_control::ShareTarget {
+                selection_id: String::new(),
+                unavailable_reason: None,
+                id: format!("pid:{}/window:{}", window.pid, window.hwnd),
+                pid: Some(window.pid as i32),
+                window_id: Some(window.hwnd as u64),
+                application: exe_basename_for_pid(window.pid)
+                    .unwrap_or_else(|| window.title.clone()),
+                title: window.title,
+                bundle_id: None,
+                background_pointer: true,
+                background_semantic: true,
+                selection_required: false,
+            },
+        )
+        .collect()
+}
+
+/// Available visible, non-minimized titled top-level windows. Unlike the app
+/// list this preserves every window of a process and its exact native handle.
+pub(super) fn list_windows() -> Vec<AppWindowInfo> {
+    enumerate_windows()
+        .into_iter()
+        .map(|window| AppWindowInfo {
+            pid: window.pid as i32,
+            window_id: window.hwnd as u64,
+            application: exe_basename_for_pid(window.pid).unwrap_or_default(),
+            title: window.title,
+            bundle_id: None,
+            is_on_screen: Some(true),
+        })
+        .collect()
 }
 
 fn sort_apps_by_name(apps: &mut [AppInfo]) {
@@ -163,7 +203,11 @@ unsafe extern "system" fn enum_windows_cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
     }
 
     if let Ok(mut s) = state.lock() {
-        s.windows.push(WindowEntry { pid, title });
+        s.windows.push(WindowEntry {
+            hwnd: hwnd.0 as usize,
+            pid,
+            title,
+        });
     }
     TRUE
 }

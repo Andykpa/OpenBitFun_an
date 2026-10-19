@@ -1,6 +1,7 @@
 import { workspaceManager } from '@/infrastructure/services/business/workspaceManager';
 import { resolveLegacySessionWorkspace } from '@/infrastructure/api/service-api/legacyWorkspaceCompatibility';
 import { projectUserQuestionTiming } from '../utils/userQuestionTiming';
+import { externalHistoryFromMetadata } from '../utils/externalHistory';
 /**
  * Flow Chat global state store
  * Prevents state loss when components remount
@@ -30,6 +31,7 @@ import {
   TokenUsage,
 } from '../types/flow-chat';
 import { createLogger } from '@/shared/utils/logger';
+import { canonicalAgentId } from '@/shared/agents/identity';
 import { optimisticTurnAdoptionKey } from '../utils/optimisticTurnAdoption';
 import {
   isRemoteTraceContext,
@@ -75,7 +77,7 @@ import {
   type SessionInfo as AgentSessionInfo,
   type SessionViewRestoreTiming,
 } from '@/infrastructure/api/service-api/AgentAPI';
-import type { SessionMetadataPage } from '@/infrastructure/api/service-api/SessionAPI';
+import type { SessionCatalogQuery, SessionMetadataPage } from '@/infrastructure/api/service-api/SessionAPI';
 import {
   deriveLastFinishedAtFromMetadata,
   deriveSessionRelationshipFromMetadata,
@@ -129,6 +131,15 @@ import {
 } from '../utils/flowChatTurnIdentity';
 
 const log = createLogger('FlowChatStore');
+
+/**
+ * Records that can own a pre-ID session projection. A linked worktree may be
+ * known to the host without being opened, so recent records are candidates too.
+ */
+function legacySessionWorkspaceCandidates(): WorkspaceInfo[] {
+  const state = workspaceManager.getState();
+  return [...state.openedWorkspaces.values(), ...(state.recentWorkspaces ?? [])];
+}
 
 function firstNonEmptyString(...values: unknown[]): string | undefined {
   for (const value of values) {
@@ -328,18 +339,6 @@ function sameDispatchTargetIdentity(
   }
 }
 
-// Retired built-in ids remain readable for historical sessions and older peer
-// hosts; new-session selection filters them from the current Agent catalog.
-const VALID_AGENT_TYPES = new Set([
-  'Standard',
-  'Multitask',
-  'debug',
-  'Plan',
-  'Cowork',
-  'Claw',
-  'DeepResearch',
-  'Ultimate',
-]);
 const METADATA_LIST_RECENT_DEDUPE_TTL_MS = 1000;
 const HISTORICAL_SESSION_INITIAL_REMOTE_TAIL_TURN_COUNT = 3;
 const HISTORICAL_SESSION_INITIAL_LOCAL_TAIL_TURN_COUNT = 3;
@@ -1896,8 +1895,9 @@ function restoreCommandSupportKey(
   );
 }
 
-function isValidPersistedAgentType(agentType: string): boolean {
-  return VALID_AGENT_TYPES.has(agentType) || agentType.startsWith('acp:');
+/** Decode built-in aliases without replacing custom, external, or retired bindings. */
+function resolveRestoredAgentType(...agentTypes: (string | null | undefined)[]): string {
+  return canonicalAgentId(firstNonEmptyString(...agentTypes)?.trim() || 'Standard');
 }
 
 interface SelectorListener<T = any> {
@@ -3890,6 +3890,9 @@ export class FlowChatStore {
       );
       remainingBefore = startIndex;
 
+      const restoredAgentType = resolveRestoredAgentType(
+        projection.restoredSessionInfo?.agentType, session.mode, session.config.agentType,
+      );
       const newSessions = new Map(prev.sessions);
       newSessions.set(sessionId, {
         ...session,
@@ -3899,7 +3902,8 @@ export class FlowChatStore {
         totalTurnCount,
         contextRestoreState:
           session.contextRestoreState === 'ready' ? 'ready' : projection.contextRestoreState,
-        mode: projection.restoredSessionInfo?.agentType || session.mode,
+        config: { ...session.config, agentType: restoredAgentType },
+        mode: restoredAgentType,
         lastUserDialogMode: projection.restoredLastUserDialogMode,
         lastSubmittedMode:
           projection.restoredSessionInfo?.lastSubmittedAgentType ?? session.lastSubmittedMode,
@@ -3978,6 +3982,9 @@ export class FlowChatStore {
         (count, turn) => count + (currentDialogTurnsById.get(turn.id) === turn ? 1 : 0),
         0,
       );
+      const restoredAgentType = resolveRestoredAgentType(
+        projection.restoredSessionInfo?.agentType, session.mode, session.config.agentType,
+      );
       const newSessions = new Map(prev.sessions);
       newSessions.set(sessionId, {
         ...session,
@@ -3991,7 +3998,8 @@ export class FlowChatStore {
         ),
         contextRestoreState:
           session.contextRestoreState === 'ready' ? 'ready' : projection.contextRestoreState,
-        mode: projection.restoredSessionInfo?.agentType || session.mode,
+        config: { ...session.config, agentType: restoredAgentType },
+        mode: restoredAgentType,
         lastUserDialogMode: projection.restoredLastUserDialogMode,
         lastSubmittedMode:
           projection.restoredSessionInfo?.lastSubmittedAgentType ?? session.lastSubmittedMode,
@@ -4660,12 +4668,12 @@ export class FlowChatStore {
     });
   }
 
-  public updateSessionModelName(sessionId: string, modelName: string): void {
+  public updateSessionModelName(sessionId: string, modelName: string | undefined): void {
     this.setState(prev => {
       const session = prev.sessions.get(sessionId);
       if (!session) return prev;
 
-      const normalizedModelName = modelName.trim() || 'primary';
+      const normalizedModelName = modelName === undefined ? undefined : modelName.trim() || 'primary';
       if (session.config.modelName?.trim() === normalizedModelName) {
         return prev;
       }
@@ -5357,53 +5365,36 @@ export class FlowChatStore {
   }
 
   public async deleteSession(sessionId: string, options?: RemoveSessionOptions): Promise<void> {
+    const scope = getActiveSurfaceScope();
     const sessionIdsToDelete = this.getCascadeSessionIds(sessionId);
     if (sessionIdsToDelete.length === 0) {
       return;
     }
-    if (options) {
-      this.pendingRemoveSessionOptions.set(sessionId, options);
-    }
-
-    const { stateMachineManager } = await import('../state-machine');
-    sessionIdsToDelete.forEach(id => {
-      stateMachineManager.delete(id);
-    });
-
+    const pendingOptions = this.pendingRemoveSessionOptions;
+    if (options) pendingOptions.set(sessionId, options);
     try {
-      const { agentAPI } = await import('@/infrastructure/api/service-api/AgentAPI');
-      const deleteResults = await Promise.allSettled(
-        sessionIdsToDelete.map(async id => {
-          const sess = this.state.sessions.get(id);
-          if (sess?.draft?.phase === 'editing') return;
-          const workspacePath = sess ? sessionProjectWorkspacePath(sess) : undefined;
-          if (!workspacePath) {
+      // Children are ordered before their owner. A failed child must keep its
+      // parent, and a rejected mutation must keep the session and its drafts.
+      for (const id of sessionIdsToDelete) {
+        scope.assertCurrent('delete session');
+        const sess = this.state.sessions.get(id);
+        if (sess?.draft?.phase !== 'editing') {
+          if (!sess || !sessionProjectWorkspacePath(sess)) {
             throw new Error(`Workspace path not found for session ${id}`);
           }
-
-          await agentAPI.deleteSession(
-            id,
-            this.sessionHistoryWorkspaceId(id)
-          );
-        })
-      );
-
-      deleteResults.forEach((result, index) => {
-        if (result.status === 'rejected') {
-          log.error('Failed to delete session on backend', {
-            sessionId: sessionIdsToDelete[index],
-            error: result.reason,
-          });
+          await agentAPI.deleteSession(id, this.sessionHistoryWorkspaceId(id));
+          scope.assertCurrent('complete session deletion');
         }
-      });
-    } catch (error) {
-      log.error('Failed to delete session on backend', { sessionId, error });
+        stateMachineManager.delete(id);
+        const removedIds = this.removeSession(id, id === sessionId ? options : undefined);
+        // A host deletion event may already have removed the presentation.
+        const confirmedIds = [...new Set([id, ...removedIds])];
+        sessionComposerStore.getState().removeDrafts(confirmedIds);
+        askUserQuestionDraftStore.getState().removeSessionDrafts(confirmedIds);
+      }
+    } finally {
+      pendingOptions.delete(sessionId);
     }
-
-    const removedSessionIds = this.removeSession(sessionId, options);
-    sessionComposerStore.getState().removeDrafts(removedSessionIds);
-    askUserQuestionDraftStore.getState().removeSessionDrafts(removedSessionIds);
-    this.pendingRemoveSessionOptions.delete(sessionId);
   }
 
   public removeSession(sessionId: string, options?: RemoveSessionOptions): string[] {
@@ -6779,7 +6770,7 @@ export class FlowChatStore {
   public rollbackTokenUsage(): void {
   }
 
-  public updateSessionMaxContextTokens(sessionId: string, maxContextTokens: number): void {
+  public updateSessionMaxContextTokens(sessionId: string, maxContextTokens: number | undefined): void {
     this.setState(prev => {
       const session = prev.sessions.get(sessionId);
       if (!session) return prev;
@@ -6873,7 +6864,8 @@ export class FlowChatStore {
     let didClear = false;
     // Explicit acknowledgement also works before the transcript is hydrated.
     // Bind it to the host summary so a later status refresh cannot restore it.
-    const acknowledgedSummaryTurn = sessionActivityStore.get(sessionId)?.summary?.lastTurn;
+    const summary = sessionActivityStore.get(sessionId)?.summary;
+    const acknowledgedSummaryTurn = summary?.unreadTurn ?? summary?.lastTurn;
     this.setState(prev => {
       const session = prev.sessions.get(sessionId);
       if (!session || !session.hasUnreadCompletion) return prev;
@@ -6920,8 +6912,9 @@ export class FlowChatStore {
     this.setState(prev => {
       const session = prev.sessions.get(summary.sessionId);
       if (!session || session.config.dispatchJobId) return prev;
-      const turnId = summary.unreadCompletion ? summary.lastTurn?.turnId : undefined;
-      const generation = summary.unreadCompletion ? summary.lastTurn?.executionGeneration : undefined;
+      const unreadTurn = summary.unreadTurn ?? summary.lastTurn;
+      const turnId = summary.unreadCompletion ? unreadTurn?.turnId : undefined;
+      const generation = summary.unreadCompletion ? unreadTurn?.executionGeneration : undefined;
       if (session.hasUnreadCompletion === summary.unreadCompletion && session.unreadCompletionTurnId === turnId
         && session.unreadCompletionGeneration === generation) return prev;
       const sessions = new Map(prev.sessions);
@@ -7337,7 +7330,9 @@ export class FlowChatStore {
         scope.assertCurrent('processPersistedSessionMetadata');
         const existingSession = this.state.sessions.get(metadata.sessionId);
         if ((existingSession?.workspaceId || existingSession?.config.workspaceId)
-          && !(existingSession?.sessionKind === 'subagent' && existingSession.continuationPolicy === undefined)) {
+          && !(existingSession?.sessionKind === 'subagent' && existingSession.continuationPolicy === undefined)
+          && !existingSession?.externalHistory && !existingSession?.externalBranchOf
+          && !metadata.customMetadata?.externalHistoryMode && !metadata.customMetadata?.externalBranchOf) {
           return;
         }
         if (!includeArchived && metadata.status === 'archived') {
@@ -7365,14 +7360,15 @@ export class FlowChatStore {
           }
         }
 
+        const legacyRecords = legacySessionWorkspaceCandidates();
         const workspaceId = metadata.workspaceId ?? resolveLegacySessionWorkspace({
           workspacePath: metadata.workspacePath || workspacePath,
           projectWorkspacePath: metadata.projectWorkspacePath,
           remoteConnectionId, remoteSshHost,
-        }, [...workspaceManager.getState().openedWorkspaces.values()])?.id;
+        }, legacyRecords)?.id;
         const projectWorkspaceId = metadata.projectWorkspaceId ?? resolveLegacySessionWorkspace({
           workspacePath: metadata.projectWorkspacePath || workspacePath, remoteConnectionId, remoteSshHost,
-        }, [...workspaceManager.getState().openedWorkspaces.values()])?.id;
+        }, legacyRecords)?.id;
         const relationship = deriveSessionRelationshipFromMetadata(metadata);
         const lastFinishedAt = deriveLastFinishedAtFromMetadata(metadata);
         const titleState = deriveSessionTitleStateFromMetadata(metadata);
@@ -7389,15 +7385,22 @@ export class FlowChatStore {
           const existing = prev.sessions.get(metadata.sessionId);
           if (existing) {
             const continuationPolicy = existing.continuationPolicy ?? relationship.continuationPolicy;
+            const importedSource = metadata.customMetadata?.importedFrom ?? existing.importedSource;
+            const externalHistory = externalHistoryFromMetadata(metadata.customMetadata);
+            const externalBranchOf = metadata.customMetadata?.externalBranchOf;
+            const followedFields = externalHistory ? { ...titleState, lastActiveAt: metadata.lastActiveAt } : {};
             if (existing.workspaceId || existing.config.workspaceId || !workspaceId) {
-              if (continuationPolicy === existing.continuationPolicy) return prev;
+              if (continuationPolicy === existing.continuationPolicy && importedSource === existing.importedSource
+                && (!externalHistory || (existing.title === titleState.title && existing.lastActiveAt === metadata.lastActiveAt))
+                && JSON.stringify(externalHistory) === JSON.stringify(existing.externalHistory)
+                && JSON.stringify(externalBranchOf) === JSON.stringify(existing.externalBranchOf)) return prev;
               const sessions = new Map(prev.sessions);
-              sessions.set(metadata.sessionId, { ...existing, continuationPolicy });
+              sessions.set(metadata.sessionId, { ...existing, ...followedFields, continuationPolicy, importedSource, externalHistory, externalBranchOf });
               return { ...prev, sessions };
             }
             const sessions = new Map(prev.sessions);
             sessions.set(metadata.sessionId, {
-              ...existing, workspaceId, projectWorkspaceId, continuationPolicy,
+              ...existing, ...followedFields, workspaceId, projectWorkspaceId, continuationPolicy, importedSource, externalHistory, externalBranchOf,
               workspacePath: metadata.workspacePath || workspacePath,
               projectWorkspacePath: metadata.projectWorkspacePath || workspacePath,
               ...remoteScope,
@@ -7410,15 +7413,10 @@ export class FlowChatStore {
             return { ...prev, sessions };
           }
 
-          const rawAgentType = metadata.agentType || 'Standard';
-          const validatedAgentType = isValidPersistedAgentType(rawAgentType) ? rawAgentType : 'Standard';
-          const restoredCurrentTokenUsage = isAcpAgentType(validatedAgentType)
+          const restoredAgentType = resolveRestoredAgentType(metadata.agentType);
+          const restoredCurrentTokenUsage = isAcpAgentType(restoredAgentType)
             ? undefined
             : deriveRestoredCurrentTokenUsage(persistedCurrentContextUsage);
-
-          if (rawAgentType !== validatedAgentType) {
-            log.warn('Invalid agentType, falling back to agentic', { sessionId: metadata.sessionId, rawAgentType, validatedAgentType });
-          }
 
           const session: Session = {
             sessionId: metadata.sessionId,
@@ -7432,8 +7430,12 @@ export class FlowChatStore {
             dialogTurns: [],
             status: 'idle',
             persistedStatus: metadata.status,
+            persistedTurnCount: metadata.turnCount,
+            importedSource: metadata.customMetadata?.importedFrom,
+            externalHistory: externalHistoryFromMetadata(metadata.customMetadata),
+            externalBranchOf: metadata.customMetadata?.externalBranchOf,
             config: {
-              agentType: validatedAgentType,
+              agentType: restoredAgentType,
               modelName: metadata.modelName,
               workspaceId, projectWorkspaceId,
               workspacePath: metadata.workspacePath || workspacePath,
@@ -7449,7 +7451,7 @@ export class FlowChatStore {
             todos: (metadata as any).todos || [],
             maxContextTokens,
             currentTokenUsage: restoredCurrentTokenUsage,
-            mode: validatedAgentType,
+            mode: restoredAgentType,
             lastUserDialogMode: metadata.lastUserDialogAgentType,
             lastSubmittedMode: metadata.lastSubmittedAgentType,
             workspacePath: (metadata as any).workspacePath || workspacePath,
@@ -7522,10 +7524,11 @@ export class FlowChatStore {
   public async ensurePersistedSessionMetadata(
     sessionId: string,
     workspaceId: string,
+    force = false,
   ): Promise<boolean> {
     const scope = getActiveSurfaceScope();
     const existing = this.state.sessions.get(sessionId);
-    if ((existing?.workspaceId || existing?.config.workspaceId)
+    if (!force && (existing?.workspaceId || existing?.config.workspaceId)
       && !(existing?.sessionKind === 'subagent' && existing.continuationPolicy === undefined)) {
       return true;
     }
@@ -7552,15 +7555,16 @@ export class FlowChatStore {
     workspaceId: string,
     limit: number,
     cursor?: string,
-    traceSource = 'unknown'
+    traceSource = 'unknown',
+    options?: { fresh?: boolean; query?: SessionCatalogQuery },
   ): Promise<SessionMetadataPage> {
     const { remoteConnectionId, remoteSshHost } = this.workspaceForId(workspaceId);
     const requestKey = this.getMetadataPageRequestKey(
       workspaceId, limit, cursor,
-    );
+    ) + JSON.stringify(options?.query ?? null);
     const existingRequest = this.metadataPageRequests.get(requestKey);
     const remote = isRemoteTraceContext(remoteConnectionId, remoteSshHost);
-    if (existingRequest) {
+    if (existingRequest && !options?.fresh) {
       const completedAtMs = existingRequest.completedAtMs;
       const isRecentCompletedRequest =
         completedAtMs !== undefined &&
@@ -7576,15 +7580,15 @@ export class FlowChatStore {
         });
         return existingRequest.promise;
       }
+    }
 
-      if (existingRequest.cleanupTimer) {
-        clearTimeout(existingRequest.cleanupTimer);
-      }
+    if (existingRequest) {
+      if (existingRequest.cleanupTimer) clearTimeout(existingRequest.cleanupTimer);
       this.metadataPageRequests.delete(requestKey);
     }
 
     const loadPromise = this.loadSessionMetadataPageUncached(
-      workspaceId, limit, cursor, traceSource,
+      workspaceId, limit, cursor, traceSource, options?.query,
     );
 
     const request: MetadataPageRequest = { promise: loadPromise };
@@ -7617,7 +7621,8 @@ export class FlowChatStore {
     workspaceId: string,
     limit: number,
     cursor?: string,
-    traceSource = 'unknown'
+    traceSource = 'unknown',
+    query?: SessionCatalogQuery,
   ): Promise<SessionMetadataPage> {
     const { workspacePath, remoteConnectionId, remoteSshHost } = this.workspaceForId(workspaceId);
     const activityScope = getActiveSurfaceScope();
@@ -7662,6 +7667,7 @@ export class FlowChatStore {
         });
         const pagePromise = sessionAPI.listSessionsPage({
           workspaceId, limit, cursor,
+          ...(query ? { query } : {}),
         });
         modelConfigPromise = this.loadSessionMetadataModelConfig();
         page = await pagePromise;
@@ -7837,14 +7843,15 @@ export class FlowChatStore {
             }
           }
 
+          const legacyRecords = legacySessionWorkspaceCandidates();
           const workspaceId = metadata.workspaceId ?? resolveLegacySessionWorkspace({
           workspacePath: metadata.workspacePath || workspacePath,
           projectWorkspacePath: metadata.projectWorkspacePath,
           remoteConnectionId, remoteSshHost,
-        }, [...workspaceManager.getState().openedWorkspaces.values()])?.id;
+        }, legacyRecords)?.id;
         const projectWorkspaceId = metadata.projectWorkspaceId ?? resolveLegacySessionWorkspace({
           workspacePath: metadata.projectWorkspacePath || workspacePath, remoteConnectionId, remoteSshHost,
-        }, [...workspaceManager.getState().openedWorkspaces.values()])?.id;
+        }, legacyRecords)?.id;
         const relationship = deriveSessionRelationshipFromMetadata(metadata);
           const lastFinishedAt = deriveLastFinishedAtFromMetadata(metadata);
           const titleState = deriveSessionTitleStateFromMetadata(metadata);
@@ -7861,15 +7868,10 @@ export class FlowChatStore {
               return prev;
             }
 
-            const rawAgentType = metadata.agentType || 'Standard';
-            const validatedAgentType = isValidPersistedAgentType(rawAgentType) ? rawAgentType : 'Standard';
-            const restoredCurrentTokenUsage = isAcpAgentType(validatedAgentType)
+            const restoredAgentType = resolveRestoredAgentType(metadata.agentType);
+            const restoredCurrentTokenUsage = isAcpAgentType(restoredAgentType)
               ? undefined
               : deriveRestoredCurrentTokenUsage(persistedCurrentContextUsage);
-
-            if (rawAgentType !== validatedAgentType) {
-              log.warn('Invalid agentType, falling back to agentic', { sessionId: metadata.sessionId, rawAgentType, validatedAgentType });
-            }
 
             const session: Session = {
               sessionId: metadata.sessionId,
@@ -7883,8 +7885,12 @@ export class FlowChatStore {
               dialogTurns: [],
               status: 'idle',
               persistedStatus: metadata.status,
+              persistedTurnCount: metadata.turnCount,
+              importedSource: metadata.customMetadata?.importedFrom,
+              externalHistory: externalHistoryFromMetadata(metadata.customMetadata),
+              externalBranchOf: metadata.customMetadata?.externalBranchOf,
               config: {
-                agentType: validatedAgentType,
+                agentType: restoredAgentType,
                 modelName: metadata.modelName,
               workspaceId, projectWorkspaceId,
                 workspacePath: metadata.workspacePath || workspacePath,
@@ -7900,7 +7906,7 @@ export class FlowChatStore {
               todos: (metadata as any).todos || [],
               maxContextTokens,
               currentTokenUsage: restoredCurrentTokenUsage,
-              mode: validatedAgentType,
+              mode: restoredAgentType,
               lastUserDialogMode: metadata.lastUserDialogAgentType,
               lastSubmittedMode: metadata.lastSubmittedAgentType,
               workspacePath: (metadata as any).workspacePath || workspacePath,
@@ -8011,6 +8017,23 @@ export class FlowChatStore {
         sessions: newSessions,
       };
     });
+  }
+
+  /** A reader recovery always reads the owning host; it never starts a dialog turn. */
+  public async synchronizeSessionHistory(sessionId: string, shouldApply?: () => boolean): Promise<PeerSessionSnapshotRefreshResult> {
+    const session = this.state.sessions.get(sessionId);
+    if (session?.config.dispatchJobId) {
+      throw new Error('Detached history synchronization requires the target event replay and cannot use controller storage');
+    }
+    const result = await this.refreshPeerSessionSnapshot(sessionId, {
+      requireActiveSession: true,
+      shouldApply,
+      shouldReplayRuntimeSnapshot: () => false,
+    });
+    if (!result.applied && shouldApply?.() !== false && this.state.sessions.get(sessionId) !== session) {
+      throw new Error('Session history changed during source synchronization');
+    }
+    return result;
   }
 
   /**
@@ -8190,8 +8213,9 @@ export class FlowChatStore {
       const turnCatalog = restored.turnCatalog?.sessionId === sessionId
         ? selectPreferredTurnCatalog(session.turnCatalog, restored.turnCatalog)
         : session.turnCatalog;
-      const restoredAgentType =
-        restored.session.agentType || session.mode || session.config.agentType;
+      const restoredAgentType = resolveRestoredAgentType(
+        restored.session.agentType, session.mode, session.config.agentType,
+      );
       const currentTokenUsage = reconcileRestoreViewCurrentTokenUsage(
         session.currentTokenUsage,
         restored.currentContextUsage,
@@ -8203,6 +8227,7 @@ export class FlowChatStore {
         !turnsChanged
         && turnCatalog === session.turnCatalog
         && restoredAgentType === session.mode
+        && restoredAgentType === session.config.agentType
         && currentTokenUsage === session.currentTokenUsage
       ) {
         return prev;
@@ -8228,6 +8253,7 @@ export class FlowChatStore {
         turnCatalog,
         config: {
           ...session.config,
+          agentType: restoredAgentType,
           ...(restored.session.modelName
             ? { modelName: restored.session.modelName }
             : {}),
@@ -8462,6 +8488,8 @@ export class FlowChatStore {
       limit?: number;
       includeInternal?: boolean;
       deferFullHistoryUntilActive?: boolean;
+      /** A background source refresh must not replace a view after drafting starts. */
+      shouldApply?: () => boolean;
     }
   ): Promise<void> {
     const traceStartedAt = nowMs();
@@ -8525,6 +8553,12 @@ export class FlowChatStore {
       return;
     }
     if (scope.surfaceId !== 'local') {
+      if (initialSession?.externalHistory?.mode === 'follow') {
+        // Relay history has its own cursor/version contract. Until it can pin
+        // immutable source snapshots, do not silently project a stale source.
+        this.setSessionHistoryState(sessionId, 'failed');
+        throw new Error(i18nService.t('flow-chat:externalHistory.unsupportedSurface'));
+      }
       this.setSessionHistoryState(sessionId, 'hydrating');
       await this.loadRelaySessionHistory(sessionId);
       scope.assertCurrent('load relay session history');
@@ -8538,6 +8572,7 @@ export class FlowChatStore {
       initialSession.historyState === 'metadata-only';
     let hydratingStateNotified = false;
     const notifyHydratingState = (): void => {
+      if (options?.shouldApply) return;
       if (suppressInitialHydratingState) {
         return;
       }
@@ -8730,6 +8765,7 @@ export class FlowChatStore {
       // machine they are about to drive is shared, so a stale hydrate must stop
       // here rather than commit into whichever surface is rendered now.
       scope.assertCurrent('loadSessionHistory');
+      if (options?.shouldApply && !options.shouldApply()) return;
       // A local restore may have started just before the observer bound this
       // session. Re-check ownership after every restore await and before any
       // commit or state-machine mutation so that late empty history cannot
@@ -8822,8 +8858,9 @@ export class FlowChatStore {
         const session = prev.sessions.get(sessionId);
         if (!session) return prev;
 
-        const restoredAgentType =
-          restoredSessionInfo?.agentType || session.mode || session.config.agentType;
+        const restoredAgentType = resolveRestoredAgentType(
+          restoredSessionInfo?.agentType, session.mode, session.config.agentType,
+        );
         const mergedTurns = dialogTurns.map(loaded => {
           const existing = session.dialogTurns.find(turn => turn.id === loaded.id);
           // Disk hydrate is the persisted record, so the same ownership rule
@@ -8856,6 +8893,7 @@ export class FlowChatStore {
           error: null,
           config: {
             ...session.config,
+            agentType: restoredAgentType,
             ...(restoredSessionInfo?.modelName
               ? { modelName: restoredSessionInfo.modelName }
               : {}),
@@ -9115,6 +9153,8 @@ export class FlowChatStore {
               id: tool.id,
               type: 'tool' as const,
               toolName: tool.toolName,
+              importedSource: metadata?.importedFrom === 'codex' || metadata?.importedFrom === 'zcode'
+                ? metadata.importedFrom : undefined,
               toolCall: tool.toolCall,
               interruptionReason: normalizePersistedToolInterruptionReason(
                 tool.interruptionReason,

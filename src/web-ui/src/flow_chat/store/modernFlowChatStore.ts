@@ -13,8 +13,10 @@ import { flowChatStore } from './FlowChatStore';
 import { getTurnCompletionNotice } from '../utils/turnCompletionNotice';
 import { createAbsoluteSessionTurnIndexResolver } from '../utils/flowChatTurnOrdinal';
 import { collectCanvasArtifactToolItems } from '../utils/canvasArtifactPresentation';
+import { getTurnOutputDurationMs } from '../utils/turnUsageMetrics';
 import { projectAdjacentFlowGroups } from '../grouping/groupProjection';
 import { hasModelRoundNarrative } from '../grouping/roundGroups';
+import { isSuppressedBackgroundTurn } from '../utils/backgroundDelivery';
 
 import type { VirtualItem } from '../types/flow-chat-projection';
 export type { VirtualItem } from '../types/flow-chat-projection';
@@ -113,10 +115,11 @@ let cachedDialogTurnsRef: DialogTurn[] | null = null;
 let cachedTurnCatalogRef: Session['turnCatalog'] | undefined;
 let cachedIsPartial: boolean | undefined;
 let cachedTotalTurnCount: number | undefined;
+let cachedNeedsUserAttention: Session['needsUserAttention'];
 let cachedVirtualItems: VirtualItem[] = [];
 let cachedTurnItems = new WeakMap<
   DialogTurn,
-  { items: VirtualItem[]; hasNewerDialogTurn: boolean; absoluteTurnIndex: number }
+  { items: VirtualItem[]; hasNewerDialogTurn: boolean; absoluteTurnIndex: number; backgroundCollapsed?: boolean }
 >();
 
 /**
@@ -147,7 +150,7 @@ export function sessionToVirtualItems(session: Session | null): VirtualItem[] {
     cachedDialogTurnsRef === session.dialogTurns &&
     cachedTurnCatalogRef === session.turnCatalog &&
     cachedIsPartial === session.isPartial &&
-    cachedTotalTurnCount === session.totalTurnCount
+    cachedTotalTurnCount === session.totalTurnCount && cachedNeedsUserAttention === session.needsUserAttention
   ) {
     return cachedVirtualItems;
   }
@@ -157,6 +160,7 @@ export function sessionToVirtualItems(session: Session | null): VirtualItem[] {
   cachedTurnCatalogRef = session.turnCatalog;
   cachedIsPartial = session.isPartial;
   cachedTotalTurnCount = session.totalTurnCount;
+  cachedNeedsUserAttention = session.needsUserAttention;
 
   const items: VirtualItem[] = [];
   const resolveAbsoluteTurnIndex = createAbsoluteSessionTurnIndexResolver(session);
@@ -164,13 +168,20 @@ export function sessionToVirtualItems(session: Session | null): VirtualItem[] {
   session.dialogTurns.forEach((turn, turnIndex) => {
     const hasNewerDialogTurn = turnIndex < session.dialogTurns.length - 1;
     const absoluteTurnIndex = resolveAbsoluteTurnIndex(turnIndex);
+    const backgroundCollapsed = isSuppressedBackgroundTurn(turn) && !session.needsUserAttention;
     const cachedItems = cachedTurnItems.get(turn);
     if (
       cachedItems &&
       cachedItems.hasNewerDialogTurn === hasNewerDialogTurn &&
-      cachedItems.absoluteTurnIndex === absoluteTurnIndex
+      cachedItems.absoluteTurnIndex === absoluteTurnIndex && Boolean(cachedItems.backgroundCollapsed) === Boolean(backgroundCollapsed)
     ) {
       items.push(...cachedItems.items);
+      return;
+    }
+    if (backgroundCollapsed) {
+      const backgroundItems: VirtualItem[] = [{ type: 'background-run', data: turn.userMessage, turn, turnId: turn.id, absoluteTurnIndex, turnStatus: turn.status }];
+      items.push(...backgroundItems);
+      if (isStableTurnProjection(turn)) cachedTurnItems.set(turn, { items: backgroundItems, hasNewerDialogTurn, absoluteTurnIndex, backgroundCollapsed: true });
       return;
     }
     const turnItemStart = items.length;
@@ -251,6 +262,7 @@ export function sessionToVirtualItems(session: Session | null): VirtualItem[] {
     });
     
     const isTurnComplete = turn.status === 'completed' || turn.status === 'cancelled' || turn.status === 'error';
+    const turnOutputDurationMs = getTurnOutputDurationMs(turn.modelRounds);
     const canvasArtifactItems = collectCanvasArtifactToolItems(turn.modelRounds);
     const canvasAttachmentHostRoundId = [...renderEntries]
       .reverse()
@@ -283,6 +295,7 @@ export function sessionToVirtualItems(session: Session | null): VirtualItem[] {
           turnDurationMs: typeof turn.endTime === 'number'
             ? Math.max(0, turn.endTime - turn.startTime)
             : undefined,
+          turnOutputDurationMs,
           turnTokenUsage: turn.tokenUsage,
           canvasArtifactItems: isTurnComplete && round.id === canvasAttachmentHostRoundId
             ? canvasArtifactItems

@@ -391,6 +391,10 @@ pub struct AppSelector {
     pub bundle_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pid: Option<i32>,
+    /// Exact native window from `list_windows`. Requires its owning PID and a
+    /// host advertising `window-target-v1`; never silently ignore this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_id: Option<u64>,
 }
 
 impl AppSelector {
@@ -400,6 +404,7 @@ impl AppSelector {
             name: Some(name.into()),
             bundle_id: None,
             pid: None,
+            window_id: None,
         }
     }
 
@@ -409,6 +414,7 @@ impl AppSelector {
             name: None,
             bundle_id: None,
             pid: Some(pid),
+            window_id: None,
         }
     }
 
@@ -418,13 +424,41 @@ impl AppSelector {
             name: None,
             bundle_id: Some(bundle_id.into()),
             pid: None,
+            window_id: None,
         }
     }
 
     /// True when no selector field is populated.
     pub fn is_empty(&self) -> bool {
-        self.name.is_none() && self.bundle_id.is_none() && self.pid.is_none()
+        self.name.is_none()
+            && self.bundle_id.is_none()
+            && self.pid.is_none()
+            && self.window_id.is_none()
     }
+
+    pub fn validate_window_target(&self) -> Result<(), &'static str> {
+        if self.window_id.is_some()
+            && (self.window_id == Some(0) || !self.pid.is_some_and(|pid| pid > 0))
+        {
+            return Err("[INVALID_PARAMS] window_id requires a positive owning pid and a positive window_id from list_windows");
+        }
+        Ok(())
+    }
+}
+
+/// Read-only native window discovery, independent of AX content and of the
+/// application launcher's identity. Discovery does not select or activate it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AppWindowInfo {
+    pub pid: i32,
+    pub window_id: u64,
+    pub application: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundle_id: Option<String>,
+    /// Native visibility fact, not a guarantee that capture or input works.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_on_screen: Option<bool>,
 }
 
 /// One running application, returned by `ComputerUseHost::list_apps`.
@@ -620,6 +654,10 @@ fn normalize_windows_key(token: &str) -> String {
 /// `app_*` mutation so the model can verify changes in one round-trip.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AppStateSnapshot {
+    /// Opaque node address-space identity. Echo on subsequent input; unlike the
+    /// content digest this changes even when two observations look identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observation_id: Option<String>,
     /// Identity of the captured application.
     pub app: AppInfo,
     /// Title of the focused window when `focus_window_only=true`, else
@@ -639,13 +677,10 @@ pub struct AppStateSnapshot {
     pub digest: String,
     /// Unix-epoch milliseconds when the snapshot was captured.
     pub captured_at_ms: u64,
-    /// **Auto-attached** focused-window screenshot (Codex parity). The host
-    /// captures the visible pixels of the target app's frontmost window
-    /// every time `get_app_state` (or any `app_*` mutation) returns, so
-    /// the model is never blind on canvas / WebView / WebGL surfaces that
-    /// the AX tree cannot describe (e.g. the Gobang board). `None` only
-    /// when the host explicitly opted out (e.g. inner `app_wait_for`
-    /// polls) or the capture itself failed.
+    /// Optional focused-window screenshot. Existing observations include pixels
+    /// by default; explicit AX-only reads and internal polling omit them. Capture
+    /// failure can also leave this absent. Canvas and visual decisions need a
+    /// fresh image-bearing observation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub screenshot: Option<ComputerScreenshot>,
     /// Optional per-snapshot warning emitted by the host when it detects
@@ -758,6 +793,9 @@ fn default_true() -> bool {
 /// `ComputerUseHost::build_interactive_view`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InteractiveView {
+    /// Node/view address space from the underlying application observation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observation_id: Option<String>,
     /// Identity of the captured application.
     pub app: AppInfo,
     /// Title of the focused window (or `None` when the host could not
@@ -946,6 +984,9 @@ pub struct VisualMark {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct VisualMarkView {
+    /// Node/view address space from the underlying application observation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observation_id: Option<String>,
     pub app: AppInfo,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window_title: Option<String>,
@@ -1141,15 +1182,140 @@ impl AppInputAction {
     }
     pub fn validate(&self) -> Result<(), String> {
         match self {
-            Self::Click {click_count, mouse_button, ..} if !(1..=3).contains(click_count) || !matches!(mouse_button.as_str(), "left"|"right"|"middle") => Err("click_count must be 1..3 and mouse_button must be left/right/middle".into()),
-            Self::KeyChord {keys, ..} if keys.is_empty() || keys.iter().any(|key| key.trim().is_empty()) => Err("keys must contain non-empty key names".into()),
-            Self::Drag {from, to, ..} if !matches!((from, to), (
-                ClickTarget::ImageXy {x:x0,y:y0,screenshot_id:Some(a)},
-                ClickTarget::ImageXy {x:x1,y:y1,screenshot_id:Some(b)}
-            ) if *x0 >= 0 && *y0 >= 0 && *x1 >= 0 && *y1 >= 0 && !a.is_empty() && a == b) => Err("drag endpoints must use nonnegative image_xy coordinates from the same screenshot_id".into()),
-            Self::Drag {mouse_button, duration_ms, ..} if !matches!(mouse_button.as_str(), "left"|"right"|"middle") || *duration_ms == 0 => Err("drag requires a valid button and positive duration_ms".into()),
+            Self::Click {
+                click_count,
+                mouse_button,
+                ..
+            } if !(1..=3).contains(click_count)
+                || !matches!(mouse_button.as_str(), "left" | "right" | "middle") =>
+            {
+                return Err(
+                    "click_count must be 1..3 and mouse_button must be left/right/middle".into(),
+                );
+            }
+            Self::KeyChord { keys, .. }
+                if keys.is_empty() || keys.iter().any(|key| key.trim().is_empty()) =>
+            {
+                return Err("keys must contain non-empty key names".into());
+            }
+            Self::Drag {
+                from,
+                to,
+                mouse_button,
+                duration_ms,
+            } => {
+                if !matches!((from, to), (
+                    ClickTarget::ImageXy { screenshot_id: Some(a), .. },
+                    ClickTarget::ImageXy { screenshot_id: Some(b), .. }
+                ) if a == b)
+                {
+                    return Err(
+                        "drag endpoints must use image_xy coordinates from the same screenshot_id"
+                            .into(),
+                    );
+                }
+                if !matches!(mouse_button.as_str(), "left" | "right" | "middle")
+                    || *duration_ms == 0
+                {
+                    return Err("drag requires a valid button and positive duration_ms".into());
+                }
+            }
+            _ => {}
+        }
+        match self {
+            Self::Click { target, .. } => target.validate(),
+            Self::TypeText {
+                focus: Some(target),
+                ..
+            }
+            | Self::Scroll {
+                focus: Some(target),
+                ..
+            } => target.validate(),
+            Self::Drag { from, to, .. } => {
+                from.validate()?;
+                to.validate()
+            }
             _ => Ok(()),
         }
+    }
+}
+
+impl ClickTarget {
+    pub fn validate(&self) -> Result<(), String> {
+        match self {
+            ClickTarget::ImageXy {
+                x,
+                y,
+                screenshot_id,
+            } => {
+                if *x < 0
+                    || *y < 0
+                    || screenshot_id
+                        .as_deref()
+                        .is_none_or(|id| id.trim().is_empty())
+                {
+                    return Err("image_xy requires nonnegative image coordinates and the observed screenshot_id".into());
+                }
+            }
+            ClickTarget::ImageGrid {
+                x0,
+                y0,
+                width,
+                height,
+                rows,
+                cols,
+                row,
+                col,
+                intersections,
+                screenshot_id,
+            } => {
+                if *x0 < 0
+                    || *y0 < 0
+                    || *width == 0
+                    || *height == 0
+                    || i64::from(*x0) + i64::from(*width) > i64::from(i32::MAX) + 1
+                    || i64::from(*y0) + i64::from(*height) > i64::from(i32::MAX) + 1
+                    || *rows == 0
+                    || *cols == 0
+                    || row >= rows
+                    || col >= cols
+                    || (*intersections && (*rows < 2 || *cols < 2))
+                    || screenshot_id
+                        .as_deref()
+                        .is_none_or(|id| id.trim().is_empty())
+                {
+                    return Err("image_grid requires a nonempty observed screenshot_id, positive rectangle/grid dimensions and an in-range row/col".into());
+                }
+            }
+            ClickTarget::VisualGrid {
+                rows,
+                cols,
+                row,
+                col,
+                intersections,
+                ..
+            } => {
+                if *rows == 0
+                    || *cols == 0
+                    || row >= rows
+                    || col >= cols
+                    || (*intersections && (*rows < 2 || *cols < 2))
+                {
+                    return Err(
+                        "visual_grid requires positive dimensions and an in-range row/col".into(),
+                    );
+                }
+            }
+            ClickTarget::OcrText { needle } if needle.trim().is_empty() => {
+                return Err("ocr_text requires non-empty observed text".into())
+            }
+            ClickTarget::ScreenXy { x, y } if !x.is_finite() || !y.is_finite() => {
+                return Err("screen_xy coordinates must be finite".into())
+            }
+            _ => {}
+        }
+        Ok(())
     }
 }
 
@@ -1557,6 +1723,44 @@ mod input_tests {
     }
 }
 
+#[cfg(test)]
+mod window_selector_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn legacy_app_selectors_round_trip_without_new_fields() {
+        for value in [
+            json!({"pid":421}),
+            json!({"name":"Example"}),
+            json!({"bundle_id":"example.app"}),
+        ] {
+            let selector: AppSelector = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(selector.window_id, None);
+            assert!(selector.validate_window_target().is_ok());
+            assert_eq!(serde_json::to_value(selector).unwrap(), value);
+        }
+    }
+
+    #[test]
+    fn exact_window_requires_its_owning_process() {
+        for value in [
+            json!({"window_id":42}),
+            json!({"name":"Example","window_id":42}),
+            json!({"pid":0,"window_id":42}),
+            json!({"pid":421,"window_id":0}),
+        ] {
+            let selector: AppSelector = serde_json::from_value(value).unwrap();
+            assert!(!selector.is_empty());
+            assert!(selector.validate_window_target().is_err());
+        }
+        let value = json!({"pid":421,"window_id":42});
+        let selector: AppSelector = serde_json::from_value(value.clone()).unwrap();
+        assert!(selector.validate_window_target().is_ok());
+        assert_eq!(serde_json::to_value(selector).unwrap(), value);
+    }
+}
+
 pub fn build_screenshot_tool_body_and_hint(
     shot: &ComputerScreenshot,
     debug_rel: Option<String>,
@@ -1832,6 +2036,28 @@ mod tool_body_tests {
 
 #[cfg(test)]
 mod app_input_program_tests {
+    #[test]
+    fn legacy_app_observation_omits_identity_without_losing_content() {
+        let old = serde_json::json!({"app":{"name":"Editor","pid":7,"running":true},"tree_text":"[0] Button","digest":"same-content","captured_at_ms":1});
+        let snapshot: super::AppStateSnapshot = serde_json::from_value(old).unwrap();
+        assert!(snapshot.observation_id.is_none());
+        let round: super::AppStateSnapshot =
+            serde_json::from_value(serde_json::to_value(&snapshot).unwrap()).unwrap();
+        assert_eq!(snapshot, round);
+    }
+
+    #[test]
+    fn all_program_targets_are_validated_before_native_dispatch() {
+        for value in [
+            serde_json::json!({"action":"app_click","target":{"kind":"image_xy","x":1,"y":1}}),
+            serde_json::json!({"action":"app_type_text","text":"x","focus":{"kind":"ocr_text","needle":" "}}),
+            serde_json::json!({"action":"app_scroll","dx":0,"dy":1,"focus":{"kind":"image_grid","x0":2147483647,"y0":0,"width":2,"height":1,"rows":1,"cols":1,"row":0,"col":0,"screenshot_id":"shot"}}),
+        ] {
+            let input: super::AppInputAction = serde_json::from_value(value).unwrap();
+            assert!(input.validate().is_err());
+        }
+    }
+
     use super::*;
     use serde_json::json;
 

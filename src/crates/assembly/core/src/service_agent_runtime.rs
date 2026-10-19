@@ -816,6 +816,11 @@ async fn load_remote_session_metadata_for_workspace(
         })?;
 
     use openbitfun_services_core::session::SessionRelationshipKind;
+    let default_title = crate::service::i18n::generated_locale_contract::generated_shared_term(
+        crate::service::config::app_language::get_app_language().await,
+        "sessions.new",
+    )
+    .unwrap_or("New Session");
 
     Ok(metadata
         .into_iter()
@@ -839,13 +844,18 @@ async fn load_remote_session_metadata_for_workspace(
                 });
             let parent_session_id =
                 relationship.and_then(|relationship| relationship.parent_session_id);
+            let name = if openbitfun_services_core::session::naming::is_default_title(&session) {
+                default_title.to_string()
+            } else {
+                session.session_name.clone()
+            };
             RemoteSessionMetadata {
                 workspace_id: session
                     .workspace_id
                     .clone()
                     .or_else(|| Some(workspace_id.clone())),
                 session_id: session.session_id,
-                name: session.session_name,
+                name,
                 agent_type: session.agent_type,
                 created_at_ms: session.created_at,
                 last_active_at_ms: session.last_active_at,
@@ -993,6 +1003,12 @@ fn remote_chat_history_turn_from_core_turn(
         .collect();
 
     RemoteChatHistoryTurn {
+        background_delivery:
+            openbitfun_core_types::background_delivery::BackgroundDelivery::from_metadata(
+                turn.user_message.metadata.as_ref(),
+                &turn.turn_id,
+            )
+            .filter(|delivery| delivery.execution_generation == turn.recovery_epoch.unwrap_or(0)),
         turn_id: turn.turn_id.clone(),
         turn_index: turn.turn_index,
         user_message_id: turn.user_message.id.clone(),
@@ -2378,10 +2394,25 @@ impl CoreServiceAgentRuntime {
             .get_session(session_id)
             .is_none()
         {
-            coordinator
-                .restore_session_for_workspace_binding(&binding, session_id)
+            let session = coordinator
+                .update_session_model_selection_from_storage_path(
+                    &binding.session_storage_dir(),
+                    session_id,
+                    &normalized_model_id,
+                    normalized_reasoning_preset
+                        .as_ref()
+                        .and_then(|value| value.as_deref()),
+                    false,
+                )
                 .await
-                .map_err(|e| format!("Failed to restore session: {e}"))?;
+                .map_err(|error| format!("Failed to update session model: {error}"))?;
+            if session_uses_shared_mode_default(&session) {
+                Self::persist_mode_model(&normalized_model_id).await;
+            }
+            return Ok(RemoteSessionModelSelection {
+                model_id: session.config.model_id.unwrap_or(normalized_model_id),
+                reasoning_preset: session.config.reasoning_preset,
+            });
         }
 
         let previous_model_id = coordinator
@@ -3037,7 +3068,19 @@ impl CoreRemoteSessionRuntimeHost {
     pub(crate) fn new() -> Result<Self, String> {
         let coordinator = get_global_coordinator()
             .ok_or_else(|| "Desktop session system not ready".to_string())?;
-        let runtime = CoreServiceAgentRuntime::agent_runtime(coordinator.clone())?;
+        let scheduler = get_global_scheduler()
+            .ok_or_else(|| "Dialog scheduler is not initialized".to_string())?;
+        Self::from_owners(coordinator, scheduler)
+    }
+
+    fn from_owners(
+        coordinator: Arc<ConversationCoordinator>,
+        scheduler: Arc<DialogScheduler>,
+    ) -> Result<Self, String> {
+        let runtime = CoreServiceAgentRuntime::agent_runtime_with_lifecycle_delivery(
+            coordinator.clone(),
+            scheduler,
+        )?;
         Ok(Self {
             coordinator,
             runtime,
@@ -3906,6 +3949,89 @@ mod tests {
     };
     use crate::OpenBitFunError;
 
+    #[tokio::test]
+    async fn remote_session_host_registers_targeted_rollback_port() {
+        use crate::agentic::events::{EventQueue, EventQueueConfig, EventRouter};
+        use crate::agentic::execution::{
+            ExecutionEngine, ExecutionEngineConfig, RoundExecutor, StreamProcessor,
+        };
+        use crate::agentic::persistence::PersistenceManager;
+        use crate::agentic::session::{ContextCompressor, SessionContextStore, SessionManager};
+        use crate::agentic::tools::{registry::ToolRegistry, ToolPipeline, ToolStateManager};
+
+        let directory = tempfile::tempdir().expect("runtime fixture");
+        let paths = Arc::new(
+            crate::infrastructure::PathManager::with_user_root_for_tests(
+                directory.path().join("user-root"),
+            ),
+        );
+        let sessions = Arc::new(SessionManager::new(
+            Arc::new(SessionContextStore::new()),
+            Arc::new(PersistenceManager::new(paths).expect("persistence manager")),
+            Default::default(),
+        ));
+        let events = Arc::new(EventQueue::new(EventQueueConfig::default()));
+        let tools = Arc::new(ToolPipeline::new(
+            Arc::new(tokio::sync::RwLock::new(ToolRegistry::new())),
+            Arc::new(ToolStateManager::new(events.clone())),
+            None,
+        ));
+        let engine = Arc::new(ExecutionEngine::new(
+            Arc::new(RoundExecutor::new(
+                Arc::new(StreamProcessor::new(events.clone())),
+                events.clone(),
+                tools.clone(),
+            )),
+            events.clone(),
+            sessions.clone(),
+            Arc::new(ContextCompressor::new()),
+            ExecutionEngineConfig::default(),
+        ));
+        let coordinator = Arc::new(ConversationCoordinator::new(
+            sessions.clone(),
+            engine,
+            tools,
+            events,
+            Arc::new(EventRouter::new()),
+            Arc::new(
+                crate::runtime_ownership::CoreRuntimeOwnership::embedded_with_facts(
+                    directory.path().join("ownership"),
+                    "openbitfun".to_string(),
+                    "test",
+                ),
+            ),
+        ));
+        let scheduler = DialogScheduler::new(coordinator.clone(), sessions);
+        let host = CoreRemoteSessionRuntimeHost::from_owners(coordinator, scheduler)
+            .expect("remote session host");
+
+        // Invalid identity must reach the registered revert provider's validation.
+        let error = host
+            .runtime
+            .rollback_session_to_turn(AgentSessionRollbackToTurnRequest {
+                workspace_path: String::new(),
+                workspace_id: None,
+                workspace_hostname: None,
+                session_id: "../invalid-session".to_string(),
+                target_turn_id: "turn-1".to_string(),
+                require_idle: true,
+                expected_storage_turn_index: None,
+                expected_catalog_revision: None,
+                remote_connection_id: None,
+                remote_ssh_host: None,
+            })
+            .await
+            .expect_err("invalid session identity");
+        assert!(
+            matches!(
+                error,
+                openbitfun_agent_runtime::sdk::RuntimeError::Port(ref port)
+                    if port.kind == openbitfun_runtime_ports::PortErrorKind::InvalidRequest
+            ),
+            "expected revert provider validation, got {error}"
+        );
+    }
+
     #[test]
     fn local_workspace_marker_is_not_remote_routing_authority() {
         use crate::service::workspace::WorkspaceKind;
@@ -4199,7 +4325,6 @@ mod tests {
         assert!(!open_workspace.contains("initialize_snapshot_manager_for_workspace"));
 
         for (start, end) in [
-            ("pub(crate) async fn update_remote_session_model", "/// Persist the shared selector"),
             ("async fn restore_remote_session(\n        &self,\n        session_id: &str,\n        workspace: RemoteDialogWorkspaceBinding", "fn prewarm_remote_terminal"),
             ("async fn ensure_session_loaded(&self, session_id: &str)", "async fn update_session_title"),
             ("async fn restore_remote_session(\n        &self,\n        session_id: &str,\n        _restore_path_hint: &str", "async fn cancel_remote_turn"),
@@ -4218,6 +4343,17 @@ mod tests {
                 "remote attach or mutation must not bypass the Coordinator ownership gate"
             );
         }
+
+        let selector = source
+            .split("pub(crate) async fn update_remote_session_model")
+            .nth(1)
+            .and_then(|source| source.split("/// Persist the shared selector").next())
+            .unwrap();
+        assert!(selector.contains("ensure_remote_binding_runtime_ownership"));
+        assert!(selector.contains(
+            "coordinator\n                .update_session_model_selection_from_storage_path"
+        ));
+        assert!(!selector.contains("restore_session"));
 
         let remote_session_host = source
             .split("impl RemoteSessionRuntimeHost for CoreRemoteSessionRuntimeHost")

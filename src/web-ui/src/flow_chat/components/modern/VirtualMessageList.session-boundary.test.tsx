@@ -7,7 +7,7 @@ import { FlowGroup, ThinkingBlock } from '@openbitfun/ui/flow-chat';
 import { DeferredContent } from '@openbitfun/flow-chat-presentation/deferred-content';
 import { computeFlowChatInputStackFooterPx } from '../../utils/flowChatScrollLayout';
 import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
-import type { SubmittedMessageScrollIntent } from '../../services/submittedMessageScrollIntent';
+import { finishSubmittedMessageScrollIntent, registerSubmittedMessageScrollIntent, type SubmittedMessageScrollIntent } from '../../services/submittedMessageScrollIntent';
 import { readingLinePxForViewport, tailSpacerPxForViewport } from './flowChatTailFollow';
 import { ONE_SHOT_NAVIGATION_HOLD_MS } from './flowChatViewportOwnership';
 import { VirtualMessageList, type VirtualMessageListRef } from './VirtualMessageList';
@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   scrollItemIntoView: vi.fn(),
   scrollToOffset: vi.fn(),
   cancelAim: vi.fn(),
+  measureRenderedItems: vi.fn(),
   setVisibleTurnInfo: vi.fn(),
   handleViewportResize: vi.fn(),
   enterFollowOutput: vi.fn(),
@@ -159,7 +160,7 @@ vi.mock('./useFlowChatVirtualizer', async () => {
         ),
         // The real one flushes the DOM's heights into the library's cache;
         // these rows are placed by arithmetic, so there is nothing to flush.
-        measureRenderedItems: () => {},
+        measureRenderedItems: mocks.measureRenderedItems,
         syncViewportOffset: () => {},
         getVisibleItemRange: () => {
           const scroller = options.scrollerRef.current;
@@ -355,6 +356,7 @@ describe('VirtualMessageList natural scroll contract', () => {
     mocks.scrollItemIntoView.mockReset();
     mocks.scrollToOffset.mockReset();
     mocks.cancelAim.mockReset();
+    mocks.measureRenderedItems.mockReset();
     mocks.handleViewportResize.mockReset();
     mocks.enterFollowOutput.mockReset();
     mocks.exitFollowOutput.mockReset();
@@ -381,6 +383,41 @@ describe('VirtualMessageList natural scroll contract', () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+  });
+
+  it.each([
+    { name: 'a session without config', config: undefined, canSynchronize: true },
+    { name: 'an ordinary session', config: {}, canSynchronize: true },
+    { name: 'a dispatch observer', config: { dispatchJobId: 'job-1' }, canSynchronize: false },
+  ])('keeps both history error boundaries usable for $name', async ({ config, canSynchronize }) => {
+    mocks.activeSession = { ...mocks.activeSession, config };
+    const onBoundaryIntent = vi.fn(() => 'exhausted' as const);
+    await act(async () => {
+      root.render(
+        <VirtualMessageList
+          presentationMode="history-window"
+          historyBoundaryState={{ before: 'error', after: 'error' }}
+          onHistoryWindowBoundaryIntent={onBoundaryIntent}
+        />,
+      );
+    });
+    await settleOpenReveal();
+
+    const boundaries = container.querySelectorAll('[data-history-paging-sentinel="error"]');
+    expect(boundaries).toHaveLength(2);
+    for (const [index, direction] of (['before', 'after'] as const).entries()) {
+      const button = boundaries[index].querySelector('button');
+      if (canSynchronize) {
+        expect(button).not.toBeNull();
+        await act(async () => { button!.click(); });
+        expect(onBoundaryIntent).toHaveBeenCalledWith(direction, expect.objectContaining({
+          synchronizeHistory: true,
+        }));
+      } else {
+        expect(button).toBeNull();
+      }
+    }
+    if (!canSynchronize) expect(onBoundaryIntent).not.toHaveBeenCalled();
   });
 
   it('reconciles opening measurements only while follow owns the active viewport', () => {
@@ -545,11 +582,32 @@ describe('VirtualMessageList natural scroll contract', () => {
       mocks.activeSession.dialogTurns = [{ id: 'turn-2', userMessage: { id: 'message-2' } }];
       act(() => root.render(<VirtualMessageList />));
       act(() => {
-        expect(mocks.placeSubmittedMessage?.({ scope: getActiveSurfaceScope(), sessionId: 'session-1', turnId: 'turn-2', messageId: 'message-2' })).toBe(592);
+        const intent = registerSubmittedMessageScrollIntent(getActiveSurfaceScope(), 'session-1', 'turn-2', 'message-2')!;
+        expect(mocks.placeSubmittedMessage?.(intent)).toBe(592);
+        finishSubmittedMessageScrollIntent(intent);
       });
       expect(scroller.scrollTop).toBe(592);
       expect(container.querySelector<HTMLElement>('.virtual-message-list__extent')?.style.minHeight).toBe('1192px');
       expect(mocks.scrollToOffset).not.toHaveBeenCalled();
+    } finally {
+      restoreLayout();
+    }
+  });
+
+  it('does not scroll a submission cancelled by a synchronous measurement callback', () => {
+    const restoreLayout = fakeLayout({ clientHeight: 600, scrollHeight: 1400, turnTopFromScrollerTop: 500 });
+    try {
+      act(() => root.render(<VirtualMessageList />));
+      const scroller = container.querySelector<HTMLElement>('[data-flowchat-scroller]')!;
+      const extent = container.querySelector<HTMLElement>('.virtual-message-list__extent')!;
+      scroller.scrollTop = 100;
+      const previousMinHeight = extent.style.minHeight;
+      const intent = registerSubmittedMessageScrollIntent(getActiveSurfaceScope(), 'session-1', 'turn-2', 'message-2')!;
+      mocks.measureRenderedItems.mockImplementationOnce(() => finishSubmittedMessageScrollIntent(intent));
+      act(() => { expect(mocks.placeSubmittedMessage?.(intent)).toBeNull(); });
+      expect(mocks.measureRenderedItems).toHaveBeenCalled();
+      expect(scroller.scrollTop).toBe(100);
+      expect(extent.style.minHeight).toBe(previousMinHeight);
     } finally {
       restoreLayout();
     }

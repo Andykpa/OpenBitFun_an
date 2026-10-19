@@ -43,6 +43,7 @@ type AXValueRef = *const c_void;
 unsafe extern "C" {
     fn AXUIElementCreateApplication(pid: i32) -> AXUIElementRef;
     fn AXUIElementGetPid(element: AXUIElementRef, pid: *mut i32) -> i32;
+    fn AXUIElementSetMessagingTimeout(element: AXUIElementRef, timeout: f32) -> i32;
     fn AXUIElementCopyElementAtPosition(
         element: AXUIElementRef,
         x: f32,
@@ -104,6 +105,7 @@ impl AxRef {
 // `AX_NODE_STALE`.
 
 struct CachedSnapshot {
+    scope: openbitfun_agent_tools::computer_use_control::ObservationScope,
     digest: String,
     refs: Vec<AxRef>,
 }
@@ -122,24 +124,46 @@ fn snapshot_cache() -> &'static Mutex<HashMap<i32, CachedSnapshot>> {
     SNAPSHOT_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Resolve `(pid, idx)` to a live AX ref. Caller must NOT release it; the
-/// cache owns the retain. Returns `None` if the snapshot has been replaced
-/// (i.e. the digest no longer matches) or the idx is out of range.
-pub(crate) fn cached_ref(pid: i32, expected_digest: Option<&str>, idx: u32) -> Option<AxRef> {
+pub(super) fn clear_observations() {
+    if let Ok(mut cache) = snapshot_cache().lock() {
+        cache.clear();
+    }
+}
+
+/// Resolve and retain `(pid, idx)` while the cache is locked. Stop or a new
+/// observation can clear the cache immediately after this lookup; the caller's
+/// reference stays alive until its guard is dropped.
+pub(crate) fn cached_ref(
+    pid: i32,
+    expected_digest: Option<&str>,
+    idx: u32,
+) -> Option<RetainedCachedTarget> {
     let cache = snapshot_cache().lock().ok()?;
     let snap = cache.get(&pid)?;
+    if snap.scope
+        != openbitfun_agent_tools::computer_use_control::ObservationScope::from_control(
+            &super::control_session::snapshot(),
+        )
+    {
+        return None;
+    }
     if let Some(want) = expected_digest {
         if snap.digest != want {
             return None;
         }
     }
-    snap.refs.get(idx as usize).copied()
+    let reference = *snap.refs.get(idx as usize)?;
+    if reference.0.is_null() {
+        return None;
+    }
+    unsafe { CFRetain(reference.0 as CFTypeRef) };
+    Some(RetainedCachedTarget(reference))
 }
 
 /// Like `cached_ref` but does not require a digest match. Used for
 /// best-effort follow-up actions where the caller did not have a chance to
 /// re-snapshot (e.g. `app_wait_for` polling).
-pub(crate) fn cached_ref_loose(pid: i32, idx: u32) -> Option<AxRef> {
+pub(crate) fn cached_ref_loose(pid: i32, idx: u32) -> Option<RetainedCachedTarget> {
     cached_ref(pid, None, idx)
 }
 
@@ -192,15 +216,7 @@ impl Drop for RetainedCachedTarget {
 }
 
 pub(crate) fn retained_cached_target(pid: i32, idx: u32) -> Option<RetainedCachedTarget> {
-    let cache = snapshot_cache().lock().ok()?;
-    let reference = *cache.get(&pid)?.refs.get(idx as usize)?;
-    if reference.0.is_null() {
-        return None;
-    }
-    unsafe {
-        CFRetain(reference.0 as CFTypeRef);
-    }
-    Some(RetainedCachedTarget(reference))
+    cached_ref(pid, None, idx)
 }
 
 pub(crate) fn validate_bound_target(pid: i32, target: AxRef) -> OpenBitFunResult<()> {
@@ -248,6 +264,27 @@ pub(crate) fn is_application_menu_item(target: AxRef) -> bool {
     }
 }
 
+/// Hit testing is a read-only optimization for an independently addressed
+/// window coordinate. A busy app or missing AX implementation does not make
+/// directed pointer input unavailable. Never apply this policy to AX writes or
+/// observed node indices: their outcome/identity must remain authoritative.
+fn optional_point_hit_available(status: i32) -> OpenBitFunResult<bool> {
+    match status {
+        0 => Ok(true),
+        // Failure / CannotComplete / AttributeUnsupported / NoValue /
+        // NotImplemented. None of these read results submitted an action.
+        -25200 | -25204 | -25205 | -25208 | -25212 => {
+            log::debug!(target: "computer_use::ax", "Optional AX point lookup unavailable (status={status}); retaining window-directed pointer route");
+            Ok(false)
+        }
+        // Keep permission denial, invalid references/arguments and unknown
+        // errors visible instead of treating them as missing accessibility.
+        _ => Err(OpenBitFunError::tool(format!(
+            "AX_HIT_TEST_FAILED: Application hit testing failed (status={status})"
+        ))),
+    }
+}
+
 /// Native application-scoped hit testing ignores other applications' covering
 /// windows. The result must belong to the captured window; another same-app
 /// window is never substituted. Rectangle ranking is not a valid fallback.
@@ -267,21 +304,17 @@ pub(crate) fn retained_target_at_point(
         if app.is_null() {
             return Ok(None);
         }
+        // This optional query must not impose the AX default multi-second
+        // messaging timeout on every visual click into a busy application.
+        // The timeout is local to this temporary application reference.
+        AXUIElementSetMessagingTimeout(app, 0.3);
         let mut hit = std::ptr::null();
         let status = AXUIElementCopyElementAtPosition(app, x as f32, y as f32, &mut hit);
         ax_release(app as CFTypeRef);
         if status != 0 {
             ax_release(hit as CFTypeRef);
-            // Only a documented absence of hit-testing/content permits a
-            // visual fallback. Messaging/permission failures are not evidence
-            // that a pointer click will focus the intended text field.
-            return if matches!(status, -25208 | -25212) {
-                Ok(None)
-            } else {
-                Err(OpenBitFunError::tool(format!(
-                    "AX_HIT_TEST_FAILED: Application hit testing failed (status={status})"
-                )))
-            };
+            optional_point_hit_available(status)?;
+            return Ok(None);
         }
         if hit.is_null() {
             return Ok(None);
@@ -688,6 +721,9 @@ fn is_closed_menu_container(role: &str, frame: Option<(f64, f64, f64, f64)>) -> 
 }
 
 pub(super) fn dump_app_ax(pid: i32, opts: DumpOpts) -> OpenBitFunResult<AppStateSnapshot> {
+    let scope = openbitfun_agent_tools::computer_use_control::ObservationScope::from_control(
+        &super::control_session::snapshot(),
+    );
     let app = unsafe { AXUIElementCreateApplication(pid) };
     if app.is_null() {
         return Err(OpenBitFunError::tool(format!(
@@ -903,9 +939,11 @@ equivalents, or AXPress the menu first.\n",
         let mut cache = snapshot_cache()
             .lock()
             .map_err(|_| OpenBitFunError::tool("AX snapshot cache poisoned".to_string()))?;
+        cache.clear();
         cache.insert(
             pid,
             CachedSnapshot {
+                scope,
                 digest: digest.clone(),
                 refs,
             },
@@ -913,6 +951,7 @@ equivalents, or AXPress the menu first.\n",
     }
 
     Ok(AppStateSnapshot {
+        observation_id: None,
         app: openbitfun_core::agentic::tools::computer_use_host::AppInfo {
             name: window_title.clone().unwrap_or_default(),
             bundle_id: None,
@@ -1096,6 +1135,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn optional_point_hit_read_failure_preserves_directed_input_route() {
+        assert!(optional_point_hit_available(0).unwrap());
+        for status in [-25200, -25204, -25205, -25208, -25212] {
+            assert!(!optional_point_hit_available(status).unwrap(), "{status}");
+        }
+    }
+
+    #[test]
+    fn optional_point_hit_keeps_denial_and_invalid_target_errors() {
+        for status in [-25201, -25202, -25203, -25211, -99999] {
+            let error = optional_point_hit_available(status).unwrap_err();
+            assert!(error.to_string().contains("AX_HIT_TEST_FAILED"));
+            assert!(error.to_string().contains(&status.to_string()));
+        }
+    }
+
+    #[test]
     #[ignore = "run scripts/test-native-ax-context.mjs with macOS Accessibility permission"]
     fn native_ax_fixture_round_trips_tree_and_cached_targets() {
         let pid: i32 = std::env::var("OPENBITFUN_AX_FIXTURE_PID")
@@ -1156,14 +1212,17 @@ mod tests {
             .find(|node| node.title.as_deref() == Some("Save report"))
             .unwrap();
         let retained = retained_cached_target(pid, save.idx).expect("observed target retained");
+        let located =
+            cached_ref(pid, Some(&snapshot.digest), save.idx).expect("located target retained");
         let frame = retained.frame_global().expect("observed target frame");
-        snapshot_cache().lock().unwrap().remove(&pid);
+        clear_observations();
         assert!(cached_ref_loose(pid, save.idx).is_none());
         assert_eq!(
             retained.frame_global(),
             Some(frame),
             "cache replacement must not release an in-flight target reference"
         );
+        assert_eq!(located.frame_global(), Some(frame));
         dump_app_ax(pid, DumpOpts::default()).expect("restore fixture observation cache");
 
         let elements = crate::computer_use::interactive_filter::build_interactive_elements(
