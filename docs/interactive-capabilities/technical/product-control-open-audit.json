@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "b38c5c0e4fe52b6f8052917fafe65cf7c2f807514f8a164f616a13234d5df003",
-  "count": 215,
+  "catalogDigest": "05afb29f354928738ed26d4275819bbe3c165c7878bb24996b5169639ba03330",
+  "count": 216,
   "reasonCounts": {
     "externalAuth": 4,
     "secretEntry": 5,
     "unstructuredInteraction": 182,
-    "visualSelection": 24
+    "visualSelection": 25
   },
   "entries": [
     {
@@ -2873,6 +2873,29 @@
         "command:test_ai_connection",
         "command:test_ai_config_connection",
         "command:refresh_model_client"
+      ]
+    },
+    {
+      "capabilityId": "setting.ai.models",
+      "itemId": "model-pools",
+      "titleZh": "管理模型池、路由策略与会话模型选择",
+      "titleEn": "Manage model pools, routing strategies, and session model selection",
+      "reasonCode": "visualSelection",
+      "reasonZh": "通过模型池编辑器选择已配置成员、顺序与路由策略，并查看健康状态。",
+      "reasonEn": "Use the pool editor to select configured members, their order and routing strategy, and inspect health.",
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "ai.models"
+      },
+      "evidence": [
+        "command:get_model_pools",
+        "command:save_model_pool",
+        "command:delete_model_pool",
+        "command:get_model_pool_status",
+        "command:get_session_model_target",
+        "command:update_session_model_target",
+        "source:src/web-ui/src/app/scenes/settings/pages/ai/ModelPoolsSection.tsx#ModelPoolsSection",
+        "command:retry_model_pool_member"
       ]
     },
     {
