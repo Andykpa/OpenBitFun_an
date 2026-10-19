@@ -47,6 +47,16 @@ test('mobile running composer keeps send and stop independently available alongs
   await page.waitForSelector('.chat-msg__assistant-content .katex');
   assert.ok(await page.$eval('.chat-msg__assistant-content .katex', el => !!el), 'katex renders inside assistant message');
   assert.ok(await page.$eval('.chat-msg__assistant-content .katex-display', el => !!el), 'katex block display renders');
+  const currency = await page.$$eval('.chat-msg__assistant-content p', paragraphs => {
+    const paragraph = paragraphs.find(el => el.textContent?.includes('价格'));
+    return paragraph
+      ? { text: paragraph.textContent, katex: paragraph.querySelectorAll('.katex').length }
+      : null;
+  });
+  assert.ok(currency, 'currency paragraph stays in the transcript');
+  assert.match(currency.text, /\$5 和 \$10/);
+  assert.match(currency.text, /\$HOME 和 \$PATH/);
+  assert.equal(currency.katex, 0, 'currency and shell variables must not become math');
   assert.ok((await page.$eval('.code-block-wrapper', el => el.textContent)).includes('echo $$ $1 $&'), 'code blocks preserve special dollar patterns');
   assert.ok(await page.$eval('.host-message-queue',el=>el.getBoundingClientRect().height<=100),'one queued message stays compact');
   const actions=await page.$$eval('.chat-page__send-btn', buttons=>buttons.map(button=>({disabled:button.disabled,stop:button.classList.contains('is-stop')})));

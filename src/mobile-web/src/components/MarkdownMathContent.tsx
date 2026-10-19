@@ -24,7 +24,7 @@ export const MarkdownMathContent: React.FC<MarkdownMathContentProps> = ({
   <ReactMarkdown
     components={components}
     rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false }]]}
-    remarkPlugins={[remarkGfm, remarkMath]}
+    remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
     urlTransform={urlTransform}
   >
     {content}

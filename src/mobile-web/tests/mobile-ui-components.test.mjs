@@ -333,7 +333,7 @@ test('mobile chat markdown lazily loads katex plugins and keeps mobile display s
   assert.match(math, /import rehypeKatex from 'rehype-katex';/);
   assert.match(math, /import remarkMath from 'remark-math';/);
   assert.match(math, /import 'katex\/dist\/katex\.min\.css';/);
-  assert.match(math, /remarkPlugins=\{\[remarkGfm,\s*remarkMath\]\}/);
+  assert.match(math, /remarkPlugins=\{\[remarkGfm,\s*\[remarkMath,\s*\{\s*singleDollarTextMath:\s*false\s*\}\]\]\}/);
   assert.match(math, /rehypePlugins=\{\[\[rehypeKatex,\s*\{\s*strict:\s*false,\s*throwOnError:\s*false\s*\}\]\]\}/);
   assert.match(markdown, /import\('\.\/MarkdownMathContent'\)/);
   assert.match(markdown, /mayContainMarkdownMath\(content\)/);
@@ -370,14 +370,30 @@ test('normalizeMathDelimiters protects code blocks and normalizes LaTeX delimite
   assert.equal(normalize(''), '');
   assert.equal(normalize('plain text with $10 and $20'), 'plain text with $10 and $20');
 
-  // Inline bracket \( ... \) to $ ... $
-  assert.equal(normalize('Inline \\( a + b = c \\) math'), 'Inline $a + b = c$ math');
+  // Inline bracket \( ... \) becomes inline $$ ... $$ math.
+  assert.equal(normalize('Inline \\( a + b = c \\) math'), 'Inline $$a + b = c$$ math');
 
-  // Block bracket \[ ... \] to $$ ... $$
-  assert.match(normalize('Block \\[\\frac{1}{2}\\] math'), /\$\$\s*\n\\frac\{1\}\{2\}\n\s*\$\$/);
+  // A display bracket that owns its line becomes a block; inside a container
+  // it stays inline so the list, table, or quote is not torn apart.
+  assert.match(normalize('\\[\\frac{1}{2}\\]'), /\$\$\s*\n\\frac\{1\}\{2\}\n\s*\$\$/);
+  assert.equal(normalize('Block \\[\\frac{1}{2}\\] math'), 'Block $$\\frac{1}{2}$$ math');
+  assert.equal(normalize('- Energy: $$E=mc^2$$'), '- Energy: $$E=mc^2$$');
+  assert.equal(normalize('| \\[x^2\\] | 2 |'), '| $$x^2$$ | 2 |');
+  assert.equal(normalize('> \\[x^2\\]'), '> $$x^2$$');
 
-  // Single line $$...$$ to multi-line $$...$$
+  // Single line $$...$$ is a block only at a top-level line start.
   assert.match(normalize('$$E=mc^2$$'), /\$\$\s*\nE=mc\^2\n\s*\$\$/);
+  assert.equal(normalize('Formula: $$E=mc^2$$'), 'Formula: $$E=mc^2$$');
+
+  // Single-dollar math is widened to $$ so remark-math can parse it with
+  // singleDollarTextMath disabled; currency, shell variables, and paths stay text.
+  assert.equal(normalize('Inline $x$ and $y$'), 'Inline $$x$$ and $$y$$');
+  assert.equal(normalize('The $n$th term'), 'The $$n$$th term');
+  assert.equal(normalize('Cost $5; formula \\(x\\)'), 'Cost $5; formula $$x$$');
+  assert.equal(normalize('Cost is $5 and $10.'), 'Cost is $5 and $10.');
+  assert.equal(normalize('Use $HOME and $PATH'), 'Use $HOME and $PATH');
+  assert.equal(normalize('Use ${HOME} and ${PATH}'), 'Use ${HOME} and ${PATH}');
+  assert.equal(normalize('C:\\[data\\]\\file.txt'), 'C:\\[data\\]\\file.txt');
 
   // Escaped delimiters are literal text, not math.
   assert.equal(normalize('Escaped \\\\[index\\\\] and \\\\(x\\\\)'), 'Escaped \\\\[index\\\\] and \\\\(x\\\\)');
@@ -386,7 +402,11 @@ test('normalizeMathDelimiters protects code blocks and normalizes LaTeX delimite
   const codeFenceSample = 'Formula \\(x\\)\n```bash\necho $$ $1 $&\n```\nDone';
   const codeFenceNormalized = normalize(codeFenceSample);
   assert.ok(codeFenceNormalized.includes('echo $$ $1 $&'), 'code blocks must preserve literal $$ and $& without replace corruption');
-  assert.ok(codeFenceNormalized.includes('$x$'), 'formula outside code fence must be normalized');
+  assert.ok(codeFenceNormalized.includes('$$x$$'), 'formula outside code fence must be normalized');
+
+  // Blockquoted fences are code too.
+  const quotedFence = '> ```bash\n> echo \\(x\\)\n> ```';
+  assert.equal(normalize(quotedFence), quotedFence);
 
   // Multi-backtick inline code with internal backtick or brackets
   const multiBacktickSample = 'Look at ``code ` with \\[index\\] inside`` and \\(y\\)';
