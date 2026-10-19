@@ -3028,7 +3028,8 @@
         "FinalizeMiniApp": "更新小應用程式",
         "PublishMiniApp": "提交小應用程式審核",
         "PublishAppearance": "提交外觀審核",
-        "Playbook": "讀取操作流程"
+        "Playbook": "讀取操作流程",
+        "DesktopCard": "小卡片"
       },
       "fields": {
         "results": "結果",
@@ -3131,7 +3132,13 @@
         "checksFailed": "檢查失敗數",
         "checksPending": "待完成檢查數",
         "author": "作者",
-        "lastOutcome": "上次交易結果"
+        "lastOutcome": "上次交易結果",
+        "card": "卡片 ID",
+        "dataSource": "資料來源",
+        "visibility": "顯示狀態",
+        "refreshError": "最近重新整理錯誤",
+        "presets": "預設卡片",
+        "cards": "卡片"
       },
       "states": {
         "active": "進行中",
@@ -3172,7 +3179,10 @@
         "idle": "閒置",
         "managed": "受管理工作樹",
         "permanent": "永久工作樹",
-        "external": "外部工作樹"
+        "external": "外部工作樹",
+        "cardCreated": "已建立並顯示",
+        "cardShown": "已顯示",
+        "cardHidden": "已隱藏"
       },
       "operations": {
         "list": "檢視清單",
@@ -3264,7 +3274,36 @@
       "imageUnavailable": "無法預覽影像，可開啟記錄的路徑查看來源檔案。",
       "imageLoading": "正在讀取來源影像…",
       "hostUnavailable": "這筆記錄來自被派發工作的主機，請在該主機開啟資源；目前無法從本機跳轉。",
-      "remoteLoopback": "這個回環位址屬於執行主機，請在該主機上開啟。"
+      "remoteLoopback": "這個回環位址屬於執行主機，請在該主機上開啟。",
+      "desktopCard": {
+        "actions": {
+          "presets": "查看預設卡片",
+          "create": "建立小卡片",
+          "update": "更新小卡片",
+          "list": "列出小卡片",
+          "get": "查看小卡片",
+          "show": "顯示小卡片",
+          "hide": "隱藏小卡片",
+          "delete": "刪除小卡片",
+          "refresh": "重新整理小卡片"
+        },
+        "templates": {
+          "countdown": "倒數計時",
+          "checklist": "清單",
+          "note": "便籤",
+          "progress": "進度",
+          "metrics": "指標",
+          "cronJob": "排程任務",
+          "custom": "自訂"
+        },
+        "sources": {
+          "http": "HTTP · {{target}} · 每 {{interval}} 秒",
+          "command": "本機命令 · {{target}} · 每 {{interval}} 秒"
+        },
+        "visible": "顯示在桌面",
+        "hidden": "已隱藏",
+        "disabledNotice": "小卡片功能已在設定中關閉，這些卡片目前不會顯示。"
+      }
     }
   },
   "welcome": {

@@ -320,11 +320,13 @@
         }
       }
 
-      .openbitfun-pet-preload-body {
+      .openbitfun-pet-preload-body,
+      .openbitfun-desktop-card-preload-body {
         background: transparent !important;
       }
 
-      .openbitfun-pet-preload-body #root {
+      .openbitfun-pet-preload-body #root,
+      .openbitfun-desktop-card-preload-body #root {
         background: transparent;
       }
 
@@ -404,6 +406,7 @@
       (function () {
         var params = new URLSearchParams(window.location.search);
         var isPetWindow = params.get('openbitfunWindow') === 'agent-companion';
+        var isDesktopCardWindow = params.get('openbitfunWindow') === 'desktop-card';
         var messages = window.__OPENBITFUN_RESOLVE_BOOTSTRAP_MESSAGES__();
         var locale = window.__OPENBITFUN_RESOLVE_BOOTSTRAP_LOCALE__();
         var startupOverlay = document.getElementById('openbitfun-startup-overlay');
@@ -418,6 +421,12 @@
             var petStatus = root.querySelector('.openbitfun-sr-only');
             if (petStatus) petStatus.textContent = messages.petLoading;
           }
+          return;
+        }
+
+        if (isDesktopCardWindow) {
+          document.body.classList.add('openbitfun-desktop-card-preload-body');
+          if (startupOverlay) startupOverlay.remove();
           return;
         }
 

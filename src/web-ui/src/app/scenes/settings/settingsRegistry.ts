@@ -108,15 +108,17 @@ export const SETTINGS_PAGE_MANIFESTS: readonly SettingsPageManifest[] = [
     categoryId: 'application',
     labelKey: 'navigation.pages.pet.label',
     descriptionKey: 'navigation.pages.pet.description',
-    keywords: ['pet', 'companion', 'desktop', 'input', 'sprite'],
+    keywords: ['pet', 'companion', 'desktop', 'input', 'sprite', 'desktop cards', 'widget'],
     namespaces: ['settings', 'settings/runtime', 'settings/agentic-tools', 'settings/voice-input'],
     searchPhrases: [
       phrase('settings/runtime', 'features.pet.title'),
       phrase('settings/runtime', 'features.pet.petDescription'),
+      phrase('settings/runtime', 'features.desktopCards.title'),
     ],
     sections: [
       { id: 'voice-call', labelKey: 'navigation.sections.voice-call', keywords: ['realtime', 'voice call', 'assistant', 'volcengine'], searchPhrases: [phrase('settings/voice-input', 'voiceCall.title'), phrase('settings/voice-input', 'voiceCall.description')] },
       { id: 'pet', labelKey: 'navigation.sections.pet', keywords: ['pet', 'companion'], searchPhrases: [phrase('settings/runtime', 'features.pet.title')] },
+      { id: 'desktop-cards', labelKey: 'navigation.sections.desktop-cards', keywords: ['desktop cards', 'widget', 'reminder', 'countdown'], searchPhrases: [phrase('settings/runtime', 'features.desktopCards.title'), phrase('settings/runtime', 'features.desktopCards.subtitle')] },
     ],
     load: () => import('./pages/application/PetAssistantSettingsPage'),
   }),

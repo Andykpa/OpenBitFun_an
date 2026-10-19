@@ -167,6 +167,7 @@ export const STANDARD_TOOL_CARD_ADAPTERS = {
   'PublishMiniApp': BuiltinToolCard,
   'PublishAppearance': BuiltinToolCard,
   'Playbook': BuiltinToolCard,
+  'DesktopCard': BuiltinToolCard,
 } as const satisfies StandardToolCardRegistry;
 
 /**

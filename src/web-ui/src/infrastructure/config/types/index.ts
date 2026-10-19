@@ -174,6 +174,8 @@ export interface AIExperienceConfig {
   enable_git_commit_coauthor?: boolean;
   /** Absent on older hosts that do not offer next-input suggestions. */
   enable_prompt_suggestion?: boolean;
+  /** Absent on older hosts that have no desktop cards. */
+  enable_desktop_cards?: boolean;
 }
 
 export interface VoiceInputSettings {
