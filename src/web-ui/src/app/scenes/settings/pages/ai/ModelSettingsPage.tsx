@@ -30,6 +30,7 @@ import {
 import { ModelDiscoveryCoordinator } from '@/infrastructure/config/components/modelDiscoveryCoordinator';
 import {
   getModelEditorRequestSettings,
+  prepareModelEditorRequestSettingsForSave,
   updateModelEditorRequestSettings,
   type ModelEditorRequestSettings,
 } from '@/infrastructure/config/components/modelEditorRequestSettings';
@@ -1997,7 +1998,7 @@ const ModelSettingsPage: React.FC = () => {
             [PROVIDER_INSTANCE_METADATA_KEY]: providerInstanceId,
           },
           reasoning: draft.reasoning,
-          ...draft.requestSettings,
+          ...prepareModelEditorRequestSettingsForSave(draft.requestSettings),
           auth: providerConfig.auth || { type: 'api_key' },
         };
       });
