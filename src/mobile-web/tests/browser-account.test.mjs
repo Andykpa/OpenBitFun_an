@@ -10,6 +10,9 @@ let browser;
 let source;
 before(async () => { source = await startSourceServer(); browser = await launchBrowser(); });
 after(async () => {
+  // Bound cleanup so a stuck browser or dev server cannot hang the runner,
+  // but never force the process exit: the test runner still owns the exit
+  // code and a forced zero would mask failed assertions.
   try {
     await Promise.race([
       browser?.close(),
@@ -17,9 +20,11 @@ after(async () => {
     ]);
   } catch {}
   try {
-    await source?.close();
+    await Promise.race([
+      source?.close(),
+      new Promise(resolve => setTimeout(resolve, 3000)),
+    ]);
   } catch {}
-  setTimeout(() => process.exit(0), 500);
 });
 
 for (const endpoint of [LAN, OFFICIAL]) {
