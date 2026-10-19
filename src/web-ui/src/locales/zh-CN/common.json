@@ -1374,6 +1374,10 @@
       "name": "文本选择菜单",
       "description": "提供文本选择相关的操作"
     },
+    "textInputMenu": {
+      "name": "输入框菜单",
+      "description": "为输入框提供复制、粘贴、剪切和全选操作"
+    },
     "terminalMenu": {
       "name": "终端菜单",
       "description": "提供终端相关的操作",
