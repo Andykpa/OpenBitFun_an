@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { ArrowLeftRight, Maximize2, Minimize2 } from 'lucide-react';
 import { Icon, IconButton, SplitView, SplitViewSurface, ToolbarGroup, Tooltip, type SplitViewHeaderGeometry } from '@openbitfun/ui';
 import { useI18n } from '@/infrastructure/i18n';
@@ -15,6 +15,7 @@ import { SceneTopBar } from '../components/SceneTopBar';
 import { CanvasToolbarHost, CanvasToolbarProvider } from '../components/panels/content-canvas/CanvasToolbar';
 import AuxPane from '../scenes/session/AuxPane';
 import { useWorkbenchPaneLayout } from './workbenchPaneLayoutStore';
+import { WorkbenchResizeContext } from './workbenchResize';
 import { PANEL_COMMON_CONFIG, RIGHT_PANEL_CONFIG } from '../layout/panelConfig';
 import './WorkbenchLayout.scss';
 
@@ -30,6 +31,10 @@ export default function WorkbenchLayout({ workspacePath, children, ...windowProp
   const { t: tCommon } = useI18n('common');
   const [resizing, setResizing] = useState(false);
   const [settling, setSettling] = useState(false);
+  const resizeState = useMemo(() => ({
+    resizing,
+    measurementSuspended: resizing || settling,
+  }), [resizing, settling]);
   const [offeredTab, setOfferedTab] = useState(false);
   const [dropTarget, setDropTarget] = useState<'leading' | 'trailing' | null>(null);
   const panelOpen = pane.mode !== 'chat-only';
@@ -124,7 +129,7 @@ export default function WorkbenchLayout({ workspacePath, children, ...windowProp
         </Tooltip>
       </ToolbarGroup>}
     />;
-  return <CanvasToolbarProvider>
+  return <WorkbenchResizeContext.Provider value={resizeState}><CanvasToolbarProvider>
     <div className="openbitfun-workbench-layout__body" data-openbitfun-scene="workbench" data-openbitfun-part="contentLayout">
       <SplitView header={header}
         mode={pane.mode === 'chat-only' ? 'primary' : pane.mode === 'content-only' ? 'secondary' : 'split'}
@@ -146,10 +151,11 @@ export default function WorkbenchLayout({ workspacePath, children, ...windowProp
           {/* Keep the skin address while the canvas moves between stable surface slots. */}
           <div className="openbitfun-workbench-layout__auxiliary" data-openbitfun-scene="session" data-openbitfun-part="auxiliary">
             <AuxPane workspacePath={workspacePath} externalToolbar isSceneActive={canvasVisible}
-              terminalResizeSuspended={resizing || settling} />
+              terminalResizeSuspended={resizeState.measurementSuspended}
+              resizeSuspended={resizeState.measurementSuspended} />
           </div>
         </SplitViewSurface></>}
       />
     </div>
-  </CanvasToolbarProvider>;
+  </CanvasToolbarProvider></WorkbenchResizeContext.Provider>;
 }

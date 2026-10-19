@@ -89,6 +89,8 @@ export interface EditorGroupProps {
   toolbarActions?: React.ReactNode;
   externalToolbar?: boolean;
   terminalResizeSuspended?: boolean;
+  /** The hosting pane is being resized; width-derived measurement waits for it to settle. */
+  resizeSuspended?: boolean;
 }
 
 export const EditorGroup: React.FC<EditorGroupProps> = ({
@@ -120,6 +122,7 @@ export const EditorGroup: React.FC<EditorGroupProps> = ({
   toolbarActions,
   externalToolbar = false,
   terminalResizeSuspended = false,
+  resizeSuspended = false,
 }) => {
   const { t } = useTranslation('components');
   const mode = useContext(CanvasStoreModeContext);
@@ -308,6 +311,7 @@ export const EditorGroup: React.FC<EditorGroupProps> = ({
                   onInteraction={onInteraction}
                   workspacePath={workspacePath}
                   terminalResizeSuspended={terminalResizeSuspended}
+                  resizeSuspended={resizeSuspended}
                 />
               </div>
             ))

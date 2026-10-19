@@ -24,3 +24,12 @@ pnpm --dir src/web-ui run test:run src/app/workbench/WorkbenchTabDrag.test.tsx s
 Use the parent guide's Session state checks when changing activation or lifetime,
 and the editor guide's focused suite when changing document behavior. Do not use
 mock-based visual verification or browser control for this module.
+
+For pane drag and settle measurement suspension:
+
+```bash
+pnpm --dir src/web-ui exec vitest run src/shared/ui/SplitView.test.tsx src/app/workbench/WorkbenchLayout.test.tsx src/app/scenes/session/ChatPane.composer-layout.test.tsx src/flow_chat/components/btw/BtwVirtualSessionList.test.tsx src/flow_chat/components/modern/useFlowChatVirtualizer.measurement.test.tsx
+```
+
+These DOM fixtures cover split/overlay gestures, cancellation, resize bounds and
+measurement recovery. They do not establish native frame timing or live remote behavior.
