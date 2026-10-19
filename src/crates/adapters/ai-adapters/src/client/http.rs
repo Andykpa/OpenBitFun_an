@@ -4,6 +4,27 @@ use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
 use reqwest::{Client, Proxy};
 
+/// Router requests retain their own total timeout and environment-proxy behavior.
+pub(crate) fn create_router_http_client(
+    timeout: std::time::Duration,
+    proxy_config: Option<ProxyConfig>,
+    skip_ssl_verify: bool,
+) -> Result<Client> {
+    openbitfun_services_core::tls_provider::ensure_ring_crypto_provider();
+    let mut builder = Client::builder()
+        .timeout(timeout)
+        .redirect(reqwest::redirect::Policy::none())
+        .danger_accept_invalid_certs(skip_ssl_verify);
+    if let Some(config) = proxy_config {
+        builder = if config.enabled && !config.url.is_empty() {
+            builder.proxy(build_proxy(&config)?)
+        } else {
+            builder.no_proxy()
+        };
+    }
+    Ok(builder.build()?)
+}
+
 pub(crate) fn create_http_client(
     proxy_config: Option<ProxyConfig>,
     skip_ssl_verify: bool,

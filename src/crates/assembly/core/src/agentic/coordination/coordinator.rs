@@ -2045,6 +2045,7 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
             provider_id: None,
             model_config_id: None,
             effective_model_name: None,
+            routing: None,
             first_chunk_ms: None,
             first_visible_output_ms: None,
             stream_duration_ms: None,
@@ -2122,6 +2123,7 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
             provider_id: None,
             model_config_id: None,
             effective_model_name: None,
+            routing: None,
             first_chunk_ms: None,
             first_visible_output_ms: None,
             stream_duration_ms: None,
@@ -2643,11 +2645,32 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
         model_id: &str,
         reasoning_preset: Option<&str>,
     ) -> OpenBitFunResult<()> {
+        self.update_session_model_selection_with_routing(
+            session_id,
+            model_id,
+            reasoning_preset,
+            None,
+        )
+        .await
+    }
+
+    pub async fn update_session_model_selection_with_routing(
+        &self,
+        session_id: &str,
+        model_id: &str,
+        reasoning_preset: Option<&str>,
+        routing_mode: Option<&str>,
+    ) -> OpenBitFunResult<()> {
         self.ensure_session_runtime_ownership(session_id, None)?;
         let normalized_model_id = normalize_model_selection(model_id).await?;
 
         self.session_manager
-            .update_session_model_selection(session_id, &normalized_model_id, reasoning_preset)
+            .update_session_model_selection_with_routing(
+                session_id,
+                &normalized_model_id,
+                reasoning_preset,
+                routing_mode,
+            )
             .await?;
 
         info!(
@@ -2669,13 +2692,34 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
         reasoning_preset: Option<&str>,
         include_internal: bool,
     ) -> OpenBitFunResult<Session> {
+        self.update_session_model_selection_from_storage_path_with_routing(
+            storage_path,
+            session_id,
+            model_id,
+            reasoning_preset,
+            None,
+            include_internal,
+        )
+        .await
+    }
+
+    pub(crate) async fn update_session_model_selection_from_storage_path_with_routing(
+        &self,
+        storage_path: &Path,
+        session_id: &str,
+        model_id: &str,
+        reasoning_preset: Option<&str>,
+        routing_mode: Option<&str>,
+        include_internal: bool,
+    ) -> OpenBitFunResult<Session> {
         let model_id = normalize_model_selection(model_id).await?;
         self.session_manager
-            .update_session_model_selection_in_storage(
+            .update_session_model_selection_in_storage_with_routing(
                 Some(storage_path),
                 session_id,
                 &model_id,
                 reasoning_preset,
+                routing_mode,
                 include_internal,
                 |session| {
                     let workspace = session.config.workspace_path.as_deref().ok_or_else(|| {
@@ -4406,6 +4450,7 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
                 round_index: 0,
                 model_config_id: String::new(),
                 effective_model_name: String::new(),
+                routing: None,
             })
             .await;
             self.emit_event(AgenticEvent::ToolEvent {
@@ -14590,10 +14635,11 @@ impl openbitfun_runtime_ports::AgentSessionModelPort for ConversationCoordinator
         &self,
         request: openbitfun_runtime_ports::AgentSessionModelSelectionUpdateRequest,
     ) -> openbitfun_runtime_ports::PortResult<()> {
-        self.update_session_model_selection(
+        self.update_session_model_selection_with_routing(
             &request.session_id,
             &request.selection.model_id,
             request.selection.reasoning_preset.as_deref(),
+            request.selection.routing_mode.as_deref(),
         )
         .await
         .map_err(runtime_port_error_preserving_message)

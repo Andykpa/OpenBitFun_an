@@ -329,6 +329,7 @@ pub(super) const OPERATIONS: &[OperationDefinition] = &[
     op("get_miniapp_versions",                                       Unaudited,   Proxied,          CLI_NOT_IMPLEMENTED),
     op("get_mode_skill_configs",                                     Unaudited,   Proxied,          CLI_NOT_IMPLEMENTED),
     op("get_model_configs",                                          Unaudited,   Proxied,          HANDLED),
+    op("get_model_routing_status",                                    Agnostic,    Proxied,          HANDLED),
     op("get_models_dev_catalog_status",                              LocalOnly,   Proxied,          HANDLED),
     op("get_native_prompt_command_conflicts_command",                Unsupported, Proxied,          CLI_NOT_IMPLEMENTED),
     op("get_opened_workspaces",                                      Agnostic,    Proxied,          HANDLED),

@@ -10,6 +10,11 @@ describe('model round memoization', () => {
       isStreaming: false, isComplete: true, items: [] },
   };
 
+  it('refreshes routing facts restored independently of message items', () => {
+    expect(areModelRoundItemPropsEqual(props, { ...props, round: { ...props.round,
+      effectiveModelName: 'economy', routing: { route: 'economy', latencyMs: 11 } } })).toBe(false);
+  });
+
   it('updates a settled row when recovery metadata adds or removes the continuation label', () => {
     const recovered = { ...props, round: { ...props.round,
       renderHints: { continuedAfterInterruption: true } } };

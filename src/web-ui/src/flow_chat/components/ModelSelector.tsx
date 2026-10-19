@@ -70,6 +70,8 @@ import {
   type ModelAvailabilityStatus,
 } from '../utils/modelResolution';
 import { setRecentManualModel } from '../utils/manualModelSelection';
+import { useModelRouting } from '../hooks/useModelRouting';
+import { ModelRouterSettings } from '@/infrastructure/config/components/ModelRouterSettings';
 import { useModelSelectionScope } from '../hooks/useModelSelectionScope';
 import { NativeModelSelectionPanel, type ModelRole } from './NativeModelSelectionPanel';
 import './ModelSelector.scss';
@@ -354,6 +356,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   const { t, formatNumber } = useI18n('flow-chat');
   const deviceSurfaceScope = useSyncExternalStore(onSurfaceActivated, getActiveSurfaceScope, getActiveSurfaceScope);
   const modelSelectionScopeKey = deviceSurfaceScope.key('model-selector', currentMode, sessionId);
+  const routingIdentity = `${deviceSurfaceScope.epoch}:${modelSelectionScopeKey}`;
   const modelSelectionScopeRef = useRef(modelSelectionScopeKey);
   modelSelectionScopeRef.current = modelSelectionScopeKey;
   const [configEpoch, setConfigEpoch] = useState(deviceSurfaceScope.epoch);
@@ -373,6 +376,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   const [acpOptions, setAcpOptions] = useState<AcpSessionOptions | null>(null);
   const [acpOptionsLoadState, setAcpOptionsLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [routerSettingsScope, setRouterSettingsScope] = useState<string | null>(null);
   const [keyboardNavigationOpen, setKeyboardNavigationOpen] = useState(false);
   /** Provider whose models the menu is currently showing; null is the provider level. */
   const [activeProviderKey, setActiveProviderKey] = useState<string | null>(null);
@@ -443,6 +447,11 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   });
   const [resolvedDropdownPlacement, setResolvedDropdownPlacement] = useState(dropdownPlacement);
   const activeSession = sessionId ? FlowChatStore.getInstance().getState().sessions.get(sessionId) : undefined;
+  const sessionDraft = useSyncExternalStore(
+    useCallback(callback => FlowChatStore.getInstance().subscribe(callback), []),
+    () => sessionId ? FlowChatStore.getInstance().getState().sessions.get(sessionId)?.draft : undefined,
+    () => undefined,
+  );
   const sessionReasoningPreset = useSyncExternalStore(
     useCallback(
       (callback) => FlowChatStore.getInstance().subscribe(() => callback()),
@@ -1154,6 +1163,37 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     selectedModel: currentNativeModelId,
     onDefaultChange: setModeModel,
   });
+  const routing = useModelRouting({
+    identity: routingIdentity, epoch: deviceSurfaceScope.epoch,
+    scope: selectionPreference.scope,
+    scopeKey: deviceSurfaceScope.key('model-selection-scope', sessionId),
+    request: { sessionId, workspaceId: activeSession?.workspaceId || activeSession?.config.workspaceId,
+      workspacePath: activeSession ? sessionProjectWorkspacePath(activeSession) : undefined,
+      remoteConnectionId: activeSession?.remoteConnectionId, remoteSshHost: activeSession?.remoteSshHost },
+    allowed: canRememberSelection, open: dropdownOpen,
+    draft: sessionDraft ? { mode: sessionDraft.modelRouting, onChange: mode => {
+      if (!sessionId) return;
+      FlowChatStore.getInstance().setState(state => {
+        const session = state.sessions.get(sessionId);
+        return session?.draft ? { ...state, sessions: new Map(state.sessions).set(sessionId, {
+          ...session, draft: { ...session.draft, modelRouting: mode },
+        }) } : state;
+      });
+    } } : undefined,
+    modelName: currentNativeModelId, reasoningPreset: activeSession?.config.reasoningPreset,
+    onModelChange: model => { if (sessionId) FlowChatStore.getInstance().updateSessionModelName(sessionId, model); },
+  });
+  const handleRoutingMode = async (mode: 'manual' | 'smart') => {
+    try { return await routing.select(mode); }
+    catch (error) {
+      if (deviceSurfaceScope.isCurrent()) {
+        notificationService.error(t('modelSelector.routing.saveFailed'));
+        log.warn('Failed to update model routing strategy', { error });
+        void routing.refresh();
+      }
+      return false;
+    }
+  };
   const modelInformationLoading = availability.status === 'loading'
     || (isNativeModelSelection && configLoadState === 'ready' && catalogLoadState === 'loading')
     || (isAcpSession && !externalSelection && acpOptionsLoadState === 'loading');
@@ -1405,6 +1445,11 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     roleSaveRef.current = operation;
     setLoading(true);
     try {
+      if (role === 'economy') {
+        const support = await agentAPI.getModelRoutingStatus();
+        if (!scope.isCurrent()) return false;
+        if (support.apiVersion !== 1) throw new Error('Model routing is unsupported by this host');
+      }
       // Update the shared role binding only. Session selections and per-agent
       // overrides have separate owners and must not be rewritten with it.
       const defaults = await configManager.updateConfig<DefaultModelsConfig>('ai.default_models', current => ({
@@ -2119,7 +2164,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
             />
           )}
           <OverflowText className="openbitfun-model-selector__name" data-openbitfun-component="model-selector" data-openbitfun-part="name">
-             {modelLabel}
+             {isNativeModelSelection && routing.mode === 'smart' ? t('modelSelector.modes.smart') : modelLabel}
           </OverflowText>
           {isAcpSelection && acpFastMode?.enabled && (
             <Icon glyph={Zap} size="xs" className="openbitfun-model-selector__fast-icon" />
@@ -2517,6 +2562,11 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                 models={allModels}
                 primary={resolveModelReference(allModels, 'primary', defaultModels) ?? undefined}
                 fast={resolveModelReference(allModels, 'fast', defaultModels) ?? undefined}
+                economy={allModels.find(model => model.id === defaultModels.economy && isSelectableTextChatModel(model))}
+                routing={{ mode: routing.mode, supported: Boolean(routing.status), ready: routing.status?.ready ?? false,
+                  issue: routing.status?.issue, summaryEnabled: routing.status?.summaryEnabled }}
+                onModeChange={handleRoutingMode}
+                onRoutingSettings={() => { setRouterSettingsScope(routingIdentity); }}
                 selected={allModels.find(model => model.id === concreteModelId)}
                 selectedId={currentNativeModelId}
                 modelLabel={settingsModelLabel}
@@ -2529,9 +2579,12 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                 fastUsesPrimary={!allModels.some(model => model.id === defaultModels.fast && isSelectableTextChatModel(model))}
                 subagentSelection={subagentSelection}
                 subagentModel={subagentSelection.kind === 'fixed' ? resolveModelReference(allModels, subagentSelection.model_id, defaultModels) ?? undefined : undefined}
-                disabled={disabled || loading || reasoningLoading || selectionPreference.pending || configLoadState !== 'ready'}
+                disabled={disabled || loading || reasoningLoading || selectionPreference.pending || routing.pending || configLoadState !== 'ready'}
                 onScopeChange={scope => {
-                  void selectionPreference.changeScope(scope).catch(error => {
+                  void (async () => {
+                    if (routing.status) await routing.changeScope(scope);
+                    await selectionPreference.changeScope(scope);
+                  })().catch(error => {
                     if (!deviceSurfaceScope.isCurrent()) return;
                     log.warn('Failed to update model selection scope', { error });
                     notificationService.error(t('modelSelector.scope.saveFailed'));
@@ -2622,6 +2675,10 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
           { open: dropdownOpen, ownerRef: dropdownRef },
         )}
       </RetainedMountBoundary>
+      {routerSettingsScope === routingIdentity && <ModelRouterSettings models={allModels}
+        onClose={() => setRouterSettingsScope(null)} onSaved={() => { void loadConfigData(); void routing.refresh(); }}
+        onManageModels={() => { setRouterSettingsScope(null); handleOpenModelSettings(); }} />}
+
     </div>
   );
 };

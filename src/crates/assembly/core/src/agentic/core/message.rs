@@ -82,6 +82,17 @@ pub struct MessageMetadata {
     pub activated_instruction_sources: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_response_replay: Option<ModelResponseReplay>,
+    /// Execution facts survive headless turns and UI reconnection. Never sent to providers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_execution: Option<ModelExecutionMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelExecutionMetadata {
+    pub model_config_id: String,
+    pub effective_model_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing: Option<openbitfun_events::agentic::ModelRoutingDecision>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

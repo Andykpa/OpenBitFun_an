@@ -1400,6 +1400,7 @@ describe('handleModelRoundStart', () => {
       roundIndex: 0,
       modelConfigId: '  config-1  ',
       effectiveModelName: '  gpt-4o  ',
+      routing: { route: 'primary', latencyMs: 25, fallbackReason: 'router_request_failed' },
       renderHints: { disableExploreGrouping: true },
     } as any);
 
@@ -1412,6 +1413,7 @@ describe('handleModelRoundStart', () => {
     expect(turn?.modelRounds[0]).toMatchObject({
       modelConfigId: 'config-1',
       effectiveModelName: 'gpt-4o',
+      routing: { route: 'primary', latencyMs: 25, fallbackReason: 'router_request_failed' },
       renderHints: { disableExploreGrouping: true, disableExploreGroupingSource: 'host' },
     });
   });

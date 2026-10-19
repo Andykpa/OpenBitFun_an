@@ -3,6 +3,34 @@
 For development commands, see [AGENTS.md](AGENTS.md) and the repository
 [contribution guide](../../../CONTRIBUTING.md).
 
+## Model selection and smart routing
+
+The composer model selector remembers the strategy for new conversations by
+default. Use **Only this conversation** for a temporary choice. Manual mode uses
+the primary model for the main conversation and the fast model for ordinary
+subagents; explicit subagent overrides still apply. Smart mode chooses between
+the primary model and an independently configured economy model for each main
+conversation step. Role assignments are shared across conversations.
+Choices made in a new conversation draft are applied on its execution host
+before the first message is sent, including temporary session-only strategies.
+
+In **Settings → AI → Models**, add the Router as an API-key model, then open
+**Router service** to select it and enter the matching `tokenizer.json` path on
+the machine running OpenBitFun. The Router must support the classifier protocol
+described in [the deployment guide](../../../deploy/model-router/README.md).
+Save and test the connection, configure an economy model, and enable smart mode
+in the composer. Saving configuration alone does not prove connectivity. Router
+request failures fall back to the primary model; each response records its
+actual model and fallback status. Optional Router context summaries use the
+fast model and add requests. Billing hints do not establish actual charges.
+
+Peer Device Mode applies configuration on the execution host and requires a host
+advertising smart-routing support. SSH/Docker workspaces also use their owning
+OpenBitFun runtime's Router configuration, not a tokenizer path on the
+controller. Mobile and bot model editors explicitly reject changes to smart
+sessions; use the GUI to change the strategy. External agents, subagents and
+approved immutable dispatch jobs retain their existing model behavior.
+
 ## Remote Connect
 
 Sign in once with the shared GitHub account. The official Relay and **Same

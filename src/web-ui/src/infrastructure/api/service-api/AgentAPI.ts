@@ -456,6 +456,18 @@ export interface EnsureAssistantBootstrapResponse {
   detail?: string;
 }
 
+export interface ModelRoutingStatus {
+  apiVersion: number;
+  mode: string;
+  defaultMode: string;
+  ready: boolean;
+  connected: boolean | null;
+  issue: string | null;
+  summaryEnabled: boolean;
+}
+export type ModelRoutingStatusRequest = Partial<Pick<UpdateSessionModelRequest,
+  'sessionId' | 'workspaceId' | 'workspacePath' | 'remoteConnectionId' | 'remoteSshHost'>> & { probe?: boolean };
+
 export interface UpdateSessionModelRequest {
   sessionId: string;
   modelName: string;
@@ -466,6 +478,7 @@ export interface UpdateSessionModelRequest {
   remoteConnectionId?: string;
   remoteSshHost?: string;
   includeInternal?: boolean;
+  routingMode?: 'manual' | 'smart';
 }
 
 /** `ask` | `auto_approve` | `full_access`; `null` clears the session override. */
@@ -773,6 +786,7 @@ export interface ModelRoundStartedEvent extends AgenticEvent {
   modelConfigId?: string;
   /** Provider model name sent on the request. */
   effectiveModelName?: string;
+  routing?: import('@/shared/types/session-history').ModelRoutingDecision;
 }
 
 export interface AcpContextUsageUpdatedEvent extends AgenticEvent {
@@ -1239,6 +1253,10 @@ export class AgentAPI {
     } catch (error) {
       throw createTauriCommandError('ensure_coordinator_session', error, request);
     }
+  }
+
+  async getModelRoutingStatus(request: ModelRoutingStatusRequest = {}): Promise<ModelRoutingStatus> {
+    return api.invoke<ModelRoutingStatus>('get_model_routing_status', { request }, { retries: 0 });
   }
 
   async updateSessionModel(request: UpdateSessionModelRequest): Promise<void> {

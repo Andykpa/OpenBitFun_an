@@ -132,6 +132,7 @@ pub(crate) const INTERRUPTED_TURN_REASONING_FINGERPRINT_METADATA_KEY: &str =
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TurnAdmissionSessionFacts {
     model_id: Option<String>,
+    model_routing: Option<String>,
     reasoning_preset: Option<String>,
     permission_mode: Option<PermissionMode>,
     max_context_tokens: usize,
@@ -151,6 +152,7 @@ impl TurnAdmissionSessionFacts {
     pub(crate) fn from_session(session: &Session) -> Self {
         Self {
             model_id: session.config.model_id.clone(),
+            model_routing: session.config.model_routing.clone(),
             reasoning_preset: session.config.reasoning_preset.clone(),
             permission_mode: session.config.permission_mode,
             max_context_tokens: session.config.max_context_tokens,
@@ -173,7 +175,8 @@ impl TurnAdmissionSessionFacts {
     }
 
     fn matches(&self, session: &Session) -> bool {
-        self.model_id == session.config.model_id
+        self.model_routing == session.config.model_routing
+            && self.model_id == session.config.model_id
             && self.reasoning_preset == session.config.reasoning_preset
             && self.permission_mode == session.config.permission_mode
             && self.max_context_tokens == session.config.max_context_tokens
@@ -1306,13 +1309,29 @@ impl SessionManager {
     }
 
     pub async fn persistent_model_exchange_trace_dir(&self, session_id: &str) -> Option<PathBuf> {
+        self.persistent_session_layout(session_id)
+            .await
+            .map(|layout| layout.request_traces_dir(session_id))
+    }
+
+    /// Runtime-owned checkpoints share the session snapshot directory, not diagnostic traces.
+    pub(crate) async fn persistent_context_snapshot_dir(
+        &self,
+        session_id: &str,
+    ) -> Option<PathBuf> {
+        self.persistent_session_layout(session_id)
+            .await
+            .map(|layout| layout.snapshots_dir(session_id))
+    }
+
+    async fn persistent_session_layout(&self, session_id: &str) -> Option<SessionStorageLayout> {
         if !self.should_persist_session_id(session_id) {
             return None;
         }
 
         let storage_path = self.effective_session_storage_path(session_id).await?;
 
-        Some(SessionStorageLayout::new(storage_path).request_traces_dir(session_id))
+        Some(SessionStorageLayout::new(storage_path))
     }
 
     /// Materialize a bounded transcript copy for a user-selected reference.
@@ -1972,6 +1991,20 @@ impl SessionManager {
         self.ensure_token_anchors_loaded(session_id).await;
         self.token_anchor_store
             .select_latest_matching(session_id, messages)
+    }
+
+    pub async fn select_latest_matching_token_anchor_for_model(
+        &self,
+        session_id: &str,
+        messages: &[Message],
+        model_id: &str,
+    ) -> TokenAnchorSelection {
+        self.ensure_token_anchors_loaded(session_id).await;
+        self.token_anchor_store.select_latest_matching_for_model(
+            session_id,
+            messages,
+            Some(model_id),
+        )
     }
 
     pub async fn prune_token_anchors_to_messages(&self, session_id: &str, messages: &[Message]) {
@@ -2748,6 +2781,20 @@ impl SessionManager {
         session.kind = kind;
         let ai_config = Self::load_ai_config_for_model_resolution().await;
         if let Some(ai_config) = ai_config.as_ref() {
+            if session.config.model_routing.is_none()
+                && kind != SessionKind::Subagent
+                && session.config.model_binding_policy == SessionModelBindingPolicy::Mutable
+                && matches!(
+                    session.config.agent_route_owner,
+                    crate::agentic::core::SessionAgentRouteOwner::Local
+                )
+            {
+                if let Some(mode) = ai_config.model_routing.default_mode.as_ref() {
+                    session.config.model_routing = Some(mode.clone());
+                } else if !crate::agentic::execution::round_model_routing::configuration::legacy_enabled() {
+                    session.config.model_routing = Some("manual".into());
+                }
+            }
             let previous_reasoning_preset = session.config.reasoning_preset.clone();
             session.config.reasoning_preset =
                 Self::normalize_session_reasoning_preset(&session, ai_config).await;
@@ -4238,11 +4285,28 @@ impl SessionManager {
         model_id: &str,
         reasoning_preset: Option<&str>,
     ) -> OpenBitFunResult<()> {
-        self.update_session_model_selection_in_storage(
+        self.update_session_model_selection_with_routing(
+            session_id,
+            model_id,
+            reasoning_preset,
+            None,
+        )
+        .await
+    }
+
+    pub async fn update_session_model_selection_with_routing(
+        &self,
+        session_id: &str,
+        model_id: &str,
+        reasoning_preset: Option<&str>,
+        routing_mode: Option<&str>,
+    ) -> OpenBitFunResult<()> {
+        self.update_session_model_selection_in_storage_with_routing(
             None,
             session_id,
             model_id,
             reasoning_preset,
+            routing_mode,
             true,
             |_| Ok(()),
         )
@@ -4256,6 +4320,28 @@ impl SessionManager {
         session_id: &str,
         model_id: &str,
         reasoning_preset: Option<&str>,
+        include_internal: bool,
+        validate_binding: impl FnOnce(&Session) -> OpenBitFunResult<()>,
+    ) -> OpenBitFunResult<Session> {
+        self.update_session_model_selection_in_storage_with_routing(
+            storage_path,
+            session_id,
+            model_id,
+            reasoning_preset,
+            None,
+            include_internal,
+            validate_binding,
+        )
+        .await
+    }
+
+    pub(crate) async fn update_session_model_selection_in_storage_with_routing(
+        &self,
+        storage_path: Option<&Path>,
+        session_id: &str,
+        model_id: &str,
+        reasoning_preset: Option<&str>,
+        routing_mode: Option<&str>,
         include_internal: bool,
         validate_binding: impl FnOnce(&Session) -> OpenBitFunResult<()>,
     ) -> OpenBitFunResult<Session> {
@@ -4304,6 +4390,42 @@ impl SessionManager {
         let mut resolved_context_window = None;
         let mut auto_cleared_reasoning_preset = None;
         let mut updated_session = original_session.clone();
+        if routing_mode.is_none()
+            && original_session.config.model_routing.as_deref() == Some("smart")
+            && original_session.config.model_id.as_deref() != Some(model_id)
+        {
+            return Err(OpenBitFunError::Validation(
+                "This session uses smart routing; update its model strategy with a compatible GUI"
+                    .into(),
+            ));
+        }
+        if let Some(mode) = routing_mode {
+            if !matches!(mode, "manual" | "smart") {
+                return Err(OpenBitFunError::Validation(
+                    "Unsupported model routing strategy".into(),
+                ));
+            }
+            if mode == "smart" {
+                let eligible = original_session.kind != SessionKind::Subagent
+                    && original_session.config.model_binding_policy
+                        != SessionModelBindingPolicy::ApprovedImmutable
+                    && matches!(
+                        original_session.config.agent_route_owner,
+                        crate::agentic::core::SessionAgentRouteOwner::Local
+                    );
+                if !eligible {
+                    return Err(OpenBitFunError::Validation(
+                        "Smart mode is unavailable for this session".into(),
+                    ));
+                }
+                crate::agentic::execution::round_model_routing::configuration::prepare_turn(
+                    Some(mode),
+                    true,
+                )
+                .await?;
+            }
+            updated_session.config.model_routing = Some(mode.into());
+        }
         updated_session.config.model_id = Some(model_id.to_string());
         updated_session.config.reasoning_preset = reasoning_preset
             .map(str::trim)
@@ -4327,7 +4449,8 @@ impl SessionManager {
             resolved_context_window =
                 Self::sync_session_context_window_from_ai_config(&mut updated_session, ai_config);
         }
-        if original_session.config.model_id == updated_session.config.model_id
+        if original_session.config.model_routing == updated_session.config.model_routing
+            && original_session.config.model_id == updated_session.config.model_id
             && original_session.config.reasoning_preset == updated_session.config.reasoning_preset
             && original_session.config.max_context_tokens
                 == updated_session.config.max_context_tokens
@@ -4361,6 +4484,7 @@ impl SessionManager {
 
         if let Some(mut session) = self.sessions.get_mut(session_id) {
             session.config.model_id = updated_session.config.model_id.clone();
+            session.config.model_routing = updated_session.config.model_routing.clone();
             session.config.reasoning_preset = updated_session.config.reasoning_preset.clone();
             session.config.max_context_tokens = updated_session.config.max_context_tokens;
             session.updated_at = now;
@@ -7746,8 +7870,21 @@ impl SessionManager {
                             end_time: Some(timestamp),
                             duration_ms: Some(0),
                             provider_id: None,
-                            model_config_id: None,
-                            effective_model_name: None,
+                            model_config_id: msg
+                                .metadata
+                                .model_execution
+                                .as_ref()
+                                .map(|facts| facts.model_config_id.clone()),
+                            effective_model_name: msg
+                                .metadata
+                                .model_execution
+                                .as_ref()
+                                .map(|facts| facts.effective_model_name.clone()),
+                            routing: msg
+                                .metadata
+                                .model_execution
+                                .as_ref()
+                                .and_then(|facts| facts.routing.clone()),
                             first_chunk_ms: None,
                             first_visible_output_ms: None,
                             stream_duration_ms: None,
@@ -8249,6 +8386,7 @@ impl SessionManager {
                     provider_id: None,
                     model_config_id: None,
                     effective_model_name: None,
+                    routing: None,
                     first_chunk_ms: None,
                     first_visible_output_ms: None,
                     stream_duration_ms: None,
@@ -8393,8 +8531,13 @@ impl SessionManager {
                 round.end_time = existing.end_time.or(round.end_time);
                 round.duration_ms = existing.duration_ms.or(round.duration_ms);
                 round.provider_id = existing.provider_id.clone();
-                round.model_config_id = existing.model_config_id.clone();
-                round.effective_model_name = existing.effective_model_name.clone();
+                round.model_config_id = round
+                    .model_config_id
+                    .or_else(|| existing.model_config_id.clone());
+                round.effective_model_name = round
+                    .effective_model_name
+                    .or_else(|| existing.effective_model_name.clone());
+                round.routing = round.routing.or_else(|| existing.routing.clone());
                 round.first_chunk_ms = existing.first_chunk_ms;
                 round.first_visible_output_ms = existing.first_visible_output_ms;
                 round.stream_duration_ms = existing.stream_duration_ms;
@@ -8502,6 +8645,7 @@ impl SessionManager {
                 provider_id: None,
                 model_config_id: None,
                 effective_model_name: None,
+                routing: None,
                 first_chunk_ms: None,
                 first_visible_output_ms: None,
                 stream_duration_ms: None,
@@ -10200,6 +10344,40 @@ mod tests {
     use std::sync::Arc;
     use std::time::{Duration, SystemTime};
     use uuid::Uuid;
+
+    #[test]
+    fn model_routing_history_survives_headless_persistence_and_legacy_messages() {
+        let legacy = Message::assistant("legacy".into());
+        let mut legacy_json = serde_json::to_value(&legacy).unwrap();
+        legacy_json["metadata"]
+            .as_object_mut()
+            .unwrap()
+            .remove("model_execution");
+        let restored: Message = serde_json::from_value(legacy_json).unwrap();
+        assert!(restored.metadata.model_execution.is_none());
+        let mut routed = Message::assistant("routed".into()).with_round_id("round-economy".into());
+        routed.metadata.model_execution =
+            Some(crate::agentic::core::message::ModelExecutionMetadata {
+                model_config_id: "economy-config".into(),
+                effective_model_name: "economy-api-model".into(),
+                routing: Some(openbitfun_events::agentic::ModelRoutingDecision {
+                    route: "economy".into(),
+                    latency_ms: 17,
+                    fallback_reason: None,
+                }),
+            });
+        let restored: Message =
+            serde_json::from_value(serde_json::to_value(routed).unwrap()).unwrap();
+        let rounds =
+            SessionManager::build_model_rounds_from_messages(&[legacy, restored], "turn", 1);
+        assert!(rounds[0].routing.is_none());
+        assert_eq!(rounds[1].model_config_id.as_deref(), Some("economy-config"));
+        assert_eq!(
+            rounds[1].effective_model_name.as_deref(),
+            Some("economy-api-model")
+        );
+        assert_eq!(rounds[1].routing.as_ref().unwrap().latency_ms, 17);
+    }
 
     #[test]
     fn classified_edit_history_preserves_detail_and_readable_error() {
@@ -13274,6 +13452,64 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn model_routing_preserves_strategy_when_only_reasoning_changes() {
+        let workspace = TestWorkspace::new();
+        let persistence = Arc::new(PersistenceManager::new(workspace.path_manager()).unwrap());
+        let manager = test_manager(persistence.clone());
+        let id = Uuid::new_v4().to_string();
+        let session = Session::new_with_id(
+            id.clone(),
+            "Smart session".into(),
+            "Standard".into(),
+            SessionConfig {
+                workspace_path: Some(workspace.path().to_string_lossy().into_owned()),
+                model_id: Some("primary".into()),
+                model_routing: Some("smart".into()),
+                reasoning_preset: Some("high".into()),
+                ..Default::default()
+            },
+        );
+        persistence
+            .save_session(workspace.path(), &session)
+            .await
+            .unwrap();
+        let updated = manager
+            .update_session_model_selection_in_storage(
+                Some(workspace.path()),
+                &id,
+                "primary",
+                None,
+                false,
+                |_| Ok(()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.config.model_routing.as_deref(), Some("smart"));
+        assert!(updated.config.reasoning_preset.is_none());
+        assert!(manager
+            .update_session_model_selection_in_storage(
+                Some(workspace.path()),
+                &id,
+                "fast",
+                None,
+                false,
+                |_| Ok(()),
+            )
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("compatible GUI"));
+        let persisted = persistence
+            .load_session_header(workspace.path(), &id)
+            .await
+            .unwrap();
+        assert_eq!(persisted.config.model_routing.as_deref(), Some("smart"));
+        assert_eq!(persisted.config.model_id.as_deref(), Some("primary"));
+        assert!(persisted.config.reasoning_preset.is_none());
+        assert!(manager.get_session(&id).is_none());
+    }
+
+    #[tokio::test]
     async fn cold_session_model_update_preserves_history_and_unknown_state_without_restore() {
         let workspace = TestWorkspace::new();
         let paths = workspace.path_manager();
@@ -13352,6 +13588,35 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(std::fs::read(&state_path).unwrap(), bytes);
+        manager
+            .update_session_model_selection_in_storage_with_routing(
+                Some(workspace.path()),
+                &id,
+                "fast",
+                Some("high"),
+                Some("manual"),
+                false,
+                |_| Ok(()),
+            )
+            .await
+            .unwrap();
+        let routed: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&state_path).unwrap()).unwrap();
+        assert_eq!(routed["config"]["model_routing"], "manual");
+        assert_eq!(routed["future_state"], state["future_state"]);
+        assert_eq!(routed["config"]["future_config"], 42);
+        assert!(manager
+            .update_session_model_selection_in_storage_with_routing(
+                Some(workspace.path()),
+                &id,
+                "fast",
+                Some("high"),
+                Some("future-mode"),
+                false,
+                |_| Ok(())
+            )
+            .await
+            .is_err());
         // Clearing a preset on the same model is a real mutation.
         manager
             .update_session_model_selection_in_storage(
@@ -16643,6 +16908,7 @@ mod tests {
             provider_id: None,
             model_config_id: None,
             effective_model_name: None,
+            routing: None,
             first_chunk_ms: None,
             first_visible_output_ms: None,
             stream_duration_ms: None,

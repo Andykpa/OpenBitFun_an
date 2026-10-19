@@ -1030,9 +1030,11 @@ fn remote_chat_history_turn_from_core_turn(
 }
 
 #[cfg(feature = "remote-connect")]
-async fn resolve_session_model_selection(session_id: &str) -> (Option<String>, Option<String>) {
+async fn resolve_session_model_selection(
+    session_id: &str,
+) -> (Option<String>, Option<String>, Option<String>) {
     let Some(coordinator) = get_global_coordinator() else {
-        return (None, None);
+        return (None, None, None);
     };
     let session_manager = coordinator.get_session_manager();
 
@@ -1040,13 +1042,14 @@ async fn resolve_session_model_selection(session_id: &str) -> (Option<String>, O
         return (
             normalize_remote_session_model_id(session.config.model_id.as_deref()),
             session.config.reasoning_preset.clone(),
+            session.config.model_routing.clone(),
         );
     }
 
     let Some(session_storage_dir) =
         CoreServiceAgentRuntime::resolve_session_storage_dir(session_id).await
     else {
-        return (None, None);
+        return (None, None, None);
     };
     coordinator
         .restore_session_view_from_storage_path_timed(&session_storage_dir, session_id)
@@ -1056,6 +1059,7 @@ async fn resolve_session_model_selection(session_id: &str) -> (Option<String>, O
             (
                 normalize_remote_session_model_id(session.config.model_id.as_deref()),
                 session.config.reasoning_preset,
+                session.config.model_routing,
             )
         })
         .unwrap_or_default()
@@ -2288,11 +2292,21 @@ impl CoreServiceAgentRuntime {
             })
             .collect();
 
-        let (session_model_id, session_reasoning_preset) = if let Some(session_id) = session_id {
-            resolve_session_model_selection(session_id).await
-        } else {
-            (None, None)
-        };
+        let (session_model_id, session_reasoning_preset, routing_mode) =
+            if let Some(session_id) = session_id {
+                resolve_session_model_selection(session_id).await
+            } else {
+                (None, None, None)
+            };
+        if !include_host_catalogs
+            && session_id.is_some()
+            && crate::agentic::execution::round_model_routing::configuration::routing_enabled(
+                routing_mode.as_deref(),
+            )
+            .map_err(|error| error.to_string())?
+        {
+            return Err("Smart routing is active. Model strategy editing is not supported from mobile or bot controls; use the GUI model selector".into());
+        }
         Ok(build_remote_model_catalog(RemoteModelCatalogFacts {
             last_modified_ms: global_config.last_modified.timestamp_millis(),
             source_version: Some(models_dev.version),
@@ -2331,6 +2345,14 @@ impl CoreServiceAgentRuntime {
         model_id: &str,
         reasoning_preset: Option<Option<&str>>,
     ) -> Result<RemoteSessionModelSelection, String> {
+        let (_, _, routing_mode) = resolve_session_model_selection(session_id).await;
+        if crate::agentic::execution::round_model_routing::configuration::routing_enabled(
+            routing_mode.as_deref(),
+        )
+        .map_err(|error| error.to_string())?
+        {
+            return Err("Smart routing is active. Model strategy editing is not supported from mobile or bot controls; use the GUI model selector".into());
+        }
         let ai_config = if remote_model_selection_needs_config(model_id)
             || reasoning_preset.is_some_and(|preset| preset.is_some())
         {
@@ -2437,6 +2459,7 @@ impl CoreServiceAgentRuntime {
                     selection: AgentSessionModelSelection {
                         model_id: normalized_model_id.clone(),
                         reasoning_preset: normalized_reasoning_preset.clone().flatten(),
+                        routing_mode: None,
                     },
                 })
                 .await
@@ -4817,6 +4840,7 @@ mod tests {
                 provider_id: None,
                 model_config_id: None,
                 effective_model_name: None,
+                routing: None,
                 first_chunk_ms: None,
                 first_visible_output_ms: None,
                 stream_duration_ms: None,

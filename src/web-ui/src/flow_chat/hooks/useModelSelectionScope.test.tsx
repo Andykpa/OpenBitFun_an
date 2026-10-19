@@ -16,11 +16,11 @@ describe('model selection save scope', () => {
   let result: ReturnType<typeof useModelSelectionScope>;
   const changed = vi.fn();
   const Harness = (props: Parameters<typeof useModelSelectionScope>[0]) => { result = useModelSelectionScope(props); return null; };
-  const render = async ({ sessionId = 'session-a' as string | undefined, allowed = true, selected = 'fast', open = true } = {}) => {
+  const render = async ({ sessionId = 'session-a' as string | undefined, allowed = true, selected = 'fast', open = true, scopeOverride = undefined as 'remember' | 'session' | undefined } = {}) => {
     const surface = getActiveSurfaceScope();
     await act(async () => root.render(<Harness
       scopeKey={surface.key('model-selection-scope', sessionId)} epoch={surface.epoch}
-      sessionId={sessionId} allowed={allowed} open={open} defaultModel={hostDefault} selectedModel={selected} onDefaultChange={changed}
+      sessionId={sessionId} allowed={allowed} open={open} scopeOverride={scopeOverride} defaultModel={hostDefault} selectedModel={selected} onDefaultChange={changed}
     />));
   };
   beforeEach(() => {
@@ -71,6 +71,14 @@ describe('model selection save scope', () => {
     await render({ allowed: false });
     await act(async () => result!.changeScope('remember'));
     expect(result!.scope).toBe('session'); expect(configManager.setConfig).not.toHaveBeenCalled();
+  });
+
+  it('leaves the shared scope unchanged until its owning editor commits', async () => {
+    await render({ scopeOverride: 'remember' });
+    result!.markDefaultWrite('fast'); hostDefault = 'fast';
+    await act(async () => result!.changeScope('session'));
+    expect(hostDefault).toBe('primary'); expect(result!.scope).toBe('remember');
+    await render({ scopeOverride: 'session' }); expect(result!.scope).toBe('session');
   });
 
   it('keeps the previous scope on save failure', async () => {

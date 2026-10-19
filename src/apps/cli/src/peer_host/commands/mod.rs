@@ -126,6 +126,7 @@ pub(crate) fn dispatch<'a>(
         "get_all_tools_info" => Box::pin(tools::get_all_tools_info()),
         "get_chat_mcp_catalog" => Box::pin(tools::get_chat_mcp_catalog(args)),
 
+        "get_model_routing_status" => Box::pin(session::get_model_routing_status(state, args)),
         // Sessions
         "list_persisted_sessions" => Box::pin(session::list_persisted_sessions(state, args)),
         "list_persisted_sessions_page" => Box::pin(session::list_persisted_sessions_page(state, args)),
@@ -247,6 +248,7 @@ pub(crate) const HANDLED_COMMANDS: &[&str] = &[
     "refresh_models_dev_catalog_now",
     "get_models_dev_catalog_status",
     "get_model_configs",
+    "get_model_routing_status",
     "project_ai_model_reasoning_catalog",
     "get_ai_model_catalog",
     "update_active_turn_permission_mode",

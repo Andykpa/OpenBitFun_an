@@ -22,6 +22,7 @@ use super::PeerHostKind;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PeerHostCapability {
+    ModelRoutingV1,
     /// Versioned, execution-host-owned background report decisions are persisted and projected.
     BackgroundResultDeliveryV1,
     DialogQueueV1,
@@ -71,6 +72,7 @@ pub enum PeerHostCapability {
 impl PeerHostCapability {
     /// Every capability id, in wire order.
     pub const ALL: &'static [PeerHostCapability] = &[
+        Self::ModelRoutingV1,
         Self::BackgroundResultDeliveryV1,
         Self::DialogQueueV1,
         Self::IdempotentDialogSubmit,
@@ -98,6 +100,7 @@ impl PeerHostCapability {
     /// The key used in the `peer_mode_ping` `capabilities` object.
     pub const fn key(self) -> &'static str {
         match self {
+            Self::ModelRoutingV1 => "model_routing_v1",
             Self::BackgroundResultDeliveryV1 => "background_result_delivery_v1",
             Self::DialogQueueV1 => "dialog_queue_v1",
             Self::IdempotentDialogSubmit => "idempotent_dialog_submit",
@@ -134,6 +137,7 @@ const DESKTOP_CAPABILITIES: &[PeerHostCapability] = PeerHostCapability::ALL;
 /// The CLI peer host has no MiniApp runtime, WSL connection setup, host-native
 /// ProductControl providers, or presentation surface.
 const CLI_CAPABILITIES: &[PeerHostCapability] = &[
+    PeerHostCapability::ModelRoutingV1,
     PeerHostCapability::BackgroundResultDeliveryV1,
     PeerHostCapability::DialogQueueV1,
     PeerHostCapability::ControlConversationV1,

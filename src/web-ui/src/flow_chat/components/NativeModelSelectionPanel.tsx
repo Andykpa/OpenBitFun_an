@@ -1,5 +1,5 @@
-import { useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { Button, Icon, IconButton, MenuItem, MenuList, MenuPopover, MenuSection, OverflowText, ScrollArea, SearchField, SegmentedControl, StatusPill, Tooltip } from '@openbitfun/ui';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { Button, Icon, IconButton, MenuItem, MenuList, MenuPopover, MenuSection, OverflowText, ScrollArea, SearchField, SegmentedControl, Tooltip } from '@openbitfun/ui';
 import { ArrowLeft, Brain, Check, Search, SlidersHorizontal, Sparkles, X, Zap } from 'lucide-react';
 import { useI18n } from '@/infrastructure/i18n';
 import type { AIModelConfig, SubagentModelSelection } from '@/infrastructure/config/types';
@@ -11,7 +11,10 @@ import './NativeModelSelectionPanel.scss';
 
 interface Props {
   models: AIModelConfig[];
-  primary?: AIModelConfig; fast?: AIModelConfig; selected?: AIModelConfig;
+  primary?: AIModelConfig; fast?: AIModelConfig; economy?: AIModelConfig; selected?: AIModelConfig;
+  routing?: { mode: 'manual' | 'smart'; ready: boolean; supported: boolean; issue?: string | null; summaryEnabled?: boolean };
+  onModeChange?: (mode: 'manual' | 'smart') => Promise<boolean>;
+  onRoutingSettings?: () => void;
   modelLabel: string; selectedId: string; scope: ModelSelectionScope;
   canRemember: boolean; hasSession: boolean; disabled: boolean;
   canConfigureDefaults: boolean;
@@ -28,15 +31,15 @@ interface Props {
   children?: ReactNode;
 }
 
-export type ModelRole = 'primary' | 'fast';
-type PreviewRole = 'primary' | 'economy';
-type PickerRole = ModelRole | PreviewRole;
+export type ModelRole = 'primary' | 'fast' | 'economy';
+type PickerRole = ModelRole;
 
 export function NativeModelSelectionPanel(props: Props) {
   const { t } = useI18n('flow-chat');
   const [scopeOpen, setScopeOpen] = useState(false);
-  const [view, setView] = useState<'manual' | 'smart'>('manual');
-  const smartPreview = view === 'smart';
+  const [view, setView] = useState<'manual' | 'smart'>(props.routing?.mode ?? 'manual');
+  useEffect(() => { if (props.routing) setView(props.routing.mode); }, [props.routing?.mode]);
+  const smartView = view === 'smart';
   const advancedId = useId();
   const scopeRef = useRef<HTMLButtonElement>(null);
   const primaryRef = useRef<HTMLButtonElement>(null);
@@ -46,13 +49,8 @@ export function NativeModelSelectionPanel(props: Props) {
   const returnRole = useRef<PickerRole | null>(null);
   const [pickingRole, setPickingRole] = useState<PickerRole | null>(null);
   const [query, setQuery] = useState('');
-  const [previewIds, setPreviewIds] = useState<Partial<Record<PreviewRole, string>>>({});
   const availableModels = filterSelectableTextChatModels(props.models)
     .filter((model): model is AIModelConfig & { id: string } => Boolean(model.id?.trim()));
-  const previewPair = {
-    primary: availableModels.find(model => model.id === previewIds.primary) ?? props.primary,
-    economy: availableModels.find(model => model.id === previewIds.economy) ?? props.fast,
-  };
   useLayoutEffect(() => {
     if (pickingRole) searchRef.current?.focus({ preventScroll: true });
     else if (returnRole.current) {
@@ -68,12 +66,16 @@ export function NativeModelSelectionPanel(props: Props) {
   const roleLabel = (role: PickerRole) => t(role === 'primary' ? 'modelSelector.primaryModel'
     : role === 'economy' ? 'modelSelector.economyModel' : 'modelSelector.fastModel');
   const chooseScope = (scope: ModelSelectionScope) => { setScopeOpen(false); props.onScopeChange(scope); };
+  const chooseMode = async (mode: 'manual' | 'smart') => {
+    setScopeOpen(false);
+    // Unconfigured smart mode can be inspected. Active strategies follow the
+    // host response so a rejected write never looks like a successful switch.
+    if (!props.routing?.supported || (mode === 'smart' && !props.routing.ready)) setView(mode);
+    else if (await props.onModeChange?.(mode)) setView(mode);
+  };
   const chooseRoleModel = async (modelId: string | null) => {
     if (!pickingRole || props.disabled) return;
-    if (smartPreview) {
-      if (modelId && pickingRole !== 'fast') setPreviewIds(current => ({ ...current, [pickingRole]: modelId }));
-      closePicker();
-    } else if (pickingRole !== 'economy' && await props.onConfigureModel(pickingRole, modelId)) closePicker();
+    if (await props.onConfigureModel(pickingRole, modelId)) closePicker();
   };
   const subagentOverride = props.subagentSelection.kind === 'inherit'
     ? t('modelSelector.roles.inheritMain')
@@ -82,14 +84,14 @@ export function NativeModelSelectionPanel(props: Props) {
       : props.subagentModel?.model_name ?? t('modelSelector.modelNotConfigured');
   const subagentsUseFast = props.subagentSelection.kind === 'fixed' && props.subagentSelection.model_id === 'fast';
   const modelRow = (role: PickerRole, model?: AIModelConfig) => (
-    <MenuItem ref={role === 'primary' ? primaryRef : secondaryRef} data-testid={`model-selection-${smartPreview ? 'smart' : 'config'}-${role}`} disabled={props.disabled}
+    <MenuItem ref={role === 'primary' ? primaryRef : secondaryRef} data-testid={`model-selection-${smartView ? 'smart' : 'config'}-${role}`} disabled={props.disabled || !props.canConfigureDefaults}
       onClick={() => { setQuery(''); setPickingRole(role); }}
       labelBehavior="static" leading={<Icon glyph={role === 'primary' ? Brain : Zap} />}
       metadata={<Icon name="chevron-right" size="sm" />}>
       <span className="native-model-selection__model-info" data-openbitfun-component="model-selector" data-openbitfun-part="modelInfo">
         <span className="native-model-selection__model-meta">
           <span className="native-model-selection__role-label">{roleLabel(role)}</span>
-          <span>{t(smartPreview
+          <span>{t(smartView
             ? role === 'primary' ? 'modelSelector.modes.primaryPurpose' : 'modelSelector.modes.economyPurpose'
             : role === 'primary' ? 'modelSelector.roles.primaryPurpose'
               : subagentsUseFast ? 'modelSelector.roles.fastPurpose' : 'modelSelector.roles.fastAvailable')}</span>
@@ -97,15 +99,14 @@ export function NativeModelSelectionPanel(props: Props) {
         <OverflowText className="native-model-selection__model-name">{model?.model_name ?? t('modelSelector.modelNotConfigured')}</OverflowText>
         <span className="native-model-selection__model-meta">
           {model && <OverflowText>{getProviderDisplayName(model)}</OverflowText>}
-          {!smartPreview && role === 'fast' && props.fastUsesPrimary && <span>{t('modelSelector.roles.followPrimary')}</span>}
+          {!smartView && role === 'fast' && props.fastUsesPrimary && <span>{t('modelSelector.roles.followPrimary')}</span>}
         </span>
       </span>
     </MenuItem>
   );
   if (pickingRole) {
     const search = query.trim().toLowerCase();
-    const roleModel = pickingRole === 'economy' ? previewPair.economy
-      : pickingRole === 'primary' && smartPreview ? previewPair.primary : props[pickingRole];
+    const roleModel = props[pickingRole];
     const groups = new Map<string, { name: string; models: typeof availableModels }>();
     for (const model of availableModels) {
       const name = getProviderDisplayName(model);
@@ -128,8 +129,7 @@ export function NativeModelSelectionPanel(props: Props) {
           <IconButton size="xs" variant="quiet" icon={<Icon glyph={ArrowLeft} />} aria-label={t('modelSelector.picker.back')} onClick={closePicker} />
           <strong>{t('modelSelector.picker.title', { role: roleLabel(pickingRole) })}</strong>
         </div>
-        {smartPreview ? <StatusPill tone="neutral">{t('modelSelector.modes.previewBadge')}</StatusPill>
-          : <small>{t('modelSelector.roles.shared')}</small>}
+        <small>{t('modelSelector.roles.shared')}</small>
       </div>
       <SearchField ref={searchRef} size="sm" value={query} onValueChange={setQuery} disabled={props.disabled}
         aria-label={t('modelSelector.picker.search')} placeholder={t('modelSelector.picker.search')}
@@ -142,14 +142,14 @@ export function NativeModelSelectionPanel(props: Props) {
         }} />
       <div className="native-model-selection__picker-options" data-openbitfun-component="model-selector" data-openbitfun-part="rolePickerList">
       <ScrollArea orientation="vertical"><MenuList ref={pickerRef} data-testid="model-selection-role-options">
-        {!smartPreview && pickingRole === 'fast' && !query.trim() && <MenuItem role="menuitemradio" checked={props.fastUsesPrimary}
+        {!smartView && pickingRole === 'fast' && !query.trim() && <MenuItem role="menuitemradio" checked={props.fastUsesPrimary}
           data-testid="model-selection-role-inherit" disabled={props.disabled} onClick={() => { void chooseRoleModel(null); }}>
           {t('modelSelector.roles.followPrimary')}
         </MenuItem>}
         {[...groups].map(([key, group]) => <MenuSection key={key} title={group.name}>
-          {group.models.map(model => <MenuItem key={model.id} role="menuitemradio" checked={roleModel?.id === model.id && (smartPreview || pickingRole !== 'fast' || !props.fastUsesPrimary)}
+          {group.models.map(model => <MenuItem key={model.id} role="menuitemradio" checked={roleModel?.id === model.id && (smartView || pickingRole !== 'fast' || !props.fastUsesPrimary)}
             data-testid="model-selection-role-option" data-model-id={model.id} disabled={props.disabled}
-            metadata={roleModel?.id === model.id && (smartPreview || pickingRole !== 'fast' || !props.fastUsesPrimary) ? <Icon glyph={Check} size="sm" /> : undefined}
+            metadata={roleModel?.id === model.id && (smartView || pickingRole !== 'fast' || !props.fastUsesPrimary) ? <Icon glyph={Check} size="sm" /> : undefined}
             onClick={() => { void chooseRoleModel(model.id); }}>
             {model.model_name}
           </MenuItem>)}
@@ -158,7 +158,7 @@ export function NativeModelSelectionPanel(props: Props) {
       </MenuList></ScrollArea>
       </div>
       <div className="native-model-selection__footer">
-        <small>{t(smartPreview ? 'modelSelector.picker.previewHint' : 'modelSelector.roles.saveHint')}</small>
+        <small>{t('modelSelector.roles.saveHint')}</small>
         <Button size="sm" variant="text" trailingIcon={<Icon name="chevron-right" size="xs" />} onClick={props.onSettings}>{t('modelSelector.manageModels')}</Button>
       </div>
     </div>;
@@ -177,25 +177,26 @@ export function NativeModelSelectionPanel(props: Props) {
   return <div className="native-model-selection" data-testid="chat-model-selector-settings" data-openbitfun-component="model-selector" data-openbitfun-part="nativePanel">
     <div className="native-model-selection__header">
       <div className="native-model-selection__title"><strong>{t('modelSelector.modelSelection')}</strong>
-        {smartPreview && <StatusPill tone="neutral">{t('modelSelector.modes.previewBadge')}</StatusPill>}
       </div>
       <div className="native-model-selection__header-actions">
+      {smartView && selectionScope}
       {props.onClose && <IconButton size="xs" variant="quiet" disabled={props.disabled} icon={<Icon glyph={X} />} aria-label={t('modelSelector.close')} onClick={props.onClose} />}
       </div>
     </div>
     <div data-openbitfun-component="model-selector" data-openbitfun-part="modeChoices"><SegmentedControl data-testid="chat-model-selector-mode-choices" aria-label={t('modelSelector.modes.selection')}
       interaction="buttons" distribution="fill" variant="pills" size="md" labelBehavior="static" value={view} disabled={props.disabled}
-      onValueChange={value => { if (value === 'manual' || value === 'smart') { setScopeOpen(false); setView(value); } }} options={[
+      onValueChange={value => { if (value === 'manual' || value === 'smart') void chooseMode(value); }} options={[
         { value: 'manual', label: t('modelSelector.modes.manual'), icon: <Icon glyph={SlidersHorizontal} /> },
         { value: 'smart', label: t('modelSelector.modes.smart'), icon: <Icon glyph={Sparkles} /> },
         { value: 'pool', label: t('modelSelector.modes.pool'), disabled: true },
       ]} /></div>
-    <p className="native-model-selection__hint">{t(smartPreview ? 'modelSelector.modes.smartSummary'
+    <p className="native-model-selection__hint">{t(smartView ? 'modelSelector.modes.smartSummary'
       : props.canConfigureDefaults ? 'modelSelector.modes.manualSummary' : 'modelSelector.roles.sessionSummary')}</p>
-    {smartPreview ? <>
+    {smartView ? <>
+      <div className="native-model-selection__section-heading"><span>{t('modelSelector.roles.title')}</span><small>{t('modelSelector.roles.shared')}</small></div>
       <MenuList data-testid="model-selection-smart-preview">
-        {modelRow('primary', previewPair.primary)}
-        {modelRow('economy', previewPair.economy)}
+        {modelRow('primary', props.primary)}
+        {modelRow('economy', props.economy)}
       </MenuList>
     </> : <>
       {props.canConfigureDefaults && <div className="native-model-selection__roles">
@@ -239,11 +240,20 @@ export function NativeModelSelectionPanel(props: Props) {
       </div>
       {props.children && <div className="native-model-selection__controls">{props.children}</div>}
     </>}
-    <ModelBillingSummary compact secondaryRole={smartPreview ? 'economy' : 'fast'} primary={smartPreview ? previewPair.primary : props.primary} fast={smartPreview ? previewPair.economy : props.fast} selected={smartPreview ? undefined : props.selected} disabled={props.disabled} onSaved={props.onSaved} />
+    {smartView && <>
+      <MenuList><MenuItem data-testid="model-routing-settings" disabled={props.disabled || !props.routing?.supported} onClick={props.onRoutingSettings}
+        metadata={<Icon name="chevron-right" size="sm" />} labelBehavior="static">{t('modelSelector.routing.settings')}</MenuItem></MenuList>
+      {props.routing?.mode !== 'smart' && <Button size="sm" variant="outline" disabled={props.disabled || !props.routing?.ready}
+        onClick={() => { void props.onModeChange?.('smart'); }}>{t('modelSelector.routing.enable')}</Button>}
+      <p className="native-model-selection__support">{t('modelSelector.routing.scopeHint')}</p>
+    </>}
+    <ModelBillingSummary compact secondaryRole={smartView ? 'economy' : 'fast'} primary={props.primary} fast={smartView ? props.economy : props.fast} selected={smartView ? undefined : props.selected} disabled={props.disabled} onSaved={props.onSaved} />
     <div className="native-model-selection__footer">
-      {smartPreview ? <Tooltip content={t('modelSelector.modes.previewNotice', { model: props.modelLabel })}>
+      {smartView ? <Tooltip content={props.routing?.issue || t('modelSelector.routing.costHint')}>
         <span className="native-model-selection__preview-status" role="status" tabIndex={0}>
-          <Icon name="info" size="xs" />{t('modelSelector.modes.previewStatus')}
+          <Icon name="info" size="xs" />{t(props.routing?.ready
+            ? props.routing.mode === 'smart' ? 'modelSelector.routing.active' : 'modelSelector.routing.ready'
+            : props.routing?.supported ? 'modelSelector.routing.notReady' : 'modelSelector.routing.unsupported')}
         </span>
       </Tooltip> : <small>{t(props.canConfigureDefaults ? 'modelSelector.roles.autosave' : 'modelSelector.scope.sessionHint')}</small>}
       <Button size="sm" variant="text" trailingIcon={<Icon name="chevron-right" size="xs" />} onClick={props.onSettings}>{t('modelSelector.manageModels')}</Button>

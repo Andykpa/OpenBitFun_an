@@ -1393,6 +1393,23 @@ impl ExecMode {
     }
 
     async fn record_resolved_model_config_id(&self, session_id: &str, model_config_id: &str) {
+        // A routed round reports the model that actually executed that round. It
+        // must not replace the session's admitted primary model with the fast
+        // candidate merely because the latest round happened to be simple.
+        let Ok(Some(session)) = self
+            .runtime
+            .compatibility()
+            .loaded_session_snapshot(session_id)
+        else {
+            return;
+        };
+        if openbitfun_core::agentic::execution::round_model_routing::configuration::routing_enabled(
+            session.config.model_routing.as_deref(),
+        )
+        .unwrap_or(true)
+        {
+            return;
+        }
         let trimmed = model_config_id.trim();
         if trimmed.is_empty() || matches!(trimmed, "default" | "primary" | "fast") {
             return;

@@ -331,6 +331,7 @@ export interface ProxyConfig {
 export interface DefaultModelsConfig {
   primary?: string | null;
   fast?: string | null;
+  economy?: string | null;
   image_understanding?: string | null;
   speech_recognition?: string | null;
 }
@@ -357,9 +358,20 @@ export interface AgentModelDefaultsConfig {
   };
 }
 
+export type ModelRoutingMode = 'manual' | 'smart';
+export interface ModelRoutingConfig {
+  default_mode?: ModelRoutingMode | null;
+  router_model_id?: string | null;
+  tokenizer_path: string;
+  simple_threshold: number;
+  timeout_ms: number;
+  summary_enabled: boolean;
+}
+
 export interface AIConfig {
   models: AIModelConfig[];
   default_models: DefaultModelsConfig;
+  model_routing?: ModelRoutingConfig;
   agent_model_defaults: AgentModelDefaultsConfig;
   task_models: TaskModelsConfig;
   agent_profiles: Record<string, StoredAgentProfileConfigItem>;

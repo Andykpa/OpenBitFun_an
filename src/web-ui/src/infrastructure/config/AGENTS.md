@@ -85,3 +85,11 @@ not evidence of a per-token tariff. Keep the configured channel identity and
 source visible, preserve unreadable records, and invalidate stale annotations
 when the channel changes. The tests simulate device switches; live SSH, relay,
 peer and dispatch paths require separate integration evidence.
+
+For Router configuration writes, peer capability negotiation and protocol-test feedback:
+
+```bash
+pnpm --dir src/web-ui run test:run src/infrastructure/config/components/ModelRouterSettings.test.tsx src/flow_chat/hooks/useModelRouting.test.tsx src/flow_chat/services/sessionDraftService.test.ts src/infrastructure/api/adapters/peer-device-adapter.test.ts
+```
+
+These fixtures use mocked hosts. They do not establish connectivity to a deployed Router.

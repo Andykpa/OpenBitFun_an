@@ -3452,7 +3452,20 @@
       "fastAvailable": "Available to subagents",
       "autosave": "Changes save automatically"
     },
-    "economyModel": "Economy Model"
+    "economyModel": "Economy Model",
+    "routing": {
+      "settings": "Router service",
+      "enable": "Enable smart mode",
+      "active": "Smart routing enabled; failures use the primary model",
+      "ready": "Configured, not enabled",
+      "notReady": "Router not ready; the current strategy remains active",
+      "unsupported": "This execution host does not support smart routing",
+      "scopeHint": "Remember the strategy by default, or use it for this session only; model roles are shared",
+      "costHint": "Router and auxiliary summary calls may incur extra costs that are not included in these billing hints",
+      "saveFailed": "Could not save the model strategy; try again",
+      "latency": "Routing took {{ms}} ms",
+      "fallback": "Router failed; using primary"
+    }
   },
   "reasoningEffort": {
     "title": "Reasoning Effort",

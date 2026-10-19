@@ -760,5 +760,29 @@
     "economyIncomplete": "实际价格尚未确认；“经济”表示节省费用的目标，是否更便宜需以渠道价格与账号账单为准",
     "economyEstimate": "主力 {{primary}} · 经济 {{fast}}",
     "compactEconomyHigher": "经济模型更贵 · 估算"
+  },
+  "router": {
+    "title": "智能路由设置",
+    "service": "Router 服务模型",
+    "serviceHint": "先在模型设置中添加支持分类协议的 API 服务，再在这里选择；普通聊天模型和 Coding Plan 不一定支持",
+    "tokenizer": "Tokenizer 文件",
+    "tokenizerHint": "填写执行 OpenBitFun 的主机上的 tokenizer.json 路径，必须与 Router 服务使用的 tokenizer 一致",
+    "threshold": "经济模型阈值",
+    "thresholdHint": "简单任务概率高于此值时使用经济模型",
+    "timeout": "请求超时（毫秒）",
+    "summary": "辅助摘要",
+    "summaryHint": "开启后使用快速模型整理路由历史，会产生额外模型调用；不改变子任务分工",
+    "on": "开启",
+    "off": "关闭",
+    "unconfigured": "尚未配置",
+    "status": "状态",
+    "connected": "分类协议检查通过",
+    "notReady": "路由未就绪",
+    "unsupported": "当前执行端不支持智能路由",
+    "loadFailed": "读取路由配置失败，请关闭后重试",
+    "saveFailed": "保存路由配置失败",
+    "manageModels": "管理服务与模型",
+    "test": "保存并检查连接",
+    "save": "保存"
   }
 }

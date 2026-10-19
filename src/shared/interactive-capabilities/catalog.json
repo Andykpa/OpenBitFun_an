@@ -6751,6 +6751,21 @@
           ]
         },
         {
+          "id": "smart-routing",
+          "titleZh": "配置智能模式的 Router 服务、主力与经济模型并测试连接",
+          "titleEn": "Configure smart routing, primary and economy models, and test the Router service",
+          "control": {
+            "kind": "open",
+            "reasonCode": "unstructuredInteraction",
+            "reasonZh": "配置智能模式的 Router 服务、主力与经济模型并测试连接需要在模型设置中完成，状态检查不代替配置或连接测试",
+            "reasonEn": "Configure smart routing, primary and economy models, and test the Router service in model settings; a status read does not configure or test the connection"
+          },
+          "evidence": [
+            "command:get_model_routing_status",
+            "source:src/web-ui/src/infrastructure/config/components/ModelRouterSettings.tsx#ModelRouterSettings"
+          ]
+        },
+        {
           "id": "connection-test",
           "titleZh": "保存前测试供应商或模型连接并刷新运行时客户端",
           "titleEn": "Test provider or model connectivity before saving and refresh the runtime client",

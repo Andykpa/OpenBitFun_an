@@ -10,7 +10,8 @@ const readScope = (key: string): ModelSelectionScope => {
 };
 
 /** Only the editor's save preference is local. Models/defaults remain host-owned. */
-export function useModelSelectionScope({ scopeKey, epoch, sessionId, allowed, open, defaultModel, selectedModel, onDefaultChange }: {
+export function useModelSelectionScope({ scopeKey, epoch, sessionId, allowed, open, defaultModel, selectedModel, onDefaultChange, defaultPath = 'ai.agent_model_defaults.mode', skipUnchangedWrite = false, scopeOverride }: {
+  defaultPath?: string; skipUnchangedWrite?: boolean; scopeOverride?: ModelSelectionScope;
   scopeKey: string; epoch: number; sessionId?: string; allowed: boolean; open: boolean;
   defaultModel: string; selectedModel: string; onDefaultChange: (model: string) => void;
 }) {
@@ -21,7 +22,7 @@ export function useModelSelectionScope({ scopeKey, epoch, sessionId, allowed, op
   const [pendingIdentity, setPendingIdentity] = useState<string | null>(null);
   const edit = useRef<{ identity: string; baseline: string; lastWritten?: string } | null>(null);
   const scope = !allowed ? 'session' : !sessionId ? 'remember'
-    : preference.identity === identity ? preference.value : readScope(scopeKey);
+    : scopeOverride ?? (preference.identity === identity ? preference.value : readScope(scopeKey));
   useEffect(() => {
     if (!open) { edit.current = null; return; }
     if (edit.current?.identity !== identity) edit.current = { identity, baseline: defaultModel };
@@ -39,20 +40,26 @@ export function useModelSelectionScope({ scopeKey, epoch, sessionId, allowed, op
     try {
       let updated: string | undefined;
       if (next === 'remember') {
-        markDefaultWrite(selectedModel);
-        await configManager.setConfig('ai.agent_model_defaults.mode', selectedModel);
-        updated = selectedModel;
+        if (!skipUnchangedWrite || selectedModel !== defaultModel) {
+          markDefaultWrite(selectedModel);
+          await configManager.setConfig(defaultPath, selectedModel);
+          updated = selectedModel;
+        }
       } else if (edit.current?.identity === identity && edit.current.lastWritten) {
         const { baseline, lastWritten } = edit.current;
         // ConfigManager serializes this behind outstanding default saves. Only
         // undo our own edit; do not overwrite a newer choice from another editor.
-        updated = await configManager.updateConfig<string>('ai.agent_model_defaults.mode', current =>
+        updated = await configManager.updateConfig<string>(defaultPath, current =>
           current === lastWritten ? baseline : current);
       }
       if (!surface.isCurrent() || identityRef.current !== identity) return;
       if (updated) onDefaultChange(updated);
-      setPreference({ identity, value: next });
-      try { window.localStorage.setItem(STORAGE_PREFIX + scopeKey, next); } catch { /* In-memory preference remains usable. */ }
+      // Related default owners share one UI preference. Only its owner commits
+      // the scope after all requested default writes have completed.
+      if (scopeOverride === undefined) {
+        setPreference({ identity, value: next });
+        try { window.localStorage.setItem(STORAGE_PREFIX + scopeKey, next); } catch { /* In-memory preference remains usable. */ }
+      }
       if (next === 'session' && edit.current) edit.current.lastWritten = undefined;
     } finally {
       // A session can be switched away from and back to without a new device

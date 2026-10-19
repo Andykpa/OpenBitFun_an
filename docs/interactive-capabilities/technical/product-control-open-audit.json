@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "d5b8d80b7ff09050f81fab7d2dcc5125db12a0232af1ef8bf94ce571b08efd0f",
-  "count": 214,
+  "catalogDigest": "bd4d8fd5e8b2aff9722aefd6b6b927884eb983ad86c826be24a85856b7bd83e5",
+  "count": 215,
   "reasonCounts": {
     "externalAuth": 4,
     "secretEntry": 5,
-    "unstructuredInteraction": 182,
+    "unstructuredInteraction": 183,
     "visualSelection": 23
   },
   "entries": [
@@ -2837,6 +2837,23 @@
         "source:src/web-ui/src/app/scenes/settings/pages/ai/ModelSettingsPage.tsx#custom_headers",
         "source:src/web-ui/src/app/scenes/settings/pages/ai/ModelSettingsPage.tsx#custom_request_body",
         "source:src/web-ui/src/app/scenes/settings/pages/ai/ModelSettingsPage.tsx#skip_ssl_verify"
+      ]
+    },
+    {
+      "capabilityId": "setting.ai.models",
+      "itemId": "smart-routing",
+      "titleZh": "配置智能模式的 Router 服务、主力与经济模型并测试连接",
+      "titleEn": "Configure smart routing, primary and economy models, and test the Router service",
+      "reasonCode": "unstructuredInteraction",
+      "reasonZh": "配置智能模式的 Router 服务、主力与经济模型并测试连接需要在模型设置中完成，状态检查不代替配置或连接测试",
+      "reasonEn": "Configure smart routing, primary and economy models, and test the Router service in model settings; a status read does not configure or test the connection",
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "ai.models"
+      },
+      "evidence": [
+        "command:get_model_routing_status",
+        "source:src/web-ui/src/infrastructure/config/components/ModelRouterSettings.tsx#ModelRouterSettings"
       ]
     },
     {

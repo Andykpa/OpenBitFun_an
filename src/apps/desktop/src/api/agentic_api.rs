@@ -254,6 +254,8 @@ pub struct UpdateSessionModelRequest {
     pub remote_ssh_host: Option<String>,
     #[serde(default)]
     pub include_internal: bool,
+    #[serde(default)]
+    pub routing_mode: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2118,13 +2120,19 @@ pub async fn update_session_model(
                 .as_ref()
                 .and_then(|value| value.as_deref()),
             request.include_internal,
+            request.routing_mode.as_deref(),
         )
         .await
         .map_err(|error| error.to_string())?
     {
         return Ok(());
     }
-    let update_result = match request.reasoning_preset {
+    let reasoning_update = if request.routing_mode.is_some() {
+        Some(request.reasoning_preset.flatten())
+    } else {
+        request.reasoning_preset
+    };
+    let update_result = match reasoning_update {
         Some(reasoning_preset) => {
             let reasoning_preset = reasoning_preset
                 .as_deref()
@@ -2138,6 +2146,7 @@ pub async fn update_session_model(
                     selection: AgentSessionModelSelection {
                         model_id: request.model_name,
                         reasoning_preset,
+                        routing_mode: request.routing_mode,
                     },
                 })
                 .await
@@ -2154,6 +2163,55 @@ pub async fn update_session_model(
     };
     update_result
         .map_err(|error| format!("Failed to update session model: {}", error.into_message()))
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelRoutingStatusRequest {
+    pub session_id: Option<String>,
+    pub workspace_id: Option<String>,
+    pub workspace_path: Option<String>,
+    pub remote_connection_id: Option<String>,
+    pub remote_ssh_host: Option<String>,
+    #[serde(default)]
+    pub probe: bool,
+}
+
+#[tauri::command]
+pub async fn get_model_routing_status(
+    runtime: State<'_, DesktopRuntimeContext>,
+    coordinator: State<'_, Arc<ConversationCoordinator>>,
+    request: ModelRoutingStatusRequest,
+) -> Result<
+    openbitfun_core::agentic::execution::round_model_routing::configuration::ModelRoutingStatus,
+    String,
+> {
+    let session = if let Some(id) = request.session_id.as_deref() {
+        ensure_session_loaded_for_selector_update(
+            runtime.inner(),
+            id,
+            request.workspace_id,
+            request.workspace_path,
+            request.remote_connection_id,
+            request.remote_ssh_host,
+            false,
+        )
+        .await?;
+        Some(
+            coordinator
+                .get_session_manager()
+                .get_session(id)
+                .ok_or("Session not found")?,
+        )
+    } else {
+        None
+    };
+    openbitfun_core::agentic::execution::round_model_routing::configuration::session_status(
+        session.as_ref(),
+        request.probe,
+    )
+    .await
+    .map_err(|error| error.to_string())
 }
 
 /// Sets the tool permission mode this session runs with.
@@ -4779,6 +4837,7 @@ mod tests {
                 provider_id: None,
                 model_config_id: None,
                 effective_model_name: None,
+                routing: None,
                 first_chunk_ms: None,
                 first_visible_output_ms: None,
                 stream_duration_ms: None,
@@ -4865,6 +4924,7 @@ mod tests {
                 provider_id: None,
                 model_config_id: None,
                 effective_model_name: None,
+                routing: None,
                 first_chunk_ms: None,
                 first_visible_output_ms: None,
                 stream_duration_ms: None,
@@ -4932,6 +4992,7 @@ mod tests {
                 provider_id: None,
                 model_config_id: None,
                 effective_model_name: None,
+                routing: None,
                 first_chunk_ms: None,
                 first_visible_output_ms: None,
                 stream_duration_ms: None,

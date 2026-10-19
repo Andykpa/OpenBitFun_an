@@ -7,6 +7,9 @@ use super::model_exchange_trace::{
 };
 use super::prompt_suggestion::{spawn_prompt_suggestion, PromptSuggestionRequest};
 use super::round_executor::{ModelRoundLifecycle, RoundExecutor};
+use super::round_model_routing::{
+    RoundModelExecutionRecord, RoundModelRoute, RoundModelRouteRequest, RoundModelRouter,
+};
 use super::types::{ExecutionContext, ExecutionResult, RoundContext, RoundResult};
 use crate::agentic::agents::{
     build_prompt_context_for_workspace, get_agent_registry, get_embedded_prompt,
@@ -603,6 +606,15 @@ struct CompressionModelSummaryInput<'a> {
     ai_client: Arc<crate::infrastructure::ai::AIClient>,
 }
 
+#[derive(Clone)]
+struct RoundExecutionModel {
+    route: RoundModelRoute,
+    model_id: String,
+    ai_client: Arc<crate::infrastructure::ai::AIClient>,
+    model_facts: PrimaryModelFacts,
+    routing: Option<openbitfun_events::agentic::ModelRoutingDecision>,
+}
+
 /// Execution engine
 pub struct ExecutionEngine {
     round_executor: Arc<RoundExecutor>,
@@ -610,6 +622,7 @@ pub struct ExecutionEngine {
     session_manager: Arc<SessionManager>,
     context_compressor: Arc<ContextCompressor>,
     config: ExecutionEngineConfig,
+    round_model_router: Option<Arc<dyn RoundModelRouter>>,
     generation_messages: DashMap<(String, String), Vec<Message>>,
     prompt_suggestions: PromptSuggestionRuntime,
 }
@@ -691,9 +704,18 @@ impl ExecutionEngine {
             session_manager,
             context_compressor,
             config,
+            round_model_router: None,
             generation_messages: DashMap::new(),
             prompt_suggestions: PromptSuggestionRuntime::new(),
         }
+    }
+
+    /// Install an opt-in per-round execution-model router.
+    ///
+    /// Without this hook the engine preserves its original single-model behavior.
+    pub fn with_round_model_router(mut self, router: Arc<dyn RoundModelRouter>) -> Self {
+        self.round_model_router = Some(router);
+        self
     }
 
     fn remember_generation_message(&self, session_id: &str, turn_id: &str, message: &Message) {
@@ -1919,6 +1941,14 @@ impl ExecutionEngine {
             .filter(|model_id| !model_id.is_empty())
             .map(str::to_string)
             .unwrap_or(fallback_model_id.clone());
+        let configured_model_id = if session.config.model_routing.as_deref() == Some("smart")
+            && session.config.model_binding_policy != SessionModelBindingPolicy::ApprovedImmutable
+            && session.kind != crate::agentic::core::SessionKind::Subagent
+        {
+            "primary".to_string()
+        } else {
+            configured_model_id
+        };
         let model_id = Self::resolve_model_id_for_turn_selection(
             &ai_config,
             &configured_model_id,
@@ -2962,7 +2992,8 @@ impl ExecutionEngine {
             dialog_turn_id
         );
 
-        // Things that remain constant in a dialog turn: 1.agent, 2.system prompt, 3.tools, 4.ai client
+        // Turn-stable state includes the agent, permissions, and tool policy. The
+        // execution model and its request scaffold may vary at round boundaries.
         // 1. Get current agent
         let agent_registry = get_agent_registry();
         agent_registry
@@ -3305,6 +3336,62 @@ impl ExecutionEngine {
         let mut finalization_reason: Option<&'static str> = None;
         let mut main_context_overflow_recoveries = 0usize;
         let mut active_round_lifecycle: Option<ModelRoundLifecycle> = None;
+        let mut active_round_model: Option<RoundExecutionModel> = None;
+        // Router context is per execution generation and never writes to `messages` or
+        // the primary compactor. Capture initial history before any main compression.
+        let routing_allowed = context.subagent_parent_info.is_none()
+            && super::round_model_routing::configuration::session_eligible(&session);
+        let configured_routing = super::round_model_routing::configuration::prepare_turn(
+            session.config.model_routing.as_deref(),
+            routing_allowed,
+        )
+        .await?;
+        let turn_router = if let Some(routing) = configured_routing.as_ref() {
+            Some(routing.router.clone())
+        } else if routing_allowed && session.config.model_routing.as_deref() != Some("manual") {
+            self.round_model_router.clone()
+        } else {
+            None
+        };
+        // Freeze the candidate/client at admission. Mid-turn settings edits apply next turn.
+        let economy_model_id = if let Some(routing) = configured_routing.as_ref() {
+            Some(routing.economy_model_id.clone())
+        } else if turn_router.is_some() {
+            // Preserve the injected-router hook's legacy fast candidate.
+            ai_client_factory.resolve_model_id("fast").await.ok()
+        } else {
+            None
+        };
+        let economy_client = if let Some(id) = economy_model_id.as_deref() {
+            ai_client_factory
+                .get_client_resolved_with_reasoning_preset(id, None)
+                .await
+                .map(|client| apply_agent_temperature_override(current_agent.as_ref(), client))
+                .inspect_err(|error| warn!("Economy client preparation failed; primary fallback remains available: {error}"))
+                .ok()
+        } else {
+            None
+        };
+        let mut router_context = turn_router.as_ref().and_then(|router| {
+            router.create_context(
+                &context.session_id,
+                &context.dialog_turn_id,
+                &original_user_input,
+            )
+        });
+        if let Some(router_context) = router_context.as_mut() {
+            router_context
+                .restore_with_legacy(
+                    self.session_manager
+                        .persistent_context_snapshot_dir(&context.session_id)
+                        .await,
+                    self.session_manager
+                        .persistent_model_exchange_trace_dir(&context.session_id)
+                        .await,
+                )
+                .await;
+            router_context.observe(&messages);
+        }
 
         // Track tool-call patterns for context health, but only use rounds with
         // actual failed tool results for no-progress recovery decisions.
@@ -3357,8 +3444,19 @@ impl ExecutionEngine {
         // Execution-local ownership deliberately prevents cross-turn reuse. Drop
         // cancels both pending IO and backoff on every exit path.
         let mut compression_prefetch: Option<PrefetchedCompression> = None;
-        let compression_trigger_budget =
-            Self::compression_trigger_budget(context_window, ai_client.config.max_tokens);
+        // Preserve the turn-admission model as the stable primary candidate. A routed
+        // round may shadow the names below, but auxiliary/finalization requests still
+        // use this baseline model and do not recursively invoke the router.
+        let baseline_model_id = model_id.clone();
+        let baseline_ai_client = ai_client.clone();
+        let baseline_primary_model_facts = primary_model_facts.clone();
+        let baseline_supports_image_understanding = primary_supports_image_understanding;
+        let baseline_context_profile_policy = context_profile_policy.clone();
+        let mut scaffold_model_key = (
+            baseline_model_id.clone(),
+            baseline_ai_client.config.model.clone(),
+            baseline_supports_image_understanding,
+        );
 
         // Project images at the provider boundary on every round. Keep the
         // canonical pixels and paths so steering, retries, and model switches
@@ -3413,6 +3511,224 @@ impl ExecutionEngine {
                 break;
             }
 
+            // Select once at the logical-round boundary. Everything below, including
+            // provider retries and context-overflow recovery, reuses this selection.
+            // Approved immutable sessions and subagents retain the admitted model.
+            let selected_model = if let Some(selected_model) = active_round_model.clone() {
+                selected_model
+            } else {
+                let routing_started = std::time::Instant::now();
+                let mut fallback_reason = None;
+                let requested_route = if turn_router.is_some() {
+                    if self
+                        .round_executor
+                        .is_dialog_turn_cancelled(&dialog_turn_id)
+                    {
+                        return Err(OpenBitFunError::cancelled(
+                            "Dialog cancelled before routing",
+                        ));
+                    }
+
+                    let prepared_context = if let Some(router_context) = router_context.as_mut() {
+                        let preparation_started = std::time::Instant::now();
+                        let token_metrics = router_context.token_metrics();
+                        // The append-only generation transcript also retains feedback that
+                        // main context-overflow recovery may already have removed.
+                        let generated = self
+                            .generation_messages
+                            .get(&(context.session_id.clone(), context.dialog_turn_id.clone()));
+                        let generation_lookup_ms = preparation_started.elapsed().as_millis() as u64;
+                        let observe_started = std::time::Instant::now();
+                        if let Some(generated) = generated.as_ref() {
+                            router_context.observe(generated.as_slice());
+                        }
+                        drop(generated);
+                        let generation_observe_ms = observe_started.elapsed().as_millis() as u64;
+                        let mut prepared = router_context.prepare(&messages).await;
+                        prepared.preparation.generation_lookup_ms = generation_lookup_ms;
+                        prepared.preparation.generation_observe_ms = generation_observe_ms;
+                        prepared.preparation.tokens =
+                            router_context.token_metrics().since(token_metrics);
+                        prepared.preparation_ms = preparation_started.elapsed().as_millis() as u64;
+                        Some(prepared)
+                    } else {
+                        None
+                    };
+                    let request = RoundModelRouteRequest {
+                        session_id: context.session_id.clone(),
+                        dialog_turn_id: context.dialog_turn_id.clone(),
+                        turn_index: context.turn_index,
+                        round_index,
+                        agent_type: agent_type.clone(),
+                        original_user_input: original_user_input.clone(),
+                        messages: if prepared_context.is_some() {
+                            Vec::new()
+                        } else {
+                            messages.clone()
+                        },
+                        prepared_context,
+                    };
+                    let cancel = self.round_executor.ensure_cancel_token(&dialog_turn_id);
+                    let decision = tokio::select! {
+                        biased;
+                        _ = cancel.cancelled() => return Err(OpenBitFunError::cancelled("Dialog cancelled during routing")),
+                        result = turn_router.as_ref().expect("turn router checked above").select_model(request) => result,
+                    };
+                    match decision {
+                        Ok(route) => route,
+                        Err(OpenBitFunError::Cancelled(reason)) => {
+                            return Err(OpenBitFunError::Cancelled(reason));
+                        }
+                        Err(error) => {
+                            fallback_reason = Some("router_request_failed".to_string());
+                            warn!(
+                                "Round model routing failed; falling back to primary: session_id={}, turn_id={}, round_index={}, error={}",
+                                context.session_id, context.dialog_turn_id, round_index, error
+                            );
+                            RoundModelRoute::Primary
+                        }
+                    }
+                } else {
+                    RoundModelRoute::Primary
+                };
+
+                let (route, model_id, ai_client) = match requested_route {
+                    RoundModelRoute::Primary => (
+                        RoundModelRoute::Primary,
+                        baseline_model_id.clone(),
+                        baseline_ai_client.clone(),
+                    ),
+                    RoundModelRoute::Economy => {
+                        let fast_model = match (economy_model_id.as_ref(), economy_client.as_ref())
+                        {
+                            (Some(id), Some(client)) => Ok((id.clone(), client.clone())),
+                            _ => Err(OpenBitFunError::Configuration(
+                                "Economy model is unavailable".into(),
+                            )),
+                        };
+                        match fast_model {
+                            Ok((resolved_model_id, client)) => (
+                                RoundModelRoute::Economy,
+                                resolved_model_id,
+                                apply_agent_temperature_override(current_agent.as_ref(), client),
+                            ),
+                            Err(error) => {
+                                fallback_reason = Some("economy_model_unavailable".into());
+                                warn!(
+                                    "Economy round model is unavailable; falling back to primary: session_id={}, turn_id={}, round_index={}, error={}",
+                                    context.session_id,
+                                    context.dialog_turn_id,
+                                    round_index,
+                                    error
+                                );
+                                (
+                                    RoundModelRoute::Primary,
+                                    baseline_model_id.clone(),
+                                    baseline_ai_client.clone(),
+                                )
+                            }
+                        }
+                    }
+                };
+                let model_facts = if route == RoundModelRoute::Primary {
+                    baseline_primary_model_facts.clone()
+                } else {
+                    Self::resolve_primary_model_context(
+                        &model_id,
+                        session.config.model_binding_policy,
+                        &ai_client.config.model,
+                        &ai_client.config.format,
+                        "Config service unavailable, assuming routed model is text-only for image input gating",
+                    )
+                    .await
+                };
+                let selected_model = RoundExecutionModel {
+                    route,
+                    model_id,
+                    ai_client,
+                    model_facts,
+                    routing: turn_router.as_ref().map(|_| {
+                        openbitfun_events::agentic::ModelRoutingDecision {
+                            route: route.model_selector().into(),
+                            latency_ms: routing_started.elapsed().as_millis() as u64,
+                            fallback_reason,
+                        }
+                    }),
+                };
+                active_round_model = Some(selected_model.clone());
+                selected_model
+            };
+
+            if self
+                .round_executor
+                .is_dialog_turn_cancelled(&dialog_turn_id)
+            {
+                return Err(OpenBitFunError::cancelled("Dialog cancelled after routing"));
+            }
+
+            let routing_decision = selected_model.routing.clone();
+            let route = selected_model.route;
+            let model_id = selected_model.model_id;
+            let ai_client = selected_model.ai_client;
+            let primary_model_facts = selected_model.model_facts;
+            let primary_supports_image_understanding = primary_model_facts.supports_image_inputs;
+            let context_window = (ai_client.config.context_window as usize).min(session_max_tokens);
+            let compression_trigger_budget =
+                Self::compression_trigger_budget(context_window, ai_client.config.max_tokens);
+            let model_capability_profile = ModelCapabilityProfile::from_resolved_model(
+                &primary_model_facts.model_id,
+                &ai_client.config.model,
+            );
+            let context_profile_policy = ContextProfilePolicy::for_agent_context(
+                &agent_type,
+                is_review_subagent,
+                model_capability_profile,
+            );
+
+            let next_scaffold_model_key = (
+                model_id.clone(),
+                ai_client.config.model.clone(),
+                primary_supports_image_understanding,
+            );
+            if next_scaffold_model_key != scaffold_model_key {
+                // A speculative summary owns the previous model's context/budget.
+                // Dropping it cancels pending IO before publishing another scaffold.
+                compression_prefetch.take();
+                turn_prompt_scaffold = self
+                    .resolve_turn_prompt_scaffold(TurnPromptScaffoldInput {
+                        context: &context,
+                        current_agent: current_agent.as_ref(),
+                        model_name: &ai_client.config.model,
+                        supports_image_understanding: primary_supports_image_understanding,
+                        tool_listing_sections: tool_listing_sections.clone(),
+                        runtime_context_needs,
+                        stage: "round_model_switch",
+                    })
+                    .await?;
+                Self::apply_turn_prompt_scaffold_to_messages(&mut messages, &turn_prompt_scaffold);
+                scaffold_model_key = next_scaffold_model_key;
+            }
+            info!(
+                "Round execution model selected: session_id={}, turn_id={}, round_index={}, route={:?}, model_config_id={}, effective_model_name={}, context_window={}",
+                context.session_id,
+                context.dialog_turn_id,
+                round_index,
+                route,
+                model_id,
+                ai_client.config.model,
+                context_window
+            );
+            if let Some(router) = turn_router.as_ref() {
+                router.record_execution_model(RoundModelExecutionRecord {
+                    session_id: context.session_id.clone(),
+                    dialog_turn_id: context.dialog_turn_id.clone(),
+                    round_index,
+                    route,
+                    model_config_id: model_id.clone(),
+                    effective_model_name: ai_client.config.model.clone(),
+                });
+            }
+
             // Check and compress before sending AI request
             //
             // NOTE: There used to be a "microcompact" pre-pass here that
@@ -3434,7 +3750,11 @@ impl ExecutionEngine {
                 Self::prepended_reminder_tokens_for_pressure(&pressure_prepended_reminders);
             let token_anchor_selection = self
                 .session_manager
-                .select_latest_matching_token_anchor(&context.session_id, &messages)
+                .select_latest_matching_token_anchor_for_model(
+                    &context.session_id,
+                    &messages,
+                    &ai_client.config.model,
+                )
                 .await;
             let (token_pressure, anchor_details) =
                 Self::estimate_auto_compression_pressure_with_anchor(
@@ -3613,13 +3933,13 @@ impl ExecutionEngine {
                         messages.clone(),
                         token_pressure,
                         context_window,
-                        ai_client.clone(),
+                        baseline_ai_client.clone(),
                         &model_request_context,
                         &tool_definitions,
                         turn_prompt_scaffold.system_prompt_message.clone(),
                         &turn_prompt_scaffold.prepended_prompt_reminders,
-                        primary_supports_image_understanding,
-                        context_profile_policy.compression_contract_limit,
+                        baseline_supports_image_understanding,
+                        baseline_context_profile_policy.compression_contract_limit,
                         context.workspace.as_ref(),
                         context.workspace_services.as_ref(),
                         compression_prefetch.take(),
@@ -3820,6 +4140,7 @@ impl ExecutionEngine {
 
             let round_lifecycle =
                 active_round_lifecycle.get_or_insert_with(ModelRoundLifecycle::new);
+            round_lifecycle.routing = routing_decision;
             let round_result = match self
                 .round_executor
                 .execute_round_with_lifecycle(
@@ -3858,13 +4179,13 @@ impl ExecutionEngine {
                             messages.clone(),
                             send_pressure,
                             context_window,
-                            ai_client.clone(),
+                            baseline_ai_client.clone(),
                             &model_request_context,
                             &tool_definitions,
                             turn_prompt_scaffold.system_prompt_message.clone(),
                             &turn_prompt_scaffold.prepended_prompt_reminders,
-                            primary_supports_image_understanding,
-                            context_profile_policy.compression_contract_limit,
+                            baseline_supports_image_understanding,
+                            baseline_context_profile_policy.compression_contract_limit,
                             context.workspace.as_ref(),
                             context.workspace_services.as_ref(),
                             compression_prefetch.take(),
@@ -3942,6 +4263,7 @@ impl ExecutionEngine {
                 Err(err) => return Err(err),
             };
             active_round_lifecycle = None;
+            active_round_model = None;
 
             debug!(
                 "Model round completed: round_index={}, has_more_rounds={}, tool_calls={}",
@@ -4864,6 +5186,16 @@ impl ExecutionEngine {
             );
         } else {
             warn!("Dialog turn completed but token stats not available");
+        }
+
+        if let Some(router_context) = router_context.as_mut() {
+            if let Some(generated) = self
+                .generation_messages
+                .get(&(context.session_id.clone(), context.dialog_turn_id.clone()))
+            {
+                router_context.observe(generated.as_slice());
+            }
+            router_context.finish(&messages).await;
         }
 
         Ok(ExecutionResult {

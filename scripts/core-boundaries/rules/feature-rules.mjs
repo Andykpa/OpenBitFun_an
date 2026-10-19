@@ -164,7 +164,9 @@ export const optionalDependencyFeatureOwnerRules = [
       { depName: 'base64', ownerFeatures: ['agent-runtime', 'dispatch-store'] },
       {
         depName: 'openbitfun-ai-adapters',
-        ownerFeatures: ['ai-adapter-runtime', 'subscription-auth'],
+        // Agent Runtime selects only its local Router tokenizer; protocol clients
+        // and subscription credentials retain their existing owners below.
+        ownerFeatures: ['ai-adapter-runtime', 'subscription-auth', 'agent-runtime'],
       },
       { depName: 'openbitfun-agent-runtime', ownerFeatures: ['agent-runtime'] },
       { depName: 'openbitfun-agent-workflows', ownerFeatures: ['deep-research'] },
@@ -871,6 +873,7 @@ export const coreClosedFeatureProfileRules = [
     featureName: 'agent-runtime',
     requiredFeatureRefs: [
       'ai-adapter-runtime',
+      'openbitfun-ai-adapters/local-tokenizer',
       'dep:openbitfun-agent-runtime',
       'openbitfun-agent-runtime/agent-runtime',
       'dep:openbitfun-agent-content',

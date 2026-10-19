@@ -181,6 +181,18 @@ export async function materializeSessionDraft(context: FlowChatContext, sessionI
       }
     }
     const ready = context.flowChatStore.getState().sessions.get(sessionId);
+    if (ready?.draft?.modelRouting !== undefined) {
+      const request = { sessionId, workspaceId: requireSessionOwningWorkspaceId(ready),
+        workspacePath: ready.projectWorkspacePath, remoteConnectionId: ready.remoteConnectionId,
+        remoteSshHost: ready.remoteSshHost };
+      const support = await agentAPI.getModelRoutingStatus(request);
+      scope.assertCurrent('negotiate draft model routing');
+      if (support.apiVersion !== 1) throw new Error('The execution host does not support model routing');
+      await agentAPI.updateSessionModel({ ...request, routingMode: ready.draft.modelRouting,
+        modelName: ready.draft.modelRouting === 'smart' ? 'primary' : ready.config.modelName ?? 'primary',
+        reasoningPreset: ready.config.reasoningPreset ?? null });
+      scope.assertCurrent('apply draft model routing');
+    }
     if (ready?.draft?.permissionMode !== undefined) {
       await agentAPI.updateSessionPermissionMode({ sessionId, mode: ready.draft.permissionMode,
         workspaceId: requireSessionOwningWorkspaceId(ready), workspacePath: ready.projectWorkspacePath,

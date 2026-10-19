@@ -760,5 +760,29 @@
     "economyIncomplete": "Actual prices are not yet confirmed. Economy describes the goal of reducing cost; savings depend on channel rates and your account’s charges.",
     "economyEstimate": "Primary {{primary}} · Economy {{fast}}",
     "compactEconomyHigher": "Economy costs more · Estimate"
+  },
+  "router": {
+    "title": "Smart routing settings",
+    "service": "Router service model",
+    "serviceHint": "Add an API service supporting the classifier protocol in model settings, then select it here; ordinary chat models and Coding Plans may not support it",
+    "tokenizer": "Tokenizer file",
+    "tokenizerHint": "Path to tokenizer.json on the OpenBitFun execution host, matching the Router service tokenizer",
+    "threshold": "Economy threshold",
+    "thresholdHint": "Use the economy model when the simple-task probability exceeds this value",
+    "timeout": "Request timeout (ms)",
+    "summary": "Auxiliary summaries",
+    "summaryHint": "Uses the fast model to summarize routing history and incurs additional model calls; subagent roles stay independent",
+    "on": "On",
+    "off": "Off",
+    "unconfigured": "Not configured",
+    "status": "Status",
+    "connected": "Classifier protocol check passed",
+    "notReady": "Router not ready",
+    "unsupported": "This execution host does not support smart routing",
+    "loadFailed": "Could not load routing settings; close and retry",
+    "saveFailed": "Could not save routing settings",
+    "manageModels": "Manage services and models",
+    "test": "Save and test connection",
+    "save": "Save"
   }
 }

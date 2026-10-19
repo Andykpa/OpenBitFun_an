@@ -866,6 +866,8 @@ pub struct DefaultModelsConfig {
     pub primary: Option<String>,
     /// Fast model ID (for simple tasks). When unset, selection falls back to primary.
     pub fast: Option<String>,
+    /// Economy model for smart main-conversation routing; never a subagent default.
+    pub economy: Option<String>,
     /// Search model.
     pub search: Option<String>,
     /// Image understanding model.
@@ -1088,6 +1090,35 @@ impl TaskModelsConfig {
     }
 }
 
+/// Host-owned classifier configuration. Credentials remain on the referenced model.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModelRoutingConfig {
+    /// Default for newly created native main sessions. Existing sessions keep their choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_mode: Option<String>,
+    pub router_model_id: Option<String>,
+    /// Path on the execution host, not on a remote controller or workspace.
+    pub tokenizer_path: String,
+    pub simple_threshold: f64,
+    pub timeout_ms: u64,
+    /// Optional auxiliary summaries use the existing fast model, with separate usage.
+    pub summary_enabled: bool,
+}
+
+impl Default for ModelRoutingConfig {
+    fn default() -> Self {
+        Self {
+            default_mode: None,
+            router_model_id: None,
+            tokenizer_path: String::new(),
+            simple_threshold: 0.75,
+            timeout_ms: 10_000,
+            summary_enabled: false,
+        }
+    }
+}
+
 /// AI configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -1102,6 +1133,9 @@ pub struct AIConfig {
     /// Default model configuration.
     #[serde(default)]
     pub default_models: DefaultModelsConfig,
+
+    #[serde(default)]
+    pub model_routing: ModelRoutingConfig,
 
     /// Default selectors for future mode and delegated-subagent sessions.
     #[serde(default)]
@@ -2056,6 +2090,7 @@ impl Default for AIConfig {
             models: vec![],
             task_models: TaskModelsConfig::default(),
             default_models: DefaultModelsConfig::default(),
+            model_routing: ModelRoutingConfig::default(),
             agent_model_defaults: AgentModelDefaultsConfig::default(),
             agent_profiles: std::collections::HashMap::new(),
             skill_settings: SkillSettingsConfig::default(),
@@ -2254,6 +2289,25 @@ impl AIModelConfig {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn model_routing_defaults_preserve_legacy_and_future_settings() {
+        let legacy: super::AIConfig = serde_json::from_value(
+            serde_json::json!({"default_models": {"primary": "main", "fast": "worker"}}),
+        )
+        .unwrap();
+        assert!(legacy.model_routing.default_mode.is_none());
+        assert!(legacy.default_models.economy.is_none());
+        assert_eq!(legacy.default_models.fast.as_deref(), Some("worker"));
+        let config: super::ModelRoutingConfig = serde_json::from_value(
+            serde_json::json!({"default_mode":"future-policy", "future_field":true}),
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(config).unwrap()["default_mode"],
+            "future-policy"
+        );
+    }
+
     #[test]
     fn git_commit_coauthor_defaults_for_legacy_settings_and_preserves_opt_out() {
         let legacy = serde_json::json!({

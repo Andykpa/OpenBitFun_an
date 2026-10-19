@@ -28,12 +28,19 @@ const aiApiMocks = vi.hoisted(() => ({
 const flowChatStoreMocks = vi.hoisted(() => {
   type TestSession = {
     config: { agentType?: string; modelName?: string; reasoningPreset?: string };
+    draft?: { workspaceId: string; phase: 'editing'; turnId: string; modelRouting?: 'manual' | 'smart' };
   };
   const sessions = new Map<string, TestSession>();
   const subscribers = new Set<() => void>();
   const configChangeListeners = new Set<(path: string) => void>();
   const store = {
     getState: () => ({ sessions }),
+    setState: vi.fn((update: (state: { sessions: typeof sessions }) => { sessions: typeof sessions }) => {
+      const next = new Map(update({ sessions }).sessions);
+      sessions.clear();
+      next.forEach((session, id) => sessions.set(id, session));
+      subscribers.forEach(callback => callback());
+    }),
     subscribe: vi.fn((callback: () => void) => {
       subscribers.add(callback);
       return () => subscribers.delete(callback);
@@ -79,7 +86,7 @@ vi.mock('@/infrastructure/config/services/ConfigManager', () => ({
 }));
 
 vi.mock('@/infrastructure/api/service-api/AgentAPI', () => ({
-  agentAPI: { updateSessionModel: vi.fn(async () => undefined) },
+  agentAPI: { updateSessionModel: vi.fn(async () => undefined), getModelRoutingStatus: vi.fn() },
 }));
 
 vi.mock('@/infrastructure/api/service-api/ACPClientAPI', () => ({
@@ -210,7 +217,7 @@ describe('ModelSelector provider levels', () => {
     models: unknown[] = CATALOG_MODELS,
     modeModel = 'primary',
     sessionId?: string,
-    defaultModels: DefaultModelsConfig = { primary: 'acme-fast', fast: 'umbra-main' },
+    defaultModels: DefaultModelsConfig = { primary: 'acme-fast', fast: 'umbra-main', economy: 'umbra-main' },
   ) => {
     vi.mocked(configManager.getConfigs).mockResolvedValue({
       'ai.models': models,
@@ -234,10 +241,13 @@ describe('ModelSelector provider levels', () => {
     activateSurface('local');
     vi.mocked(configManager.getConfigs).mockReset();
     vi.mocked(configManager.setConfig).mockReset().mockResolvedValue(undefined);
-    vi.mocked(configManager.updateConfig).mockReset().mockImplementation(async (_path, update) => {
-      const config = await configManager.getConfigs(['ai.models']);
-      return update(config['ai.models']);
+    vi.mocked(configManager.updateConfig).mockReset().mockImplementation(async (path, update) => {
+      const config = await configManager.getConfigs([path]);
+      const changed = update(config[path]);
+      vi.mocked(configManager.getConfigs).mockResolvedValue({ ...config, [path]: changed });
+      return changed;
     });
+    vi.mocked(agentAPI.getModelRoutingStatus).mockReset().mockResolvedValue({ apiVersion: 1, mode: 'manual', defaultMode: 'manual', ready: false, connected: null, issue: 'Configure Router', summaryEnabled: false });
     aiApiMocks.getModelCatalog.mockReset();
     vi.mocked(agentAPI.updateSessionModel).mockReset().mockResolvedValue(undefined);
     notificationStore.clearActiveNotifications();
@@ -989,7 +999,40 @@ describe('ModelSelector provider levels', () => {
     expect(notificationStore.getState().notificationHistory).toHaveLength(0);
   });
 
-  it('opens the smart mode preview without enabling routing or changing the remembered model', async () => {
+  it('selects smart mode in a new conversation draft before a runtime session exists', async () => {
+    vi.mocked(agentAPI.getModelRoutingStatus).mockResolvedValue({
+      apiVersion: 1, mode: 'manual', defaultMode: 'manual', ready: true,
+      connected: null, issue: null, summaryEnabled: false,
+    });
+    flowChatStoreMocks.sessions.set('reserved', { config: { modelName: 'primary' },
+      draft: { workspaceId: 'workspace-a', phase: 'editing', turnId: 'first' } });
+    await renderSelector(CATALOG_MODELS, 'primary', 'reserved');
+    await openSettingsMenu();
+    await act(async () => modeOption('smart')!.click());
+    expect(modeOption('smart')?.getAttribute('aria-pressed')).toBe('true');
+    expect(flowChatStoreMocks.sessions.get('reserved')?.draft?.modelRouting).toBe('smart');
+    expect(agentAPI.getModelRoutingStatus).toHaveBeenCalledWith({});
+    expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
+    expect(configManager.setConfig).toHaveBeenCalledWith('ai.model_routing.default_mode', 'smart');
+  });
+
+  it('keeps the active smart strategy visible when switching to manual is rejected', async () => {
+    vi.mocked(agentAPI.getModelRoutingStatus).mockResolvedValue({
+      apiVersion: 1, mode: 'smart', defaultMode: 'smart', ready: true,
+      connected: null, issue: null, summaryEnabled: false,
+    });
+    vi.mocked(agentAPI.updateSessionModel).mockRejectedValue(new Error('Session is busy'));
+    flowChatStoreMocks.sessions.set('session-a', { config: { modelName: 'primary' } });
+    await renderSelector(CATALOG_MODELS, 'primary', 'session-a');
+    await openSettingsMenu();
+    await act(async () => modeOption('manual')!.click());
+    expect(modeOption('smart')?.getAttribute('aria-pressed')).toBe('true');
+    expect(document.body.querySelector('[data-testid="model-selection-smart-economy"]')).not.toBeNull();
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+    expect(agentAPI.updateSessionModel).toHaveBeenCalledWith(expect.objectContaining({ routingMode: 'manual' }));
+  });
+
+  it('shows unready smart configuration without enabling routing or changing defaults', async () => {
     flowChatStoreMocks.sessions.set('session-a', { config: { modelName: 'umbra-main', reasoningPreset: 'high' } });
     await renderSelector(CATALOG_MODELS, 'umbra-main', 'session-a');
     await openSettingsMenu();
@@ -999,8 +1042,8 @@ describe('ModelSelector provider levels', () => {
     expect(document.body.querySelector('[data-testid="model-selection-smart-preview"]')).not.toBeNull();
     expect(document.body.querySelector('[data-testid="model-selection-smart-primary"]')?.textContent).toContain('acme-fast-native');
     expect(document.body.querySelector('[data-testid="model-selection-smart-economy"]')?.textContent).toContain('umbra-main-native');
-    expect(document.body.textContent).toContain('modelSelector.modes.previewStatus');
-    expect(document.body.querySelector('[data-testid="model-selection-scope"]')).toBeNull();
+    expect(document.body.textContent).toContain('modelSelector.routing.notReady');
+    expect(document.body.querySelector('[data-testid="model-selection-scope"]')).not.toBeNull();
     expect(document.body.querySelector('[data-testid="model-billing-summary"]')).not.toBeNull();
     expect(document.body.querySelector('[data-testid="model-selection-config-primary"]')).toBeNull();
     expect(configManager.setConfig).not.toHaveBeenCalled();
@@ -1176,7 +1219,7 @@ describe('ModelSelector provider levels', () => {
     expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
   });
 
-  it('chooses each smart preview role inline and updates billing without changing actual models', async () => {
+  it('persists independent smart role bindings without replacing main or subagent selections', async () => {
     flowChatStoreMocks.sessions.set('session-a', { config: { modelName: 'umbra-main', reasoningPreset: 'high' } });
     await renderSelector(CATALOG_MODELS, 'umbra-main', 'session-a');
     await openSettingsMenu();
@@ -1196,13 +1239,15 @@ describe('ModelSelector provider levels', () => {
     expect(billing.textContent).toContain('acme-fast-native');
     expect(billing.textContent).not.toContain('umbra-main-native');
     await act(async () => modeOption('manual')!.click());
-    expect(document.body.querySelector('[data-testid="model-selection-config-primary"]')?.textContent).toContain('acme-fast-native');
+    expect(document.body.querySelector('[data-testid="model-selection-config-primary"]')?.textContent).toContain('acme-deep-native');
     expect(document.body.querySelector('[data-testid="model-selection-config-fast"]')?.textContent).toContain('umbra-main-native');
     await openRoleConfiguration('primary');
-    expect(roleOption('acme-fast')?.getAttribute('aria-checked')).toBe('true');
-    expect(roleOption('acme-deep')?.getAttribute('aria-checked')).toBe('false');
+    expect(roleOption('acme-fast')?.getAttribute('aria-checked')).toBe('false');
+    expect(roleOption('acme-deep')?.getAttribute('aria-checked')).toBe('true');
     expect(configManager.setConfig).not.toHaveBeenCalled();
-    expect(configManager.updateConfig).not.toHaveBeenCalled();
+    expect(configManager.updateConfig).toHaveBeenCalledTimes(2);
+    const saved = (await configManager.getConfigs(['ai.default_models']))['ai.default_models'];
+    expect(saved).toEqual({ primary: 'acme-deep', fast: 'umbra-main', economy: 'acme-fast' });
     expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
     expect(flowChatStoreMocks.sessions.get('session-a')?.config).toEqual({ modelName: 'umbra-main', reasoningPreset: 'high' });
   });
@@ -1245,15 +1290,15 @@ describe('ModelSelector provider levels', () => {
     expect(container.querySelector('[data-testid="chat-model-selector-btn"]')?.getAttribute('aria-expanded')).toBe('true');
   });
 
-  it('does not carry a preview pair into another session', async () => {
+  it('shares role bindings between sessions while keeping each strategy separate', async () => {
     await renderSelector(CATALOG_MODELS, 'primary', 'session-a'); await openSettingsMenu();
     await act(async () => modeOption('smart')!.click());
     await openRolePicker('primary');
     await act(async () => roleOption('acme-deep')!.click());
-    await renderSelector(CATALOG_MODELS, 'primary', 'session-b');
+    await renderSelector(CATALOG_MODELS, 'primary', 'session-b', { primary: 'acme-deep', fast: 'umbra-main', economy: 'umbra-main' });
     await act(async () => modeOption('smart')!.click());
-    expect(document.body.querySelector('[data-testid="model-selection-smart-primary"]')?.textContent).toContain('acme-fast-native');
-    expect(document.body.querySelector('[data-testid="model-selection-smart-primary"]')?.textContent).not.toContain('acme-deep-native');
+    expect(document.body.querySelector('[data-testid="model-selection-smart-primary"]')?.textContent).toContain('acme-deep-native');
+    expect(document.body.querySelector('[data-testid="model-selection-smart-primary"]')?.textContent).not.toContain('acme-fast-native');
   });
 
   it('selects the advertised levels inline and keeps Auto separate from Off without closing the card', async () => {
@@ -1675,7 +1720,7 @@ describe('ModelSelector provider levels', () => {
       .toContain('first-model-native');
 
     const listeners = [...flowChatStoreMocks.configChangeListeners];
-    expect(listeners).toHaveLength(2);
+    expect(listeners).toHaveLength(3);
     await act(async () => {
       // ModelSettingsPage writes ai.models through ConfigManager's ai-scoped
       // mutation notification, so this is the post-save event to handle.

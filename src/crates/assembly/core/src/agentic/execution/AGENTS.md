@@ -16,6 +16,23 @@ Empty output, the literal `null`, tool calls, and content filters do not trigger
 fallback; all other candidate text is kept verbatim. Do not add JSON parsing,
 format negotiation, correction retries, or text reconstruction.
 
+For per-round Router input preparation, isolation from main context compression,
+background summaries, and routing protocol behavior, use:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib round_model_routing
+```
+
+Router context state/budgets live in `openbitfun-agent-runtime::router_context`;
+Core only observes messages, invokes the auxiliary fast model and stores its
+separate sidecar. Never feed Router summaries back into the main transcript or
+use the main compactor's summary/model/config as Router state.
+
+Router HTTP transport and classifier wire parsing live in
+`openbitfun-ai-adapters::round_router`. Keep the existing Core router facade and
+error categories; thresholds, execution-model slots, traces and fallback stay
+owned here. Core Agent Runtime must not enable a direct Reqwest dependency.
+
 For model retry admission and recovery, use:
 
 ```bash

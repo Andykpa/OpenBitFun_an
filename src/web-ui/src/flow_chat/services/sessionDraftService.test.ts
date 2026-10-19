@@ -8,10 +8,11 @@ import { isSessionWorktreeBindingLocked } from '../utils/sessionWorktree';
 import { shouldSyncSessionModelSelection } from '../utils/modelSelectionTarget';
 import { chatInputSessionSubscriptionKey } from '../utils/chatInputSessionSubscription';
 
-const ports = vi.hoisted(() => ({ create: vi.fn(), metadata: vi.fn(), permission: vi.fn(),
+const ports = vi.hoisted(() => ({ create: vi.fn(), metadata: vi.fn(), permission: vi.fn(), routing: vi.fn(), model: vi.fn(),
   workspaces: new Map<string, WorkspaceInfo>() }));
 vi.mock('@/infrastructure/api/service-api/AgentAPI', () => ({ agentAPI: {
   createSession: ports.create, updateSessionPermissionMode: ports.permission,
+  getModelRoutingStatus: ports.routing, updateSessionModel: ports.model,
 } }));
 vi.mock('@/infrastructure/api/service-api/SessionAPI', () => ({ sessionAPI: { loadSessionMetadata: ports.metadata } }));
 vi.mock('@/infrastructure/services/business/workspaceManager', () => ({ workspaceManager: {
@@ -41,6 +42,8 @@ beforeEach(() => {
   ports.create.mockImplementation(async request => ({ ...request, modelId: request.config.modelName }));
   ports.metadata.mockResolvedValue(null);
   ports.permission.mockResolvedValue({ mode: 'auto' });
+  ports.routing.mockResolvedValue({ apiVersion: 1 });
+  ports.model.mockResolvedValue(undefined);
 });
 
 describe('new conversation workspace ownership', () => {
@@ -85,6 +88,29 @@ describe('new conversation workspace ownership', () => {
     finish({ sessionId: 'reserved', workspaceId: 'a' });
     await Promise.all([first, retry]);
     expect(ports.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies a draft strategy on the owning host and retries an ambiguous write without creating another session', async () => {
+    const h = harness({ draft: { workspaceId: 'a', phase: 'editing', turnId: 'first', modelRouting: 'smart' } });
+    selectDraftWorkspace(h.context, 'reserved', 'b');
+    ports.model.mockRejectedValueOnce(new Error('Connection lost'));
+    await expect(materializeSessionDraft(h.context, 'reserved')).rejects.toThrow('Connection lost');
+    expect(h.read().draft?.phase).toBe('ready');
+    await materializeSessionDraft(h.context, 'reserved');
+    expect(ports.create).toHaveBeenCalledTimes(1);
+    expect(ports.model).toHaveBeenCalledTimes(2);
+    expect(ports.model).toHaveBeenLastCalledWith(expect.objectContaining({
+      sessionId: 'reserved', workspaceId: 'b', workspacePath: '/b', routingMode: 'smart', modelName: 'primary',
+    }));
+    expect(h.read().draft?.modelRouting).toBe('smart');
+  });
+
+  it('does not silently ignore a draft strategy on an older host', async () => {
+    const h = harness({ draft: { workspaceId: 'a', phase: 'editing', turnId: 'first', modelRouting: 'manual' } });
+    ports.routing.mockResolvedValueOnce({ apiVersion: 0 });
+    await expect(materializeSessionDraft(h.context, 'reserved')).rejects.toThrow('does not support model routing');
+    expect(ports.model).not.toHaveBeenCalled();
+    expect(h.read().draft?.modelRouting).toBe('manual');
   });
 
   it('recovers a lost create acknowledgement with the reserved identity instead of creating another session', async () => {

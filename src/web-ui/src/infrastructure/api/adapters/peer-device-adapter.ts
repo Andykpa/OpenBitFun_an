@@ -295,6 +295,7 @@ export interface PeerDeviceTransportHooks {
   supportsMiniAppAgentContextFilesV1?: boolean;
   supportsWslWorkspacesV1?: boolean;
   supportsWholeSessionCopyV1?: boolean;
+  supportsModelRoutingV1?: boolean;
   supportsComputerUseSharingV1?: boolean;
   /** Enables the versioned typed ProductControl HostInvoke contract. */
   supportsProductControlV1?: boolean;
@@ -432,6 +433,7 @@ export class PeerDeviceTransportAdapter implements ITransportAdapter {
       | 'supportsMiniAppAgentContextFilesV1'
       | 'supportsWslWorkspacesV1'
       | 'supportsWholeSessionCopyV1'
+      | 'supportsModelRoutingV1'
       | 'supportsComputerUseSharingV1'
       | 'supportsProductControlV1'
     >,
@@ -495,6 +497,11 @@ export class PeerDeviceTransportAdapter implements ITransportAdapter {
     }
 
     this.assertRenderedTransport(action);
+
+    if ((action === 'get_model_routing_status' || (action === 'update_session_model' && params?.request?.routingMode !== undefined))
+      && this.hooks.supportsModelRoutingV1 !== true) {
+      throw new PeerProductCommandError('model_routing_v1_unsupported: The connected Peer host does not support smart routing');
+    }
 
     if (action === 'copy_session' && this.hooks.supportsWholeSessionCopyV1 !== true) {
       throw new PeerProductCommandError(
