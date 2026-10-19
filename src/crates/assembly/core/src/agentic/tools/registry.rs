@@ -597,6 +597,7 @@ mod tests {
             "SessionHistory",
             "Cron",
             "PortForward",
+            "DesktopCard",
             "WebSearch",
             "WebFetch",
             "ListMCPResources",

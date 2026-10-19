@@ -106,6 +106,7 @@ describe('tool card registry', () => {
       'PublishMiniApp',
       'PublishAppearance',
       'Playbook',
+      'DesktopCard',
     ]);
     expect(productOwnedNames).toEqual([
       'Task',

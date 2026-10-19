@@ -32,7 +32,7 @@ describe('settings information architecture', () => {
     expect(SETTINGS_PAGE_MANIFESTS.filter(page => page.views?.length).map(page => page.id)).toEqual(['tools.external-agents']);
     expect(getSettingsPageManifest('tools.external-agents').views?.map(view => view.id)).toEqual(['local', 'ssh', 'json']);
     expect(getSettingsPageManifest('application.input').sections?.map(section => section.id)).toEqual(['voice', 'message-sending', 'text-selection', 'shortcuts']);
-    expect(getSettingsPageManifest('application.pet').sections?.map(section => section.id)).toEqual(['voice-call', 'pet']);
+    expect(getSettingsPageManifest('application.pet').sections?.map(section => section.id)).toEqual(['voice-call', 'pet', 'desktop-cards']);
     expect(getSettingsPageManifest('tools.automation').sections?.map(section => section.id)).toEqual(['quick-actions', 'hooks']);
   });
 

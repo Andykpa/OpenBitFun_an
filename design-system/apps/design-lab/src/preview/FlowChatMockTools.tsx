@@ -14,6 +14,7 @@ const groupForTool = {
   ListMCPResources: 'execution', ReadMCPResource: 'execution', ListMCPPrompts: 'execution', GetMCPPrompt: 'execution',
   Worktree: 'files', PortForward: 'execution', ReviewPlatform: 'collaboration', FrontendWorkbench: 'web',
   FinalizeMiniApp: 'web', PublishMiniApp: 'web', PublishAppearance: 'web', Playbook: 'execution',
+  DesktopCard: 'collaboration',
   Read: 'files', Write: 'files', Edit: 'files', Delete: 'files', Grep: 'files', Glob: 'files', LS: 'files',
   GetFileDiff: 'files', view_image: 'files',
   ListModels: 'execution', ControlHub: 'web',

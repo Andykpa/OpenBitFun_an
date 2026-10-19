@@ -23,6 +23,15 @@
       ]
     },
     {
+      "id": "desktop-cards-mixed",
+      "query": "小卡片 desktop cards 桌面小组件",
+      "expectedFirstCapabilityId": "feature.desktop-cards",
+      "expectedCapabilityIds": [
+        "feature.desktop-cards",
+        "setting.application.pet"
+      ]
+    },
+    {
       "id": "builtin-element-picker",
       "query": "内置浏览器 element picker 元素选择",
       "expectedFirstCapabilityId": "feature.browser",
@@ -5262,6 +5271,132 @@
       "operations": []
     },
     {
+      "id": "feature.desktop-cards",
+      "kind": "feature",
+      "categoryId": "application",
+      "titleZh": "桌面小卡片",
+      "titleEn": "Desktop cards",
+      "summaryZh": "让智能体在主窗口之外放置可拖动的小卡片，显示倒计时、清单、PR 状态、天气、股价等需要偶尔看一眼的信息，并在重新打开应用后恢复。",
+      "summaryEn": "Let agents place draggable cards outside the main window for glanceable information such as countdowns, checklists, PR status, weather, or stock prices, restored after the app reopens.",
+      "keywordsZh": [
+        "小卡片",
+        "桌面卡片",
+        "桌面小组件",
+        "磁贴",
+        "倒计时提醒"
+      ],
+      "keywordsEn": [
+        "desktop cards",
+        "desktop widget",
+        "live tile",
+        "glanceable card",
+        "countdown reminder"
+      ],
+      "highlightsZh": [
+        "智能体按需创建并更新卡片",
+        "在首页查看、显示、隐藏或删除卡片",
+        "拖动卡片，位置在重启后恢复"
+      ],
+      "highlightsEn": [
+        "Agents create and update cards when useful",
+        "View, show, hide, or delete cards from Home",
+        "Drag cards; positions are restored after restart"
+      ],
+      "items": [
+        {
+          "id": "agent-cards",
+          "titleZh": "按需求或在任务过程中创建倒计时、清单、便签、进度、指标、定时任务和自定义卡片，可定时从 HTTP 接口或本机命令刷新数据",
+          "titleEn": "Create countdown, checklist, note, progress, metrics, scheduled-job, and custom cards on request or during a task, optionally refreshed from an HTTP endpoint or a local command",
+          "control": {
+            "kind": "delegate"
+          },
+          "evidence": [
+            "source:src/crates/assembly/core/src/agentic/tools/implementations/desktop_card_tool.rs#\"countdown-reminder\""
+          ]
+        },
+        {
+          "id": "home-management",
+          "titleZh": "在首页“小卡片”区查看全部卡片，并显示、隐藏或删除单张卡片",
+          "titleEn": "See every card in the Home Desktop cards section, and show, hide, or delete individual cards",
+          "control": {
+            "kind": "delegate"
+          },
+          "evidence": [
+            "command:desktop_card_list",
+            "command:desktop_card_set_visible",
+            "command:desktop_card_delete",
+            "source:src/web-ui/src/locales/zh-CN/scenes/personal-overview.json#desktopCards.title"
+          ]
+        },
+        {
+          "id": "card-actions",
+          "titleZh": "在卡片上刷新数据、勾选清单项、切换置顶、打开链接或回到来源会话",
+          "titleEn": "Refresh data, check off list items, toggle always-on-top, open the link, or return to the source session from a card",
+          "control": {
+            "kind": "delegate"
+          },
+          "evidence": [
+            "command:desktop_card_get",
+            "command:desktop_card_refresh",
+            "command:desktop_card_set_checklist_item",
+            "command:desktop_card_set_always_on_top"
+          ]
+        },
+        {
+          "id": "drag-restore",
+          "titleZh": "拖动卡片到桌面任意位置；关闭 OpenBitFun 时卡片消失，重新打开后按原位置恢复",
+          "titleEn": "Drag cards anywhere on the desktop; they disappear when OpenBitFun closes and return to the same positions when it reopens",
+          "control": {
+            "kind": "open",
+            "reasonCode": "visualSelection",
+            "reasonZh": "卡片位置由用户在桌面上直接拖动决定，没有可以代替视觉摆放的结构化命令；智能体只说明操作方式，摆放保留给用户。",
+            "reasonEn": "Card positions are chosen by dragging directly on the desktop, and no structured command can replace that visual placement; the Agent explains the interaction and leaves placement to the user."
+          },
+          "evidence": [
+            "source:src/web-ui/src/app/components/DesktopCard/DesktopCardWindow.tsx#startDesktopCardWindowDrag",
+            "source:src/apps/desktop/src/desktop_cards/store.rs#cards.json"
+          ]
+        }
+      ],
+      "stepsZh": [
+        "让智能体创建一张卡片，或在任务中由智能体主动创建",
+        "拖动卡片到合适位置",
+        "在首页“小卡片”区或卡片菜单中隐藏或删除"
+      ],
+      "stepsEn": [
+        "Ask an agent for a card, or let it create one during a task",
+        "Drag the card where you want it",
+        "Hide or delete it from the Home Desktop cards section or the card menu"
+      ],
+      "agentControl": {
+        "tool": "DesktopCard",
+        "workflowZh": [
+          "不确定卡片形态时先用 `presets` 查看预置卡片，再用 `create` 创建；需要定时刷新时为卡片提供 http 或 command 数据源",
+          "用 `list`/`get` 读取已有卡片，避免重复创建；用 `update`、`show`、`hide`、`delete`、`refresh` 维护卡片",
+          "小卡片仅在桌面端可用，远程控制会话无法使用；远程工作区不能使用本机命令数据源，失败时明确告知用户"
+        ],
+        "workflowEn": [
+          "When unsure about the card shape, call `presets` first, then `create`; give the card an http or command data source when it should refresh",
+          "Use `list`/`get` to read existing cards instead of creating duplicates; maintain cards with `update`, `show`, `hide`, `delete`, and `refresh`",
+          "Desktop cards exist only on the desktop host and are unavailable from remote control sessions; remote workspaces cannot use local command data sources, and failures must be reported explicitly"
+        ]
+      },
+      "agentExamplesZh": [
+        "20 分钟后提醒我开会",
+        "做一张卡片帮我盯着这个 PR 的状态"
+      ],
+      "agentExamplesEn": [
+        "Remind me about the meeting in 20 minutes",
+        "Make a card that keeps an eye on this PR"
+      ],
+      "destination": {
+        "kind": "settings",
+        "pageId": "application.pet",
+        "sectionId": "desktop-cards"
+      },
+      "operations": []
+    },
+    {
       "id": "setting.application.general",
       "kind": "setting",
       "categoryId": "application",
@@ -5703,29 +5838,33 @@
       "categoryId": "application",
       "titleZh": "桌面伙伴设置",
       "titleEn": "Companion settings",
-      "summaryZh": "启用桌面智能体伙伴并管理当前角色。",
-      "summaryEn": "Enable the desktop agent companion and manage the active character.",
+      "summaryZh": "启用桌面智能体伙伴并管理当前角色，以及开启或关闭桌面小卡片。",
+      "summaryEn": "Enable the desktop agent companion, manage the active character, and turn desktop cards on or off.",
       "keywordsZh": [
         "桌面伙伴设置",
         "桌面宠物",
         "萌宠",
         "吉祥物",
-        "Petdex"
+        "Petdex",
+        "小卡片设置"
       ],
       "keywordsEn": [
         "companion settings",
         "desktop pet",
         "pet",
         "mascot",
-        "Petdex"
+        "Petdex",
+        "desktop card settings"
       ],
       "highlightsZh": [
         "启用或停用伙伴",
-        "角色选择与 Petdex 导入"
+        "角色选择与 Petdex 导入",
+        "开启或关闭桌面小卡片"
       ],
       "highlightsEn": [
         "Enable or disable the companion",
-        "Character selection and Petdex import"
+        "Character selection and Petdex import",
+        "Turn desktop cards on or off"
       ],
       "items": [
         {
@@ -5743,6 +5882,28 @@
           },
           "evidence": [
             "source:src/web-ui/src/locales/zh-CN/settings/runtime.json#features.pet.enable"
+          ]
+        },
+        {
+          "id": "desktop-cards-enabled",
+          "titleZh": "开启或关闭桌面小卡片；关闭后隐藏所有卡片，智能体也不再看到小卡片工具",
+          "titleEn": "Turn desktop cards on or off; when off, all cards are hidden and agents no longer see the desktop card tool",
+          "destination": {
+            "kind": "settings",
+            "pageId": "application.pet",
+            "sectionId": "desktop-cards"
+          },
+          "control": {
+            "kind": "direct",
+            "operations": [],
+            "options": [
+              {
+                "id": "desktop-cards-enabled"
+              }
+            ]
+          },
+          "evidence": [
+            "source:src/web-ui/src/locales/zh-CN/settings/runtime.json#features.desktopCards.enable"
           ]
         },
         {
@@ -5807,11 +5968,13 @@
       ],
       "agentExamplesZh": [
         "关闭桌面伙伴",
-        "让 OpenBitFun 使用 /path/to/pet 里的萌宠"
+        "让 OpenBitFun 使用 /path/to/pet 里的萌宠",
+        "关闭小卡片功能"
       ],
       "agentExamplesEn": [
         "Turn off the desktop companion",
-        "Make OpenBitFun use the pet at /path/to/pet"
+        "Make OpenBitFun use the pet at /path/to/pet",
+        "Turn off desktop cards"
       ],
       "destination": {
         "kind": "settings",
@@ -5847,6 +6010,13 @@
           "titleEn": "Enable companion",
           "descriptionZh": "显示或隐藏智能体伙伴。",
           "descriptionEn": "Show or hide the agent companion."
+        },
+        {
+          "id": "desktop-cards-enabled",
+          "titleZh": "启用桌面小卡片",
+          "titleEn": "Enable desktop cards",
+          "descriptionZh": "显示或隐藏全部桌面小卡片，并控制智能体是否可以使用小卡片工具；关闭不会删除已有卡片。",
+          "descriptionEn": "Show or hide all desktop cards and control whether agents can use the desktop card tool; turning it off keeps existing cards."
         }
       ]
     },

@@ -41,6 +41,13 @@
       },
       "subtitle": "Turning display off hides the pet and keeps your selected and imported appearances"
     },
+    "desktopCards": {
+      "title": "Desktop cards",
+      "subtitle": "Small cards outside the main window for reminders, PR status, progress, weather, and other things worth a glance",
+      "enable": "Enable desktop cards",
+      "description": "When off, cards are hidden and the agent can no longer create or update them. Existing cards are kept.",
+      "unsupported": "Update this host to manage desktop cards."
+    },
     "workspaceSearch": {
       "title": "Accelerated workspace search",
       "subtitle": "Speed up file search in large workspaces. Standard search remains available when this is off.",

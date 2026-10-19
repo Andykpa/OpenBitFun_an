@@ -24,6 +24,7 @@ impl CreativeHarness {
         default_tools.push("ComputerUse".to_string());
         default_tools.extend(
             [
+                "DesktopCard",
                 "InitMiniApp",
                 "FinalizeMiniApp",
                 "PublishMiniApp",

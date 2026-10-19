@@ -3028,7 +3028,8 @@
         "FinalizeMiniApp": "Update Mini App",
         "PublishMiniApp": "Submit Mini App",
         "PublishAppearance": "Submit Skin",
-        "Playbook": "Read operation guide"
+        "Playbook": "Read operation guide",
+        "DesktopCard": "Desktop card"
       },
       "fields": {
         "results": "Results",
@@ -3131,7 +3132,13 @@
         "checksFailed": "Checks failed",
         "checksPending": "Checks pending",
         "author": "Author",
-        "lastOutcome": "Last transaction outcome"
+        "lastOutcome": "Last transaction outcome",
+        "card": "Card ID",
+        "dataSource": "Data source",
+        "visibility": "Visibility",
+        "refreshError": "Last refresh error",
+        "presets": "Presets",
+        "cards": "Cards"
       },
       "states": {
         "active": "Active",
@@ -3172,7 +3179,10 @@
         "idle": "Idle",
         "managed": "Managed worktree",
         "permanent": "Permanent worktree",
-        "external": "External worktree"
+        "external": "External worktree",
+        "cardCreated": "Created and shown",
+        "cardShown": "Shown",
+        "cardHidden": "Hidden"
       },
       "operations": {
         "list": "View list",
@@ -3264,7 +3274,36 @@
       "imageUnavailable": "Image preview is unavailable. You can open the recorded path to inspect the source.",
       "imageLoading": "Loading source image…",
       "hostUnavailable": "This record belongs to a dispatched host. Open the resource on that host; local navigation is unavailable.",
-      "remoteLoopback": "This loopback address belongs to the executing host. Open it on that host."
+      "remoteLoopback": "This loopback address belongs to the executing host. Open it on that host.",
+      "desktopCard": {
+        "actions": {
+          "presets": "Browse card presets",
+          "create": "Create desktop card",
+          "update": "Update desktop card",
+          "list": "List desktop cards",
+          "get": "Read desktop card",
+          "show": "Show desktop card",
+          "hide": "Hide desktop card",
+          "delete": "Delete desktop card",
+          "refresh": "Refresh desktop card"
+        },
+        "templates": {
+          "countdown": "Countdown",
+          "checklist": "Checklist",
+          "note": "Note",
+          "progress": "Progress",
+          "metrics": "Metrics",
+          "cronJob": "Scheduled job",
+          "custom": "Custom"
+        },
+        "sources": {
+          "http": "HTTP · {{target}} · every {{interval}}s",
+          "command": "Local command · {{target}} · every {{interval}}s"
+        },
+        "visible": "Shown on desktop",
+        "hidden": "Hidden",
+        "disabledNotice": "Desktop cards are turned off in settings, so these cards are not displayed."
+      }
     }
   },
   "welcome": {

@@ -33,6 +33,8 @@ export interface AIExperienceSettings {
   enable_git_commit_coauthor?: boolean;
   /** Absent on older execution hosts, which never offer next-input suggestions. */
   enable_prompt_suggestion?: boolean;
+  /** Absent on older execution hosts, which have no desktop cards. */
+  enable_desktop_cards?: boolean;
 }
 
 export type AIExperienceSettingsPatch = Partial<Omit<AIExperienceSettings, 'voice_input'>> & {
@@ -114,6 +116,9 @@ function normalizeSettings(settings: PersistedAIExperienceSettings | null | unde
       : undefined,
     enable_prompt_suggestion: typeof currentSettings.enable_prompt_suggestion === 'boolean'
       ? currentSettings.enable_prompt_suggestion
+      : undefined,
+    enable_desktop_cards: typeof currentSettings.enable_desktop_cards === 'boolean'
+      ? currentSettings.enable_desktop_cards
       : undefined,
   };
   // Legacy configs used null to mean the built-in SVG panda. Resolve null to the current preset.

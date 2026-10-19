@@ -654,5 +654,51 @@
     "unsavedMessage": "關閉前儲存「{{title}}」的變更？",
     "closeOtherContent": "關閉其他內容標籤",
     "closeAllContent": "關閉所有內容標籤"
+  },
+  "desktopCard": {
+    "loading": "載入中…",
+    "loadFailed": "無法載入此卡片。",
+    "unsupportedTemplate": "此卡片需要更新版本的 OpenBitFun。",
+    "updated": "更新於{{time}}",
+    "refreshFailed": "重新整理失敗：{{error}}",
+    "menu": {
+      "more": "更多操作",
+      "refresh": "重新整理",
+      "openLink": "開啟連結",
+      "openSession": "開啟來源會話",
+      "alwaysOnTop": "保持置頂",
+      "hide": "隱藏卡片",
+      "delete": "刪除卡片"
+    },
+    "deleteConfirm": {
+      "title": "刪除卡片",
+      "message": "刪除此卡片？此操作無法復原。",
+      "cancel": "取消",
+      "confirm": "刪除"
+    },
+    "countdown": {
+      "due": "時間到",
+      "days": "{{count}} 天",
+      "dismiss": "知道了"
+    },
+    "checklist": {
+      "empty": "暫無事項"
+    },
+    "cron": {
+      "failed": "無法載入定時任務。",
+      "missing": "該定時任務已不存在。",
+      "enabled": "已啟用",
+      "paused": "已暫停",
+      "nextRun": "下次執行",
+      "lastRun": "上次執行",
+      "neverRun": "尚未執行",
+      "status": {
+        "ok": "成功",
+        "error": "$t(shared:statuses.failed)",
+        "running": "$t(shared:statuses.running)",
+        "queued": "排隊中",
+        "cancelled": "$t(shared:statuses.cancelled)"
+      }
+    }
   }
 }

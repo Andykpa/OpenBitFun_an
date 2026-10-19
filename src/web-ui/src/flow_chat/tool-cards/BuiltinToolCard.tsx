@@ -4,6 +4,7 @@ import {
   GoalToolCard, AgentRosterToolCard, SessionHistoryToolCard, ImageAnalysisToolCard, TimeToolCard,
   McpResourceToolCard, WorktreeToolCard, PortForwardToolCard, ReviewPlatformToolCard,
   FrontendWorkbenchToolCard, MiniAppFinalizeToolCard, MarketplacePublishToolCard, PlaybookToolCard,
+  DesktopCardToolCard,
   type SemanticToolCardAction, type SemanticToolCardProps, type SemanticToolCardRecord,
 } from '@openbitfun/ui/flow-chat';
 import { useI18n } from '@/infrastructure/i18n';
@@ -40,6 +41,7 @@ const views: Record<BuiltinCardFamily, React.ComponentType<SemanticToolCardProps
   worktree: WorktreeToolCard, 'port-forward': PortForwardToolCard, 'review-platform': ReviewPlatformToolCard,
   'frontend-workbench': FrontendWorkbenchToolCard, 'miniapp-finalize': MiniAppFinalizeToolCard,
   'marketplace-publish': MarketplacePublishToolCard, playbook: PlaybookToolCard,
+  'desktop-card': DesktopCardToolCard,
 };
 
 export const BuiltinToolCard: React.FC<ToolCardProps> = ({ toolItem, sessionId, onExpand, onOpenInEditor }) => {

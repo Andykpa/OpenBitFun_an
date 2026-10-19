@@ -20,6 +20,7 @@ import { UsageActivityGrid } from '@/infrastructure/config/components/UsageActiv
 import { usePersonalOverview } from './usePersonalOverview';
 import { getOverviewIdentity } from './overviewIdentity';
 import { OverviewAccountButton } from './OverviewAccountButton';
+import { OverviewDesktopCardsSection } from './OverviewDesktopCardsSection';
 import { OverviewDevicesSection } from './OverviewDevicesSection';
 import { OverviewSplitCard, OverviewSplitCardAction, OverviewSplitCardSection } from './OverviewSplitCard';
 import { OverviewMiniAppLogos } from './OverviewMiniAppLogos';
@@ -296,6 +297,8 @@ const PersonalOverviewScene: React.FC<{ isActive?: boolean }> = ({ isActive = tr
                 </OverviewSplitCard>
               </div>
             </section>
+
+            <OverviewDesktopCardsSection isActive={isActive} />
 
             <section className="personal-overview__section" aria-labelledby="overview-skills-title" aria-busy={skills.status === 'loading'} data-openbitfun-scene="personal-overview" data-openbitfun-part="skills">
               <div className="personal-overview__section-header">

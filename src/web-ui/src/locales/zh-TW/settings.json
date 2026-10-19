@@ -22,7 +22,7 @@
       },
       "pet": {
         "label": "寵物與助手",
-        "description": "選擇寵物形象，設定助手即時語音通話"
+        "description": "選擇寵物形象，設定助手即時語音通話與桌面小卡片"
       },
       "terminal": {
         "label": "終端",
@@ -107,7 +107,8 @@
       "quick-actions": "快捷動作",
       "hooks": "事件 Hooks",
       "pet": "寵物",
-      "voice-call": "即時語音通話"
+      "voice-call": "即時語音通話",
+      "desktop-cards": "小卡片"
     }
   },
   "changeGuard": {

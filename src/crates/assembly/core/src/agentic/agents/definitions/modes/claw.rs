@@ -48,6 +48,7 @@ impl ClawMode {
                 "SessionMessage".to_string(),
                 "SessionHistory".to_string(),
                 "Cron".to_string(),
+                "DesktopCard".to_string(),
                 // Browser, terminal, and routing metadata live under ControlHub.
                 // Desktop control runs directly through its own native tool.
                 "ControlHub".to_string(),
@@ -114,6 +115,7 @@ mod tests {
         assert!(!tools.contains(&"FrontendWorkbench".to_string()));
         assert!(tools.contains(&"ListModels".to_string()));
         assert!(tools.contains(&"ListWorkspaces".to_string()));
+        assert!(tools.contains(&"DesktopCard".to_string()));
     }
 
     #[test]
