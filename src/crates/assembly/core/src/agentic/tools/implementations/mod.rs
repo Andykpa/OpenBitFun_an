@@ -28,6 +28,8 @@ pub mod control_hub_tool;
 #[cfg(feature = "tools-agent-control")]
 pub mod cron_tool;
 pub mod delete_file_tool;
+#[cfg(feature = "tools-agent-control")]
+pub mod desktop_card_tool;
 pub mod exec_command;
 pub mod file_edit_tool;
 pub mod file_read_tool;
@@ -99,6 +101,8 @@ pub use control_hub_tool::ControlHubTool;
 #[cfg(feature = "tools-agent-control")]
 pub use cron_tool::CronTool;
 pub use delete_file_tool::DeleteFileTool;
+#[cfg(feature = "tools-agent-control")]
+pub use desktop_card_tool::DesktopCardTool;
 pub use exec_command::{ExecCommandTool, ExecControlTool, WriteStdinTool};
 pub use file_edit_tool::FileEditTool;
 pub use file_read_tool::FileReadTool;

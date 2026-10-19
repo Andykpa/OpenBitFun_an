@@ -410,6 +410,24 @@ fn creation_tools_default_only_to_creative_mode() {
 }
 
 #[test]
+fn desktop_cards_default_to_standard_ultimate_creative_and_claw_modes() {
+    for spec in builtin_agent_specs()
+        .iter()
+        .filter(|spec| spec.category == AgentCategory::Mode)
+    {
+        let mode = (spec.factory)();
+        assert_eq!(
+            mode.default_tools()
+                .iter()
+                .any(|tool| tool == "DesktopCard"),
+            matches!(mode.id(), "Standard" | "Ultimate" | "Creative" | "Claw"),
+            "DesktopCard has unexpected default exposure in {}",
+            mode.id()
+        );
+    }
+}
+
+#[test]
 fn every_builtin_mode_with_control_hub_can_also_schedule_with_cron() {
     // ControlHub's `wait` documentation tells the agent to schedule anything
     // repeating — or further out than an hour — with Cron instead of holding
