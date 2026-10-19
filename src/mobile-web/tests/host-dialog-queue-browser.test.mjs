@@ -43,6 +43,8 @@ test('mobile running composer keeps send and stop independently available alongs
    window.queueFixture=mountHostQueueFixture();
   });
   await page.waitForSelector('.host-message-queue li');
+  // The math renderer is a lazy chunk; wait for it before asserting its DOM.
+  await page.waitForSelector('.chat-msg__assistant-content .katex');
   assert.ok(await page.$eval('.chat-msg__assistant-content .katex', el => !!el), 'katex renders inside assistant message');
   assert.ok(await page.$eval('.chat-msg__assistant-content .katex-display', el => !!el), 'katex block display renders');
   assert.ok((await page.$eval('.code-block-wrapper', el => el.textContent)).includes('echo $$ $1 $&'), 'code blocks preserve special dollar patterns');
