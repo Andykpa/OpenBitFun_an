@@ -14,6 +14,7 @@ test("registry exposes only the formal stable components", () => {
       "GoalToolCard", "AgentRosterToolCard", "SessionHistoryToolCard", "ImageAnalysisToolCard", "TimeToolCard",
       "McpResourceToolCard", "WorktreeToolCard", "PortForwardToolCard", "ReviewPlatformToolCard", "FrontendWorkbenchToolCard",
       "MiniAppFinalizeToolCard", "MarketplacePublishToolCard", "PlaybookToolCard",
+      "DesktopCardToolCard",
       "ActionCard",
       "ActionItem",
       "ActivityItem",

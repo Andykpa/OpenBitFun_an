@@ -52,6 +52,7 @@ export const toolPresentationRegistry = {
   PublishMiniApp: { owner: 'standard', component: 'MarketplacePublishToolCard' },
   PublishAppearance: { owner: 'standard', component: 'MarketplacePublishToolCard' },
   Playbook: { owner: 'standard', component: 'PlaybookToolCard' },
+  DesktopCard: { owner: 'standard', component: 'DesktopCardToolCard' },
   LaunchReviewAgent: { owner: 'product', component: 'AgentControlToolCard' },
   submit_code_review: { owner: 'product', component: null },
   AskUserQuestion: { owner: 'product', component: 'AskUser' },
