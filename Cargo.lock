@@ -6421,6 +6421,7 @@ dependencies = [
  "openbitfun-plugin-runtime-client",
  "openbitfun-product-domains",
  "openbitfun-runtime-ports",
+ "openbitfun-services-core",
  "openbitfun-static-hook-support",
  "serde",
  "serde_json",
@@ -6430,6 +6431,7 @@ dependencies = [
  "tokio",
  "url",
  "urlencoding",
+ "zstd",
 ]
 
 [[package]]
