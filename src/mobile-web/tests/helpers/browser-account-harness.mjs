@@ -50,7 +50,7 @@ export async function launchBrowser(options = {}) {
     process.env['PROGRAMFILES(X86)'] && `${process.env['PROGRAMFILES(X86)']}/Microsoft/Edge/Application/msedge.exe`,
     process.env.LOCALAPPDATA && `${process.env.LOCALAPPDATA}/Microsoft/Edge/Application/msedge.exe`,
   ].find(path => path && existsSync(path));
-  assert.ok(executablePath, 'Set PUPPETEER_EXECUTABLE_PATH to an installed Chrome/Chromium browser.');
+  assert.ok(executablePath, 'Set PUPPETEER_EXECUTABLE_PATH to an installed Chrome, Chromium, or Edge browser.');
   return puppeteer.launch({ executablePath, headless: 'new',
     // Fixture pages use remote-looking origins while their simulated Relay is loopback.
     args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-background-timer-throttling',

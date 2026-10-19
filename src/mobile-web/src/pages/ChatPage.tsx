@@ -13,10 +13,14 @@ import {
   RemoteSessionManager,
   SessionSynchronizer,
   type PollResponse,
-  type ChatImageAttachment,
   type ChatMessage,
   type RemoteModelCatalog,
 } from '../services/RemoteSessionManager';
+import {
+  extractValidImageContexts,
+  extractValidPendingImages,
+  type PendingChatImage,
+} from '../services/chatImageAttachments';
 import { useMobileStore } from '../services/store';
 import { createRemoteCacheScope, remoteCache } from '../services/RemoteCache';
 import ChatHeader from '../components/ChatHeader';
@@ -61,74 +65,7 @@ function sanitizeMessageText(content: string): string {
     .trim();
 }
 
-function normalizeValidImageDataUrl(url: unknown): { trimmedUrl: string; mimeType: string } | null {
-  if (typeof url !== 'string') return null;
-  const trimmedUrl = url.trim();
-  const match = trimmedUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/);
-  if (!match) return null;
-  const mimeType = match[1];
-  const base64Data = match[2];
-  const isValid = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=|[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{4})$/.test(base64Data);
-  if (!isValid) return null;
-  return { trimmedUrl, mimeType };
-}
-
-function extractValidImageContexts(
-  images: unknown,
-  prefix: string,
-): { id: string; data_url: string; mime_type: string; metadata: { name: string; source: string } }[] | undefined {
-  if (!Array.isArray(images) || images.length === 0) return undefined;
-  const valid: { data_url: string; mime_type: string; name: string }[] = [];
-  for (const img of images) {
-    try {
-      if (img && typeof img === 'object') {
-        const normalized = normalizeValidImageDataUrl(img.data_url);
-        if (normalized) {
-          valid.push({
-            data_url: normalized.trimmedUrl,
-            mime_type: normalized.mimeType,
-            name: typeof img.name === 'string' && img.name ? img.name : 'image',
-          });
-        }
-      }
-    } catch {
-      // Ignore corrupted attachment items
-    }
-  }
-  if (valid.length === 0) return undefined;
-  return valid.map((item, idx) => ({
-    id: `${prefix}_${Date.now()}_${idx}`,
-    data_url: item.data_url,
-    mime_type: item.mime_type,
-    metadata: { name: item.name, source: 'remote' },
-  }));
-}
-
-function extractValidPendingImages(images: unknown): { name: string; dataUrl: string }[] {
-  if (!Array.isArray(images) || images.length === 0) return [];
-  const result: { name: string; dataUrl: string }[] = [];
-  for (const img of images) {
-    try {
-      if (img && typeof img === 'object') {
-        const normalized = normalizeValidImageDataUrl(img.data_url);
-        if (normalized) {
-          result.push({
-            name: typeof img.name === 'string' && img.name ? img.name : 'image',
-            dataUrl: normalized.trimmedUrl,
-          });
-        }
-      }
-    } catch {
-      // Ignore corrupted attachment items
-    }
-  }
-  return result;
-}
-
-
 // ─── Thinking (ModelThinkingDisplay-style) ───────────────────────────────────
-
-
 
 // ─── ChatPage ───────────────────────────────────────────────────────────────
 
@@ -164,7 +101,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const [modelCatalog, setModelCatalog] = useState<RemoteModelCatalog | null>(null);
   const [selectedModelId, setSelectedModelId] = useState<string>('auto');
   const [modelUpdating, setModelUpdating] = useState(false);
-  const [pendingImages, setPendingImages] = useState<{ name: string; dataUrl: string }[]>([]);
+  const [pendingImages, setPendingImages] = useState<PendingChatImage[]>([]);
   const [imageAnalyzing, setImageAnalyzing] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const sendInFlightRef = useRef<symbol | null>(null);
