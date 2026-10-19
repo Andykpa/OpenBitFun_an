@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "digest": "fnv1a64:e2b40d572990839b",
+  "digest": "fnv1a64:1d617d6e336f2a60",
   "retiredCommandPrefixes": [
     {
       "prefix": "lsp_",
@@ -9,6 +9,7 @@
   ],
   "capabilities": {
     "ids": [
+      "background_result_delivery_v1",
       "dialog_queue_v1",
       "idempotent_dialog_submit",
       "inline_image_attachments_v1",
@@ -32,6 +33,7 @@
       "user_question_interaction_v1"
     ],
     "desktop": [
+      "background_result_delivery_v1",
       "dialog_queue_v1",
       "idempotent_dialog_submit",
       "inline_image_attachments_v1",
@@ -55,6 +57,7 @@
       "user_question_interaction_v1"
     ],
     "cli": [
+      "background_result_delivery_v1",
       "dialog_queue_v1",
       "control_conversation_v1",
       "control_conversation_reset_v1",
@@ -4200,6 +4203,18 @@
       }
     },
     {
+      "id": "list_removed_external_sessions",
+      "surface": "tauri_command",
+      "remoteWorkspace": "RemoteUnsupported",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no handler for this command"
+      }
+    },
+    {
       "id": "list_sessions",
       "surface": "tauri_command",
       "remoteWorkspace": "LegacyUnaudited",
@@ -4878,6 +4893,18 @@
       }
     },
     {
+      "id": "miniapp_presentation",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
+      }
+    },
+    {
       "id": "miniapp_recompile",
       "surface": "tauri_command",
       "remoteWorkspace": "LegacyUnaudited",
@@ -4923,6 +4950,18 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
+      }
+    },
+    {
+      "id": "miniapp_shell_call",
+      "surface": "tauri_command",
+      "remoteWorkspace": "LocalOnly",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
       }
     },
     {
@@ -6125,6 +6164,18 @@
       "id": "restart_mcp_server",
       "surface": "tauri_command",
       "remoteWorkspace": "LegacyUnaudited",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no handler for this command"
+      }
+    },
+    {
+      "id": "restore_removed_external_session",
+      "surface": "tauri_command",
+      "remoteWorkspace": "RemoteUnsupported",
       "peer": {
         "kind": "proxied"
       },

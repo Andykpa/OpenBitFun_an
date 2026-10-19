@@ -1,11 +1,26 @@
 import {
-  useCallback, useEffect, useId, useLayoutEffect, useRef, useState,
+  createContext, useContext, useCallback, useEffect, useId, useLayoutEffect, useRef, useState,
   type CSSProperties, type HTMLAttributes, type PointerEvent, type ReactNode,
 } from 'react';
 import { classNames } from '../../internal/classNames';
 import styles from './SplitView.module.css';
 
 export type SplitViewMode = 'split' | 'primary' | 'secondary';
+const SplitViewModeContext = createContext<SplitViewMode>('split');
+
+/** Stable sibling hosts can change panes without reparenting their React tree. */
+export function SplitViewSurface({ pane, active = true, className, children, ...props }:
+  HTMLAttributes<HTMLDivElement> & { pane: 'primary' | 'secondary'; active?: boolean }) {
+  const mode = useContext(SplitViewModeContext);
+  const hidden = mode !== 'split' && mode !== pane;
+  return <div {...props} tabIndex={-1}
+    className={classNames(styles.pane, styles[pane], styles.surface, className)}
+    hidden={hidden} aria-hidden={hidden || !active}
+    {...(hidden || !active ? { inert: '' } : {})}
+    data-split-surface={pane} data-split-active={!hidden && active}>
+    {children}
+  </div>;
+}
 
 /** Absolutely positioned primary content that stays clear of the secondary overlay. */
 export function SplitViewPrimaryDock({ className, children, ...props }: HTMLAttributes<HTMLDivElement>) {
@@ -13,9 +28,18 @@ export function SplitViewPrimaryDock({ className, children, ...props }: HTMLAttr
     data-openbitfun-component="split-view" data-openbitfun-part="primaryDock">{children}</div>;
 }
 
+export interface SplitViewHeaderGeometry {
+  /** Shares the pane's live CSS size, including pointer resizing and clamping. */
+  columnClassName: string;
+}
+
 export interface SplitViewProps extends Omit<HTMLAttributes<HTMLDivElement>, 'children'> {
-  primary: ReactNode;
-  secondary: ReactNode;
+  primary?: ReactNode;
+  secondary?: ReactNode;
+  /** A flat deck of SplitViewSurface children; keys belong to content, not panes. */
+  surfaces?: ReactNode;
+  /** Shared geometry for chrome that must align with the pane divider. */
+  header?: ReactNode | ((geometry: SplitViewHeaderGeometry) => ReactNode);
   mode?: SplitViewMode;
   layout?: 'split' | 'overlay';
   secondarySide?: 'left' | 'right';
@@ -41,7 +65,7 @@ function sizeBounds(width: number, dividerWidth: number, minLeft: number, minRig
 }
 
 export function SplitView({
-  primary, secondary, mode = 'split', layout = 'split', secondarySide = 'right', rightSize,
+  primary, secondary, surfaces, header, mode = 'split', layout = 'split', secondarySide = 'right', rightSize,
   minLeftSize = 0, minRightSize = 0, maxRightSize = Number.MAX_SAFE_INTEGER,
   defaultRightSize = rightSize, onRightSizeChange, onResizeStateChange,
   dividerLabel, dividerActions, primaryPaneProps, secondaryPaneProps,
@@ -60,8 +84,6 @@ export function SplitView({
   const frameRef = useRef<number | null>(null);
   const dragRef = useRef<{
     pointerId: number; target: HTMLDivElement; x: number; size: number; latest: number;
-    /** Container width sampled once at pointerdown, so moves never force a layout read. */
-    containerWidth: number;
     /** Last size written to the CSS variable, so a sub-pixel move can skip the write. */
     painted: number;
     cursor: string; userSelect: string;
@@ -70,6 +92,10 @@ export function SplitView({
   callbacks.current = { onRightSizeChange, onResizeStateChange };
   const bounds = width === null ? { min: minRightSize, max: maxRightSize }
     : sizeBounds(width, dividerWidth, minLeftSize, minRightSize, maxRightSize);
+  // The observer keeps these current without a layout read in pointer handlers.
+  // A queued frame must also use any bounds published since it was scheduled.
+  const boundsRef = useRef(bounds);
+  boundsRef.current = bounds;
   const resizeDirection = layout === 'overlay' && secondarySide === 'left' ? -1 : 1;
   const resolvedSize = Math.min(bounds.max, Math.max(bounds.min, rightSize));
   const resolvedSizeRef = useRef(resolvedSize);
@@ -121,17 +147,18 @@ export function SplitView({
   useEffect(() => () => { finishResize(false); }, [finishResize]);
 
   useLayoutEffect(() => {
+    const hiddenSurface = document.activeElement?.closest('[data-split-surface]');
     const hiddenPane = mode === 'primary' ? secondaryRef.current : mode === 'secondary' ? primaryRef.current : null;
-    if (hiddenPane?.contains(document.activeElement) || (mode !== 'split' && dividerRef.current?.contains(document.activeElement))) {
-      (mode === 'primary' ? primaryRef : secondaryRef).current?.focus({ preventScroll: true });
+    if ((hiddenSurface && rootRef.current?.contains(hiddenSurface) && mode !== 'split' && hiddenSurface.getAttribute('data-split-surface') !== mode) || hiddenPane?.contains(document.activeElement) || (mode !== 'split' && dividerRef.current?.contains(document.activeElement))) {
+      (rootRef.current?.querySelector<HTMLElement>(`[data-split-surface="${mode}"][data-split-active="true"]`)
+        ?? (mode === 'primary' ? primaryRef : secondaryRef).current)?.focus({ preventScroll: true });
     }
   }, [mode]);
 
   const updateDrag = (event: PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
-    const currentBounds = drag.containerWidth > 0
-      ? sizeBounds(drag.containerWidth, dividerWidth, minLeftSize, minRightSize, maxRightSize) : bounds;
+    const currentBounds = boundsRef.current;
     const delta = (drag.x - event.clientX) * resizeDirection;
     drag.latest = Math.min(currentBounds.max, Math.max(currentBounds.min, drag.size + delta));
     if (frameRef.current !== null) return;
@@ -139,6 +166,8 @@ export function SplitView({
       frameRef.current = null;
       const current = dragRef.current;
       if (!current) return;
+      const latestBounds = boundsRef.current;
+      current.latest = Math.min(latestBounds.max, Math.max(latestBounds.min, current.latest));
       // A sub-pixel move paints the same rounded width; keep the written value
       // instead of dirtying the DOM style on every animation frame.
       if (Math.round(current.latest) === Math.round(current.painted)) return;
@@ -148,18 +177,20 @@ export function SplitView({
   };
 
   return (
-    <div
+    <SplitViewModeContext.Provider value={mode}><div
       {...rest}
       ref={rootRef}
       className={classNames(styles.root, className)}
       style={{ ...style, '--_split-view-right-size': `${resolvedSize}px` } as CSSProperties}
       data-openbitfun-component="split-view" data-openbitfun-part="root"
-      data-mode={mode} data-layout={layout} data-secondary-side={secondarySide} data-resizing={resizing || undefined}
+      data-has-header={header ? true : undefined} data-mode={mode} data-layout={layout} data-secondary-side={secondarySide} data-resizing={resizing || undefined}
       onKeyDown={event => {
         onKeyDown?.(event);
         if (event.defaultPrevented || event.key !== 'F6' || event.altKey || event.ctrlKey || event.metaKey) return;
-        const panes = mode === 'primary' ? [primaryRef.current] : mode === 'secondary' ? [secondaryRef.current]
-          : secondarySide === 'left' ? [secondaryRef.current, primaryRef.current] : [primaryRef.current, secondaryRef.current];
+        const primaryTarget = rootRef.current?.querySelector<HTMLElement>('[data-split-surface="primary"][data-split-active="true"]') ?? primaryRef.current;
+        const secondaryTarget = rootRef.current?.querySelector<HTMLElement>('[data-split-surface="secondary"][data-split-active="true"]') ?? secondaryRef.current;
+        const panes = mode === 'primary' ? [primaryTarget] : mode === 'secondary' ? [secondaryTarget]
+          : secondarySide === 'left' ? [secondaryTarget, primaryTarget] : [primaryTarget, secondaryTarget];
         const current = panes.findIndex(pane => pane?.contains(document.activeElement));
         const next = current < 0 ? (event.shiftKey ? panes.length - 1 : 0)
           : (current + (event.shiftKey ? -1 : 1) + panes.length) % panes.length;
@@ -168,6 +199,8 @@ export function SplitView({
         panes[next]?.focus({ preventScroll: true });
       }}
     >
+      {header && <div className={styles.header}>{typeof header === 'function'
+        ? header({ columnClassName: styles.headerColumns! }) : header}</div>}
       <div {...primaryPaneProps} ref={primaryRef} id={primaryId} tabIndex={-1}
         className={classNames(styles.pane, styles.primary, primaryPaneProps?.className)}
         data-openbitfun-component="split-view" data-openbitfun-part="primary" hidden={mode === 'secondary'}>
@@ -185,7 +218,6 @@ export function SplitView({
             dragRef.current = {
               pointerId: event.pointerId, target: event.currentTarget, x: event.clientX,
               size: resolvedSize, latest: resolvedSize,
-              containerWidth: rootRef.current?.getBoundingClientRect().width ?? 0,
               painted: resolvedSize,
               cursor: document.body.style.cursor, userSelect: document.body.style.userSelect,
             };
@@ -228,6 +260,7 @@ export function SplitView({
         data-openbitfun-component="split-view" data-openbitfun-part="secondary" hidden={mode === 'primary'}>
         {secondary}
       </div>
-    </div>
+      {surfaces}
+    </div></SplitViewModeContext.Provider>
   );
 }

@@ -39,7 +39,8 @@ export const optionalDependencyFeatureOwnerRules = [
   },
   {
     crateName: 'services-core',
-    reviewedAggregateFeatures: ['workspace-persistence'],
+    // Offline recovery composes only existing storage/identity contracts.
+    reviewedAggregateFeatures: ['workspace-persistence', 'session-recovery'],
     reason:
       'services-core optional implementation dependencies must stay behind their exact owner capability',
     dependencies: [
@@ -47,7 +48,7 @@ export const optionalDependencyFeatureOwnerRules = [
       { depName: 'zip', ownerFeatures: ['pet-packages'] },
       { depName: 'uuid', ownerFeatures: ['pet-packages'] },
       { depName: 'aes-gcm', ownerFeatures: ['credential-vault'] },
-      { depName: 'anyhow', ownerFeatures: ['credential-vault', 'dispatch-workspace', 'workspace-runtime', 'workspace-transfer'] },
+      { depName: 'anyhow', ownerFeatures: ['credential-vault', 'dispatch-workspace', 'workspace-runtime', 'workspace-transfer', 'session-recovery'] },
       { depName: 'async-trait', ownerFeatures: ['permission', 'workspace-runtime'] },
       { depName: 'base64', ownerFeatures: ['pet-packages', 'credential-vault', 'filesystem'] },
       {
@@ -171,6 +172,7 @@ export const optionalDependencyFeatureOwnerRules = [
       { depName: 'openbitfun-agent-tools', ownerFeatures: ['agent-runtime', 'local-storage', 'mcp-runtime'] },
       { depName: 'openbitfun-claude-code-adapter', ownerFeatures: ['external-sources'] },
       { depName: 'openbitfun-codex-adapter', ownerFeatures: ['external-sources'] },
+      { depName: 'openbitfun-zcode-adapter', ownerFeatures: ['external-sources'] },
       { depName: 'openbitfun-external-sources', ownerFeatures: ['external-sources'] },
       { depName: 'openbitfun-legacy-migration-adapters', ownerFeatures: ['legacy-migration'] },
       { depName: 'openbitfun-opencode-adapter', ownerFeatures: ['external-sources'] },
@@ -295,6 +297,7 @@ export const optionalDependencyFeatureOwnerRules = [
           'mcp',
           'miniapp-market',
           'miniapp-runtime',
+          'miniapp-storage',
           'models-dev',
           'process-tree',
           'remote-connect',
@@ -507,6 +510,7 @@ export const capabilityContractDependencyRules = [
           capabilityForwarder('workspace-transfer', 'workspace-ports'),
         ],
         ['permission', 'workspace-runtime', 'workspace-persistence', 'workspace-transfer'],
+        ['session-recovery'],
       )],
       ['openbitfun-services-integrations', capabilityConsumer(
         [capabilityEdge([], { optional: true })],
@@ -994,6 +998,7 @@ export const coreClosedFeatureProfileRules = [
       'dep:openbitfun-pi-adapter',
       'dep:openbitfun-claude-code-adapter',
       'dep:openbitfun-codex-adapter',
+      'dep:openbitfun-zcode-adapter',
       'dep:openbitfun-external-sources',
       'openbitfun-services-integrations/hook-import',
       'plugin-source',

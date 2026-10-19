@@ -35,6 +35,7 @@ import { SessionExecutionEvent, SessionExecutionState } from '../state-machine/t
 import { ModelSelector, type ModelSelectorAvailability } from './ModelSelector';
 import { FlowChatStore } from '../store/FlowChatStore';
 import { useAcpPlan } from '../hooks/useAcpPlan';
+import { usePromptSuggestionsEnabled } from '../hooks/usePromptSuggestionsEnabled';
 import { filterSlashCommands, useAcpSlashCommands } from '../hooks/useAcpSlashCommands';
 import { acpSessionRef, acpSlashCommandText } from '../utils/acpSession';
 import { AcpPlanPanel } from './AcpPlanPanel';
@@ -70,7 +71,15 @@ import { modeReducer, initialModeState } from '../reducers/modeReducer';
 import { CHAT_INPUT_CONFIG } from '../constants/chatInputConfig';
 import { useMessageSender } from '../hooks/useMessageSender';
 import { useChatInputState } from '../store/chatInputStateStore';
+import { ExternalHistoryNotice } from './ExternalHistoryNotice';
+import { readComposerPermissionMode } from '../utils/externalHistory';
 import { useInputHistoryStore } from '../store/inputHistoryStore';
+import {
+  isPromptSuggestionAcceptKey,
+  promptSuggestionKey,
+  usePromptSuggestionStore,
+  visiblePromptSuggestion,
+} from '../store/promptSuggestionStore';
 import {
   sessionComposerStore,
   type PendingLargePasteMap,
@@ -818,6 +827,22 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [isMultiLine, setIsMultiLine] = useState(compactComposer ? false : isNewSessionComposer);
   // showPlaceholder is true when the editor DOM is truly empty (value empty AND no residual <br>)
   const [showPlaceholder, setShowPlaceholder] = useState(true);
+  const storedPromptSuggestion = usePromptSuggestionStore(state => (
+    effectiveTargetSessionId
+      ? state.suggestions[promptSuggestionKey(effectiveTargetSessionId, deviceSurfaceScope.surfaceId)]
+      : undefined
+  ));
+  const latestSuggestionTurn = effectiveTargetSession?.dialogTurns.at(-1);
+  const promptSuggestionsEnabled = usePromptSuggestionsEnabled();
+  const promptSuggestion = visiblePromptSuggestion(storedPromptSuggestion, {
+    enabled: promptSuggestionsEnabled,
+    editorEmpty: showPlaceholder,
+    value: inputState.value,
+    canCompose: targetCanCompose,
+    processing: Boolean(derivedState?.isProcessing),
+    latestTurnId: latestSuggestionTurn?.id,
+    latestTurnStatus: latestSuggestionTurn?.status,
+  });
   const liveCapsuleInputWidthRef = useRef<number | null>(null);
   const lockedCapsuleInputWidthRef = useRef<number | null>(null);
   const collapseVerificationRafRef = useRef<number | null>(null);
@@ -2507,14 +2532,17 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         const permissionSessionId = isBtwDraftTarget
           ? effectiveTargetSession?.parentSessionId : effectiveTargetSessionId;
         if (!permissionSessionId) return;
-        const response = await agentAPI.getSessionPermissionMode({
+        const response = await readComposerPermissionMode({
+          externalHistory: effectiveTargetSession?.externalHistory,
+          externalContinuationPermissionMode: effectiveTargetSession?.externalContinuationPermissionMode,
+        }, () => agentAPI.getSessionPermissionMode({
           sessionId: permissionSessionId,
           turnId: activePermissionTurnId ?? undefined,
           workspaceId: sessionOwningId,
           workspacePath: sessionOwningPath,
           remoteConnectionId: effectiveTargetSession?.remoteConnectionId,
           remoteSshHost: effectiveTargetSession?.remoteSshHost,
-        });
+        }));
         if (permissionModeRequestGenerationRef.current !== generation) return;
         setSessionPermissionMode(response.mode ?? null);
         setSessionPermissionModeUnread(false);
@@ -2552,6 +2580,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     effectiveTargetSession?.remoteSshHost,
     effectiveTargetSession?.parentSessionId,
     effectiveTargetSession?.draft,
+    effectiveTargetSession?.externalHistory,
+    effectiveTargetSession?.externalContinuationPermissionMode,
     isBtwDraftTarget,
     isAcpTargetSession,
     t,
@@ -2567,6 +2597,19 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     const targetSessionId = effectiveTargetSessionId;
     const store = FlowChatStore.getInstance();
     const draftSession = store.getState().sessions.get(targetSessionId);
+    if (draftSession?.externalHistory?.mode === 'follow') {
+      store.setState(state => {
+        const current = state.sessions.get(targetSessionId);
+        return current?.externalHistory?.mode === 'follow'
+          ? { ...state, sessions: new Map(state.sessions).set(targetSessionId, {
+            ...current, externalContinuationPermissionMode: nextMode,
+          }) } : state;
+      });
+      setSessionPermissionMode(nextMode);
+      setArmedTurnPermissionMode(null);
+      setActiveTurnPermissionMode(null);
+      return;
+    }
     if (draftSession?.draft) {
       if (workspaceSubmittingRef.current || draftSession.draft.phase !== 'editing') return;
       store.setState(state => {
@@ -5692,6 +5735,22 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     [currentSessionId, workspace]
   );
 
+  const acceptPromptSuggestion = useCallback((suggestion: string) => {
+    dispatchInput({ type: 'SET_VALUE', payload: suggestion });
+    window.setTimeout(() => {
+      const editor = richTextInputRef.current;
+      if (!editor) return;
+      editor.focus();
+      const selection = window.getSelection();
+      if (!selection) return;
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }, 0);
+  }, [dispatchInput]);
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     // Local /btw shortcut (Ctrl/Cmd+Alt+B) should work even when ChatInput is focused.
     if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && e.key.toLowerCase() === 'b') {
@@ -5829,6 +5888,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         }
     }
     
+    if (
+      promptSuggestion
+      && isPromptSuggestionAcceptKey(e, { composing: isComposing, tabOwnedByTargetSwitcher: showTargetSwitcher })
+    ) {
+      e.preventDefault();
+      acceptPromptSuggestion(promptSuggestion);
+      return;
+    }
+
     // Tab key: toggle send target when the child session switcher is visible
     if (showTargetSwitcher && e.key === 'Tab' && !e.shiftKey && !slashCommandState.isActive) {
       e.preventDefault();
@@ -5942,7 +6010,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       handleSendOrCancel();
     }
     
-  }, [canUseThreadGoal, handleSendOrCancel, submitBtwFromInput, submitGoalFromInput, derivedState, dispatchInput, slashCommandState, contextTriggerState.isActive, getActiveSlashPickerItems, selectSlashCommandAction, selectSlashExternalPromptCommand, selectSlashPromptCommand, selectSlashAcpCommand, selectSlashSkill, getRichTextTriggerController, historyIndex, inputHistory, savedDraft, inputState.value, hasSendableInput, currentSessionId, isBtwSession, showTargetSwitcher, inputTarget, setInputTarget, removeContext, t]);
+  }, [canUseThreadGoal, handleSendOrCancel, submitBtwFromInput, submitGoalFromInput, derivedState, dispatchInput, slashCommandState, contextTriggerState.isActive, getActiveSlashPickerItems, selectSlashCommandAction, selectSlashExternalPromptCommand, selectSlashPromptCommand, selectSlashAcpCommand, selectSlashSkill, getRichTextTriggerController, historyIndex, inputHistory, savedDraft, inputState.value, hasSendableInput, currentSessionId, isBtwSession, showTargetSwitcher, inputTarget, setInputTarget, removeContext, promptSuggestion, acceptPromptSuggestion, t]);
 
   const handleImeCompositionStart = useCallback(() => {
     isImeComposingRef.current = true;
@@ -6395,6 +6463,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           data-testid="chat-input-container"
           aria-busy={caps.transferInFlight}
         >
+        <ExternalHistoryNotice session={effectiveTargetSession} active={isSceneActive} />
         {recommendationContext && (
           <SmartRecommendations
             context={recommendationContext}
@@ -6488,11 +6557,18 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <ChatInputAttachments key={effectiveTargetSessionId ?? 'empty'} contexts={contexts}
                 surfaceEpoch={deviceSurfaceScope.epoch} onRemove={removeContext}
                 onUpdate={(id, comment) => contextStore.getState().updateContext(id, { comment })} />
-              {showPlaceholder && (
+              {showPlaceholder && (promptSuggestion ? (
+                <span className="openbitfun-chat-input__placeholder openbitfun-chat-input__prompt-suggestion" data-openbitfun-component="chat-input" data-openbitfun-part="placeholder" data-testid="chat-input-prompt-suggestion" aria-hidden>
+                  <span className="openbitfun-chat-input__prompt-suggestion-text">{promptSuggestion}</span>
+                  <kbd className="openbitfun-chat-input__prompt-suggestion-hint">
+                    {t('input.promptSuggestionAccept', { key: showTargetSwitcher ? '→' : 'Tab' })}
+                  </kbd>
+                </span>
+              ) : (
                 <span className="openbitfun-chat-input__placeholder" data-openbitfun-component="chat-input" data-openbitfun-part="placeholder" aria-hidden>
                   {t('input.placeholder')}
                 </span>
-              )}
+              ))}
               <RichTextInput
                 ref={richTextInputRef}
                 value={inputState.value}

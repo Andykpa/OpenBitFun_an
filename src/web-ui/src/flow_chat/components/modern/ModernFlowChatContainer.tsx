@@ -79,10 +79,6 @@ import {
   shouldUseLatestTurnFollowOutput,
 } from '../../utils/flowChatTurnScrollPolicy';
 import { isRemoteTraceContext, startupTrace } from '@/shared/utils/startupTrace';
-import {
-  traceViewport,
-  traceViewportRepeating,
-} from '@/infrastructure/diagnostics/flowChatViewportDiagnostics';
 import { scheduleAfterStartupPaint } from '@/shared/utils/startupTaskScheduling';
 import { agentAPI } from '@/infrastructure/api/service-api/AgentAPI';
 import { notificationService } from '@/shared/notification-system';
@@ -596,22 +592,6 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
 
   const acceptViewportSnapshot = useCallback((snapshot: FlowChatViewportSnapshot) => {
     rememberSessionViewportState(snapshot.sessionId, { snapshot });
-    traceViewportRepeating(`sessionSnapshot|${snapshot.sessionId}|${snapshot.presentationMode}`, {
-      location: 'viewport.sessionSnapshotCaptured',
-      message: 'FlowChat stored a semantic viewport snapshot for a session',
-      data: () => ({
-        sessionId: snapshot.sessionId,
-        presentationMode: snapshot.presentationMode,
-        viewportMode: snapshot.viewportMode,
-        historyWindow: snapshot.historyWindow,
-        anchorItemKey: snapshot.anchorItemKey,
-        anchorItemType: snapshot.anchorItemType,
-        anchorTurnId: snapshot.anchorTurnId,
-        anchorOffsetPx: snapshot.anchorOffsetPx,
-        scrollTopPx: snapshot.scrollTopPx,
-        isAtTail: snapshot.isAtTail,
-      }),
-    });
   }, [rememberSessionViewportState]);
 
   const handleViewportSnapshot = useCallback((snapshot: FlowChatViewportSnapshot) => {
@@ -619,19 +599,6 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
       viewportRestorePendingSessionIdRef.current === snapshot.sessionId
       || restoreGateSessionId === snapshot.sessionId
     ) {
-      traceViewportRepeating(`sessionSnapshotIgnored|${snapshot.sessionId}`, {
-        location: 'viewport.sessionSnapshotIgnoredDuringRestore',
-        message: 'FlowChat ignored a provisional viewport snapshot while restoring a session',
-        data: () => ({
-          sessionId: snapshot.sessionId,
-          anchorItemKey: snapshot.anchorItemKey,
-          anchorItemType: snapshot.anchorItemType,
-          anchorTurnId: snapshot.anchorTurnId,
-          anchorOffsetPx: snapshot.anchorOffsetPx,
-          scrollTopPx: snapshot.scrollTopPx,
-          isAtTail: snapshot.isAtTail,
-        }),
-      });
       return;
     }
     acceptViewportSnapshot(snapshot);
@@ -817,17 +784,6 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
       if (!restoredHistoryPresentation && !bookmark) {
         flowChatStore.restoreSessionTailPresentation(sessionId);
       }
-      traceViewport({
-        location: 'viewport.sessionStateRestored',
-        message: 'FlowChat restored the remembered session viewport state',
-        data: () => ({
-          sessionId,
-          previousSessionId,
-          restoredPresentationMode: restoredHistoryPresentation ? 'history-window' : 'tail',
-          restoredViewportIntent: restoredIntent,
-          snapshot: rememberedSnapshot,
-        }),
-      });
     }
     if (sessionId && bookmark && !cached && activeSession?.historyState === 'ready') {
       setHistoryRestore({ sessionId, status: 'loading' });
@@ -2068,7 +2024,7 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     options?: HistoryWindowBoundaryIntentOptions,
   ): Promise<HistoryWindowBoundaryIntentResult> => {
     const existingRequest = historyBoundaryRequestsRef.current[direction];
-    if (existingRequest) {
+    if (existingRequest && !options?.synchronizeHistory) {
       return existingRequest;
     }
 
@@ -2084,28 +2040,48 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
         return 'cancelled';
       }
 
+      const scope = getActiveSurfaceScope();
+      const isCurrent = () => scope.isCurrent()
+        && activeSessionIdRef.current === sessionId
+        && historyPresentationOwnerGenerationRef.current === presentationOwnerGeneration
+        && options?.isCurrent?.() !== false;
+      if (options?.synchronizeHistory) {
+        setHistoryBoundaryState(previous => ({ ...previous, [direction]: 'loading' }));
+        try {
+          await flowChatStore.synchronizeSessionHistory(sessionId, isCurrent);
+          if (!isCurrent()) return 'cancelled';
+        } catch (error) {
+          if (!isCurrent() || isSurfaceChangedError(error)) return 'cancelled';
+          recordHistoryPagingEvent(sessionId, 'outcome_not_ready', { direction, reason: 'source-synchronization-failed' });
+          log.warn('Failed to synchronize session history from its owner', { sessionId, direction, error });
+          setHistoryBoundaryState(previous => ({ ...previous, [direction]: 'error' }));
+          return 'not-ready';
+        }
+      }
       const session = flowChatStore.getState().sessions.get(sessionId);
-      if (getActiveSurfaceScope().surfaceId !== 'local' && !presentation) {
-        if (direction === 'after' || session?.isPartial === false) return 'exhausted';
-        const scope = getActiveSurfaceScope();
+      if (scope.surfaceId !== 'local' && !presentation) {
+        if (direction === 'after' || session?.isPartial === false) {
+          setHistoryBoundaryState(previous => ({ ...previous, [direction]: 'idle' }));
+          return 'exhausted';
+        }
         setHistoryBoundaryState(previous => ({ ...previous, [direction]: 'loading' }));
         try {
           const prepared = await options?.prepareViewportForPresentationCommit?.();
-          if (prepared === false || !scope.isCurrent() || activeSessionIdRef.current !== sessionId) {
+          if (prepared === false || !isCurrent()) {
             options?.cancelViewportPresentationCommit?.();
             return 'cancelled';
           }
           const loaded = await flowChatStore.loadOlderRelaySessionHistory(sessionId);
-          if (!scope.isCurrent() || activeSessionIdRef.current !== sessionId) return 'cancelled';
+          if (!isCurrent()) return 'cancelled';
           return loaded ? 'applied' : 'exhausted';
         } catch (error) {
           options?.cancelViewportPresentationCommit?.();
           if (isSurfaceChangedError(error)) return 'cancelled';
           log.error('Relay history page failed', { sessionId, error });
-          if (scope.isCurrent()) setHistoryBoundaryState(previous => ({ ...previous, [direction]: 'error' }));
+          if (isCurrent()) setHistoryBoundaryState(previous => ({ ...previous, [direction]: 'error' }));
           return 'not-ready';
         } finally {
-          if (scope.isCurrent() && activeSessionIdRef.current === sessionId) {
+          if (isCurrent()) {
             setHistoryBoundaryState(previous => previous[direction] === 'error'
               ? previous : { ...previous, [direction]: 'idle' });
           }
@@ -2164,6 +2140,7 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
               turnCatalogMatches: session?.turnCatalog?.sessionId === sessionId,
             },
           );
+          if (precondition === 'exhausted') setHistoryBoundaryState(previous => ({ ...previous, [direction]: 'idle' }));
           return precondition;
         }
         const canonicalTailRange = flowChatStore.getSessionCanonicalTailRange(sessionId);
@@ -2225,6 +2202,7 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
             targetOrdinal: renderedRange.startOrdinal - 1,
           });
         }
+        setHistoryBoundaryState(previous => ({ ...previous, [direction]: 'idle' }));
         return 'exhausted';
       }
       const targetOrdinal = target.targetOrdinal;
@@ -2237,7 +2215,7 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
           before: direction === 'before' ? 12 : 4,
           after: direction === 'after' ? 12 : 1,
         });
-        if (!result.isCurrent || activeSessionIdRef.current !== sessionId) {
+        if (!result.isCurrent || !isCurrent()) {
           recordHistoryPagingEvent(sessionId, 'outcome_cancelled', {
             direction,
             reason: 'superseded',
@@ -2251,7 +2229,7 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
            * still reading `loading`, and the reader is shown history being
            * prepared by nobody for the rest of the session.
            */
-          if (activeSessionIdRef.current === sessionId) {
+          if (isCurrent()) {
             setHistoryBoundaryState(previous => ({ ...previous, [direction]: 'idle' }));
           }
           return 'cancelled';
@@ -2262,7 +2240,7 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
               sessionId,
               'sequential-history-navigation',
             );
-            if (historyReady && activeSessionIdRef.current === sessionId) {
+            if (historyReady && isCurrent()) {
               recordHistoryPagingEvent(sessionId, 'outcome_applied', {
                 direction,
                 targetOrdinal,
@@ -2279,6 +2257,7 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
            * status standing, with nothing in the trail between the ask and the
            * complaint.
            */
+          if (!isCurrent()) return 'cancelled';
           recordHistoryPagingEvent(sessionId, 'outcome_not_ready', {
             direction,
             reason: `load-${result.status}`,
@@ -2298,6 +2277,7 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
           preparationResult === false
           || !activeSessionIsCurrent
           || !presentationOwnerIsCurrent
+          || !isCurrent()
         ) {
           recordHistoryPagingEvent(sessionId, 'outcome_cancelled', {
             direction,
@@ -2365,9 +2345,10 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
         if (viewportPreparationStarted) {
           options?.cancelViewportPresentationCommit?.();
         }
-        if (activeSessionIdRef.current === sessionId) {
+        if (isCurrent()) {
           setHistoryBoundaryState(previous => ({ ...previous, [direction]: 'error' }));
         }
+        if (!isCurrent()) return 'cancelled';
         log.warn('Failed to prefetch an adjacent session Turn window', {
           sessionId,
           direction,

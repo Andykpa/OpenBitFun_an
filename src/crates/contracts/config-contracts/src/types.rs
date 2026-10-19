@@ -180,6 +180,10 @@ pub struct AppConfig {
     /// the frontend owns the versioned format (StoredKeybindingsV1).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keybindings: Option<serde_json::Value>,
+    /// Preferred assistant entry sessions, keyed by owning workspace ID on this host.
+    /// An empty map also advertises support to older/newer controller surfaces.
+    #[serde(default)]
+    pub assistant_default_sessions: HashMap<String, String>,
     /// Global, user-defined groups used to organize Agent tool pickers.
     #[serde(default, skip_serializing_if = "UserToolGroupsConfig::is_empty")]
     pub user_tool_groups: UserToolGroupsConfig,
@@ -199,6 +203,10 @@ pub struct AppConfig {
     /// Defaults for opt-in managed Git worktrees.
     #[serde(default)]
     pub worktrees: WorktreeSettings,
+    /// Opt-in discovery of external session history on the serving host.
+    /// Unknown ecosystem keys survive upgrades; only installed readers consume them.
+    #[serde(default)]
+    pub external_session_discovery: HashMap<String, bool>,
 }
 
 /// An explicit empty source list stays empty; defaults apply only to absent settings.
@@ -380,7 +388,7 @@ pub struct AppLoggingConfig {
     /// Allowed values: trace, debug, info, warn, error, off.
     pub level: String,
     /// Whether diagnostic logs may include sensitive troubleshooting payloads.
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub include_sensitive_diagnostics: bool,
     /// Whether the local UI records detailed Flow Chat viewport diagnostics.
     #[serde(default)]
@@ -630,6 +638,9 @@ pub struct AIExperienceConfig {
     /// Whether built-in commit workflows add OpenBitFun as a Git co-author.
     #[serde(default = "default_true")]
     pub enable_git_commit_coauthor: bool,
+    /// Whether a completed interactive turn offers a one-sentence next-input suggestion.
+    #[serde(default = "default_true")]
+    pub enable_prompt_suggestion: bool,
 }
 
 fn default_quick_actions() -> Vec<AiExperienceQuickAction> {
@@ -912,16 +923,10 @@ impl Default for SubagentModelDefaultsConfig {
     fn default() -> Self {
         Self {
             default_selection: default_subagent_model_selection(),
-            builtin: HashMap::from([
-                (
-                    "GeneralPurpose".to_string(),
-                    SubagentModelSelection::fixed("primary"),
-                ),
-                (
-                    "ResearchSpecialist".to_string(),
-                    SubagentModelSelection::Inherit,
-                ),
-            ]),
+            builtin: HashMap::from([(
+                "ResearchSpecialist".to_string(),
+                SubagentModelSelection::Inherit,
+            )]),
             fork: SubagentModelSelection::Inherit,
         }
     }
@@ -1924,12 +1929,14 @@ impl Default for AppConfig {
             ai_experience: AIExperienceConfig::default(),
             voice_call: VoiceCallConfig::default(),
             keybindings: None,
+            assistant_default_sessions: HashMap::new(),
             user_tool_groups: UserToolGroupsConfig::default(),
             user_skill_groups: UserSkillGroupsConfig::default(),
             skill_market: SkillMarketConfig::default(),
             close_button_behavior: default_close_button_behavior(),
             hooks: AgentHooksConfig::default(),
             worktrees: WorktreeSettings::default(),
+            external_session_discovery: HashMap::new(),
         }
     }
 }
@@ -1939,7 +1946,7 @@ impl Default for AppLoggingConfig {
         Self {
             // Set to Debug in early development for easier diagnostics
             level: "debug".to_string(),
-            include_sensitive_diagnostics: true,
+            include_sensitive_diagnostics: false,
             flow_chat_diagnostics: false,
             model_exchange_tracing: ModelExchangeTracingConfig::default(),
         }
@@ -1965,6 +1972,7 @@ impl Default for AIExperienceConfig {
             voice_input: VoiceInputConfig::default(),
             quick_actions: default_quick_actions(),
             enable_git_commit_coauthor: true,
+            enable_prompt_suggestion: true,
         }
     }
 }
@@ -2267,6 +2275,28 @@ mod tests {
         let opted_out: super::AIExperienceConfig =
             serde_json::from_value(persisted.clone()).unwrap();
         assert!(!opted_out.enable_git_commit_coauthor);
+        assert_eq!(serde_json::to_value(opted_out).unwrap(), persisted);
+    }
+
+    #[test]
+    fn prompt_suggestion_defaults_on_for_legacy_settings_and_preserves_opt_out() {
+        let legacy = serde_json::json!({
+            "enable_session_title_generation": false,
+            "enable_git_commit_coauthor": false
+        });
+        let settings: super::AIExperienceConfig = serde_json::from_value(legacy).unwrap();
+        assert!(settings.enable_prompt_suggestion);
+        assert!(!settings.enable_session_title_generation);
+
+        let mut persisted = serde_json::to_value(settings).unwrap();
+        assert_eq!(
+            persisted["enable_prompt_suggestion"],
+            serde_json::json!(true)
+        );
+        persisted["enable_prompt_suggestion"] = serde_json::json!(false);
+        let opted_out: super::AIExperienceConfig =
+            serde_json::from_value(persisted.clone()).unwrap();
+        assert!(!opted_out.enable_prompt_suggestion);
         assert_eq!(serde_json::to_value(opted_out).unwrap(), persisted);
     }
 
@@ -2692,6 +2722,38 @@ mod tests {
         assert_eq!(upgraded.language, config.app.language);
         assert_eq!(upgraded.telemetry, config.app.telemetry);
         assert_eq!(upgraded.skill_market.sources[0].provider, "skills-sh");
+    }
+
+    #[test]
+    fn assistant_default_sessions_preserve_legacy_config_and_round_trip() {
+        let mut old_payload = current_global_config_with(serde_json::json!({}));
+        old_payload["app"]
+            .as_object_mut()
+            .unwrap()
+            .remove("assistant_default_sessions");
+        let mut upgraded: GlobalConfig = serde_json::from_value(old_payload).unwrap();
+        assert!(upgraded.app.assistant_default_sessions.is_empty());
+        upgraded
+            .app
+            .assistant_default_sessions
+            .insert("assistant-a".into(), "session-a".into());
+        let serialized = serde_json::to_value(&upgraded).unwrap();
+        let restored: GlobalConfig = serde_json::from_value(serialized.clone()).unwrap();
+        assert_eq!(
+            restored.app.assistant_default_sessions["assistant-a"],
+            "session-a"
+        );
+        #[derive(serde::Deserialize, serde::Serialize)]
+        struct LegacyApp {
+            language: String,
+            telemetry: bool,
+        }
+        let legacy: LegacyApp = serde_json::from_value(serialized["app"].clone()).unwrap();
+        let old_round_trip: super::AppConfig =
+            serde_json::from_value(serde_json::to_value(legacy).unwrap()).unwrap();
+        assert_eq!(old_round_trip.language, upgraded.app.language);
+        assert_eq!(old_round_trip.telemetry, upgraded.app.telemetry);
+        assert!(old_round_trip.assistant_default_sessions.is_empty());
     }
 
     #[test]
@@ -3231,7 +3293,7 @@ mod tests {
                 .subagents
                 .builtin
                 .get("GeneralPurpose"),
-            Some(&SubagentModelSelection::fixed("primary"))
+            None
         );
         assert_eq!(
             config
@@ -3352,22 +3414,65 @@ mod tests {
     }
 
     #[test]
-    fn general_purpose_uses_primary_unless_explicitly_overridden() {
+    fn general_purpose_uses_shared_default_unless_explicitly_overridden() {
         let mut defaults = AgentModelDefaultsConfig::default();
 
         assert_eq!(
             defaults.builtin_subagent_selection("GeneralPurpose"),
-            SubagentModelSelection::fixed("primary")
+            SubagentModelSelection::fixed("fast")
+        );
+
+        defaults.subagents.default_selection = SubagentModelSelection::Inherit;
+        assert_eq!(
+            defaults.builtin_subagent_selection("GeneralPurpose"),
+            SubagentModelSelection::Inherit
         );
 
         defaults.subagents.builtin.insert(
             "GeneralPurpose".to_string(),
-            SubagentModelSelection::fixed("fast"),
+            SubagentModelSelection::fixed("primary"),
         );
         assert_eq!(
             defaults.builtin_subagent_selection("GeneralPurpose"),
-            SubagentModelSelection::fixed("fast")
+            SubagentModelSelection::fixed("primary")
         );
+    }
+
+    #[test]
+    fn general_purpose_legacy_model_defaults_preserve_explicit_selections() {
+        for payload in [
+            serde_json::json!({}),
+            serde_json::json!({"subagents": {}}),
+            serde_json::json!({"subagents": {"builtin": {}}}),
+        ] {
+            let defaults: AgentModelDefaultsConfig = serde_json::from_value(payload).unwrap();
+            assert!(!defaults.subagents.builtin.contains_key("GeneralPurpose"));
+            assert_eq!(
+                defaults.builtin_subagent_selection("GeneralPurpose"),
+                SubagentModelSelection::fixed("fast")
+            );
+        }
+
+        for selection in [
+            SubagentModelSelection::fixed("primary"),
+            SubagentModelSelection::fixed("custom-model"),
+            SubagentModelSelection::Inherit,
+        ] {
+            let payload = serde_json::json!({
+                "subagents": {"builtin": {"GeneralPurpose": selection}}
+            });
+            let defaults: AgentModelDefaultsConfig = serde_json::from_value(payload).unwrap();
+            assert_eq!(
+                defaults.builtin_subagent_selection("GeneralPurpose"),
+                selection
+            );
+            let reloaded: AgentModelDefaultsConfig =
+                serde_json::from_value(serde_json::to_value(defaults).unwrap()).unwrap();
+            assert_eq!(
+                reloaded.builtin_subagent_selection("GeneralPurpose"),
+                selection
+            );
+        }
     }
 
     #[test]
@@ -3638,13 +3743,13 @@ mod tests {
     }
 
     #[test]
-    fn app_logging_defaults_to_sensitive_diagnostics_enabled() {
+    fn app_logging_defaults_to_sensitive_diagnostics_disabled() {
         let config: AppLoggingConfig = serde_json::from_value(serde_json::json!({
             "level": "trace"
         }))
         .expect("logging config without sensitive preference should deserialize");
 
-        assert!(config.include_sensitive_diagnostics);
+        assert!(!config.include_sensitive_diagnostics);
         assert!(!config.flow_chat_diagnostics);
         assert_eq!(
             config.model_exchange_tracing.mode,
@@ -4102,5 +4207,27 @@ mod user_question_timeout_tests {
                 value
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod external_session_discovery_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_configuration_stays_opted_out_and_unknown_agent_preferences_round_trip() {
+        let mut legacy = serde_json::to_value(AppConfig::default()).unwrap();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("external_session_discovery");
+        legacy["language"] = serde_json::json!("en-US");
+        let old: AppConfig = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(old.external_session_discovery.is_empty());
+        assert_eq!(old.language, "en-US");
+        legacy["external_session_discovery"] =
+            serde_json::json!({"codex": true, "zcode": false, "future-agent": true});
+        let config: AppConfig = serde_json::from_value(legacy.clone()).unwrap();
+        assert_eq!(serde_json::to_value(config).unwrap(), legacy);
     }
 }

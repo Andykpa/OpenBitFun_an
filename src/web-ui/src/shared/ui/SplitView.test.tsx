@@ -2,7 +2,7 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SplitView, SplitViewPrimaryDock, type SplitViewProps } from '@openbitfun/ui';
+import { SplitView, SplitViewPrimaryDock, SplitViewSurface, type SplitViewProps } from '@openbitfun/ui';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -66,6 +66,45 @@ describe('shared SplitView interaction contract', () => {
       expect(primary.hidden).toBe(mode === 'secondary'); expect(secondary.hidden).toBe(mode === 'primary');
     }
     expect(changed).not.toHaveBeenCalled();
+  });
+
+  it('shares live resize and clamped geometry with the header', () => {
+    const header: SplitViewProps['header'] = geometry => <div data-testid="aligned-header" className={geometry.columnClassName}>Tabs</div>;
+    render({ header });
+    const headerNode = container.querySelector<HTMLElement>('[data-testid="aligned-header"]')!;
+    expect(headerNode.className).toMatch(/headerColumns/);
+    pointer('pointerdown', 600);
+    pointer('pointermove', 550);
+    act(() => vi.advanceTimersByTime(16));
+    expect(part('root').style.getPropertyValue('--_split-view-right-size')).toBe('450px');
+    expect(container.querySelector('[data-testid="aligned-header"]')).toBe(headerNode);
+    pointer('pointercancel', 550);
+    width = 400;
+    act(() => resized());
+    expect(part('root').style.getPropertyValue('--_split-view-right-size')).toBe('199.5px');
+    render({ header, layout: 'overlay', secondarySide: 'left' });
+    expect(part('root').getAttribute('data-secondary-side')).toBe('left');
+    expect(headerNode.className).toMatch(/headerColumns/);
+  });
+
+  it('moves a stable surface between panes, preserves its DOM and routes F6 to visible surfaces', () => {
+    const surfaces = (pane: 'primary' | 'secondary') => <>
+      <SplitViewSurface key="document" pane={pane}><textarea aria-label="Moving draft" defaultValue="draft" /></SplitViewSurface>
+      <SplitViewSurface key="other" pane={pane === 'primary' ? 'secondary' : 'primary'}><button>Other</button></SplitViewSurface>
+    </>;
+    render({ primary: null, secondary: null, header: <header>Tabs</header>, surfaces: surfaces('primary') });
+    const draft = container.querySelector('textarea')!;
+    draft.value = 'unsaved';
+    render({ primary: null, secondary: null, header: <header>Tabs</header>, surfaces: surfaces('secondary') });
+    expect(container.querySelector('textarea')).toBe(draft);
+    expect(draft.value).toBe('unsaved');
+    expect(draft.closest('[data-split-surface]')?.getAttribute('data-split-surface')).toBe('secondary');
+    draft.focus();
+    key(draft, 'F6');
+    expect(document.activeElement?.getAttribute('data-split-surface')).toBe('primary');
+    render({ mode: 'primary', primary: null, secondary: null, surfaces: surfaces('secondary') });
+    expect(draft.closest<HTMLElement>('[data-split-surface]')!.hidden).toBe(true);
+    expect(draft.closest('[data-split-surface]')?.hasAttribute('inert')).toBe(true);
   });
 
   it('uses the same physical resize directions on either side and associates the actual right pane', () => {
@@ -149,14 +188,53 @@ describe('shared SplitView interaction contract', () => {
     expect(document.body.style.cursor).toBe('crosshair'); expect(document.body.style.userSelect).toBe('text');
   });
 
-  it('caches the container width at pointerdown and never re-measures while dragging', () => {
+  it('clamps a drag to the latest container width and commits the constrained size', () => {
+    render();
+    const splitRoot = part('root');
+    pointer('pointerdown', 600);
+    width = 601; act(() => resized());
+    expect(splitRoot.style.getPropertyValue('--_split-view-right-size')).toBe('300px');
+    pointer('pointermove', 500);
+    act(() => vi.advanceTimersByTime(16));
+    expect(splitRoot.style.getPropertyValue('--_split-view-right-size')).toBe('300px');
+    pointer('pointerup', 500);
+    expect(changed).toHaveBeenCalledExactlyOnceWith(300);
+  });
+
+  it('uses newly available space when the container grows during a drag', () => {
+    width = 701;
+    render({ rightSize: 600 });
+    pointer('pointerdown', 600); pointer('pointermove', 100);
+    act(() => vi.advanceTimersByTime(16));
+    expect(part('root').style.getPropertyValue('--_split-view-right-size')).toBe('400px');
+    width = 1201; act(() => resized());
+    pointer('pointermove', 100);
+    act(() => vi.advanceTimersByTime(16));
+    expect(part('root').style.getPropertyValue('--_split-view-right-size')).toBe('900px');
+    pointer('pointerup', 100);
+    expect(changed).toHaveBeenCalledExactlyOnceWith(900);
+  });
+
+  it('clamps a queued drag frame when the container shrinks before it paints', () => {
+    render();
+    pointer('pointerdown', 600); pointer('pointermove', 400);
+    width = 701; act(() => resized());
+    const readsAfterResize = measured.length;
+    act(() => vi.advanceTimersByTime(16));
+    expect(part('root').style.getPropertyValue('--_split-view-right-size')).toBe('400px');
+    expect(measured.length).toBe(readsAfterResize);
+    pointer('pointerup', 400);
+    expect(changed).toHaveBeenCalledExactlyOnceWith(400);
+  });
+
+  it('uses observer-cached bounds without layout reads during a drag', () => {
     render();
     const root = part('root');
     const rootReads = () => measured.filter(element => element === root).length;
     measured.length = 0;
     pointer('pointerdown', 600);
-    // The only root read left in the drag path is the one that seeds the drag.
-    expect(rootReads()).toBe(1);
+    // The observer already supplied the bounds; pointerdown needs no new read.
+    expect(rootReads()).toBe(0);
     const readsAtPointerDown = measured.length;
     pointer('pointermove', 560);
     act(() => vi.advanceTimersByTime(16));
@@ -164,7 +242,7 @@ describe('shared SplitView interaction contract', () => {
     pointer('pointermove', 500);
     act(() => vi.advanceTimersByTime(16));
     expect(root.style.getPropertyValue('--_split-view-right-size')).toBe('500px');
-    expect(rootReads()).toBe(1);
+    expect(rootReads()).toBe(0);
     expect(measured.length).toBe(readsAtPointerDown);
     // Clamping still uses the cached width and commits once at release.
     pointer('pointerup', 480);
