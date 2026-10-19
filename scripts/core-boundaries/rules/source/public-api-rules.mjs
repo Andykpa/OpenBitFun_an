@@ -533,7 +533,17 @@ export const claudeCodeAdapterPublicApiEntries = [
 ))).concat([
   'load_claude_code_user_instructions',
   'ClaudeCodeInstructionSourceOptions',
-].map((symbol) => userInstructionSourceAdapterEntry(symbol, 'Claude Code')));
+].map((symbol) => userInstructionSourceAdapterEntry(symbol, 'Claude Code'))).concat([{
+  symbol: 'session',
+  owner: 'Claude Code adapter read-only session history translator',
+  consumer: 'openbitfun-core external_session_import composition facade',
+  verification: 'Claude Code transcript fixtures and installed-session follow/fork verification',
+  p0: 'read-only Claude Code history import with native continuation and preserved provenance',
+  contractSlice: contractSlices.externalSessionImportContract,
+  wireImpact: false,
+  rationale: 'the adapter translates transcripts; core owns native persistence and lifecycle',
+  exit: 'remove only when an equivalent typed session history adapter replaces this module',
+}]);
 
 export const codexAdapterPublicApiEntries = [
   'CodexHookProvider',
