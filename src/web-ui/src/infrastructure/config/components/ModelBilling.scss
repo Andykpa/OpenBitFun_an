@@ -8,6 +8,8 @@
     letter-spacing: var(--openbitfun-type-label-md-letter-spacing);
   }
 
+  display: grid;
+  gap: var(--openbitfun-space-3);
   padding-block: var(--openbitfun-space-3);
   border-top: 1px solid var(--openbitfun-color-border-subtle);
 
@@ -15,11 +17,11 @@
   &__compact-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--openbitfun-space-2); }
   &__compact-status {
     color: var(--openbitfun-color-content-secondary);
-    font-family: var(--openbitfun-type-body-xs-font-family);
-    font-size: var(--openbitfun-type-body-xs-font-size);
-    font-weight: var(--openbitfun-type-body-xs-font-weight);
-    line-height: var(--openbitfun-type-body-xs-line-height);
-    letter-spacing: var(--openbitfun-type-body-xs-letter-spacing);
+    font-family: var(--openbitfun-type-meta-font-family);
+    font-size: var(--openbitfun-type-meta-font-size);
+    font-weight: var(--openbitfun-type-meta-font-weight);
+    line-height: var(--openbitfun-type-meta-line-height);
+    letter-spacing: var(--openbitfun-type-meta-letter-spacing);
   }
   &[data-comparison='fastHigher'] &__compact-status { color: var(--openbitfun-color-status-warning-content); }
 
@@ -38,27 +40,24 @@
     letter-spacing: var(--openbitfun-type-heading-card-letter-spacing);
     overflow-wrap: anywhere;
   }
-  &__hint, &__identity small, &__warning {
+  &__hint, &__warning {
     color: var(--openbitfun-color-content-secondary);
-    font-family: var(--openbitfun-type-body-xs-font-family);
-    font-size: var(--openbitfun-type-body-xs-font-size);
-    font-weight: var(--openbitfun-type-body-xs-font-weight);
-    line-height: var(--openbitfun-type-body-xs-line-height);
-    letter-spacing: var(--openbitfun-type-body-xs-letter-spacing);
+    font-family: var(--openbitfun-type-support-font-family);
+    font-size: var(--openbitfun-type-support-font-size);
+    font-weight: var(--openbitfun-type-support-font-weight);
+    line-height: var(--openbitfun-type-support-line-height);
+    letter-spacing: var(--openbitfun-type-support-letter-spacing);
   }
-  &__hint, &__warning { margin: var(--openbitfun-space-2) 0; overflow-wrap: anywhere; }
+  &__identity small {
+    color: var(--openbitfun-color-content-secondary);
+    font-family: var(--openbitfun-type-meta-font-family);
+    font-size: var(--openbitfun-type-meta-font-size);
+    font-weight: var(--openbitfun-type-meta-font-weight);
+    line-height: var(--openbitfun-type-meta-line-height);
+    letter-spacing: var(--openbitfun-type-meta-letter-spacing);
+  }
+  &__hint, &__warning { margin: 0; overflow-wrap: anywhere; }
   &__warning { color: var(--openbitfun-color-status-warning-content); }
-  &__details, &__editor { display: grid; gap: var(--openbitfun-space-3); }
-  &__field {
-    display: grid;
-    gap: var(--openbitfun-space-2);
-
-    > span {
-      font-family: var(--openbitfun-type-label-selected-font-family);
-      font-size: var(--openbitfun-type-label-selected-font-size);
-      font-weight: var(--openbitfun-type-label-selected-font-weight);
-      line-height: var(--openbitfun-type-label-selected-line-height);
-      letter-spacing: var(--openbitfun-type-label-selected-letter-spacing);
-    }
-  }
+  &__details { display: grid; gap: var(--openbitfun-space-3); }
+  &__editor { display: grid; gap: var(--openbitfun-space-4); }
 }

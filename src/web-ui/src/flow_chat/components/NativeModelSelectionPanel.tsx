@@ -90,18 +90,18 @@ export function NativeModelSelectionPanel(props: Props) {
       labelBehavior="static" leading={<Icon glyph={role === 'primary' ? Brain : Zap} />}
       metadata={<Icon name="chevron-right" size="sm" />}>
       <span className="native-model-selection__model-info" data-openbitfun-component="model-selector" data-openbitfun-part="modelInfo">
-        <span className="native-model-selection__model-meta">
+        <span className="native-model-selection__model-heading">
           <span className="native-model-selection__role-label">{roleLabel(role)}</span>
+          <OverflowText className="native-model-selection__model-name">{model?.model_name ?? t('modelSelector.modelNotConfigured')}</OverflowText>
+        </span>
+        <span className="native-model-selection__model-meta">
           <span>{t(smartView
             ? role === 'primary' ? 'modelSelector.modes.primaryPurpose' : 'modelSelector.modes.economyPurpose'
             : role === 'primary' ? 'modelSelector.roles.primaryPurpose'
               : subagentsUseFast ? 'modelSelector.roles.fastPurpose' : 'modelSelector.roles.fastAvailable')}</span>
-        </span>
-        <OverflowText className="native-model-selection__model-name">{model?.model_name ?? t('modelSelector.modelNotConfigured')}</OverflowText>
-        <span className="native-model-selection__model-meta">
           {model && <OverflowText>{getProviderDisplayName(model)}</OverflowText>}
-          {!smartView && role === 'fast' && props.fastUsesPrimary && <span>{t('modelSelector.roles.followPrimary')}</span>}
         </span>
+        {!smartView && role === 'fast' && props.fastUsesPrimary && <span className="native-model-selection__support">{t('modelSelector.roles.followPrimary')}</span>}
       </span>
     </MenuItem>
   );
@@ -184,21 +184,25 @@ export function NativeModelSelectionPanel(props: Props) {
       {props.onClose && <IconButton size="xs" variant="quiet" disabled={props.disabled} icon={<Icon glyph={X} />} aria-label={t('modelSelector.close')} onClick={props.onClose} />}
       </div>
     </div>
-    <div data-openbitfun-component="model-selector" data-openbitfun-part="modeChoices"><SegmentedControl data-testid="chat-model-selector-mode-choices" aria-label={t('modelSelector.modes.selection')}
-      interaction="buttons" distribution="fill" variant="pills" size="md" labelBehavior="static" value={view} disabled={props.disabled}
-      onValueChange={value => { if (value === 'manual' || value === 'smart') void chooseMode(value); }} options={[
-        { value: 'manual', label: t('modelSelector.modes.manual'), icon: <Icon glyph={SlidersHorizontal} /> },
-        { value: 'smart', label: t('modelSelector.modes.smart'), icon: <Icon glyph={Sparkles} /> },
-        { value: 'pool', label: t('modelSelector.modes.pool'), disabled: true },
-      ]} /></div>
-    <p className="native-model-selection__hint">{t(smartView ? 'modelSelector.modes.smartSummary'
-      : props.canConfigureDefaults ? 'modelSelector.modes.manualSummary' : 'modelSelector.roles.sessionSummary')}</p>
+    <div className="native-model-selection__mode-section">
+      <div data-openbitfun-component="model-selector" data-openbitfun-part="modeChoices"><SegmentedControl data-testid="chat-model-selector-mode-choices" aria-label={t('modelSelector.modes.selection')}
+        interaction="buttons" distribution="fill" variant="pills" size="md" labelBehavior="static" value={view} disabled={props.disabled}
+        onValueChange={value => { if (value === 'manual' || value === 'smart') void chooseMode(value); }} options={[
+          { value: 'manual', label: t('modelSelector.modes.manual'), icon: <Icon glyph={SlidersHorizontal} /> },
+          { value: 'smart', label: t('modelSelector.modes.smart'), icon: <Icon glyph={Sparkles} /> },
+          { value: 'pool', label: t('modelSelector.modes.pool'), disabled: true },
+        ]} /></div>
+      <p className="native-model-selection__hint">{t(smartView ? 'modelSelector.modes.smartSummary'
+        : props.canConfigureDefaults ? 'modelSelector.modes.manualSummary' : 'modelSelector.roles.sessionSummary')}</p>
+    </div>
     {smartView ? <>
-      <div className="native-model-selection__section-heading"><span>{t('modelSelector.roles.title')}</span><small>{t('modelSelector.roles.shared')}</small></div>
-      <MenuList data-testid="model-selection-smart-preview">
-        {modelRow('primary', props.primary)}
-        {modelRow('economy', props.economy)}
-      </MenuList>
+      <div className="native-model-selection__roles">
+        <div className="native-model-selection__section-heading"><span>{t('modelSelector.roles.title')}</span><small>{t('modelSelector.roles.shared')}</small></div>
+        <MenuList data-testid="model-selection-smart-preview">
+          {modelRow('primary', props.primary)}
+          {modelRow('economy', props.economy)}
+        </MenuList>
+      </div>
       <div className="native-model-selection__advanced">
         <MenuList><MenuItem data-testid="model-selection-smart-advanced" aria-expanded={props.advancedOpen}
           aria-controls={advancedId} disabled={props.disabled} labelBehavior="static"
@@ -272,13 +276,13 @@ export function NativeModelSelectionPanel(props: Props) {
       </div>
       {props.children && <div className="native-model-selection__controls">{props.children}</div>}
     </>}
-    {smartView && <>
+    {smartView && <div className="native-model-selection__routing">
       <MenuList><MenuItem data-testid="model-routing-settings" disabled={props.disabled || !props.routing?.supported} onClick={props.onRoutingSettings}
         metadata={<Icon name="chevron-right" size="sm" />} labelBehavior="static">{t('modelSelector.routing.settings')}</MenuItem></MenuList>
       {props.routing?.mode !== 'smart' && <Button size="sm" variant="outline" disabled={props.disabled || !props.routing?.ready}
         onClick={() => { void props.onModeChange?.('smart'); }}>{t('modelSelector.routing.enable')}</Button>}
       <p className="native-model-selection__support">{t('modelSelector.routing.scopeHint')}</p>
-    </>}
+    </div>}
     <ModelBillingSummary compact secondaryRole={smartView ? 'economy' : 'fast'} primary={props.primary} fast={smartView ? props.economy : props.fast} selected={smartView ? undefined : props.selected} disabled={props.disabled} onSaved={props.onSaved} />
     <div className="native-model-selection__footer">
       {smartView ? <Tooltip content={props.routing?.issue || t('modelSelector.routing.costHint')}>

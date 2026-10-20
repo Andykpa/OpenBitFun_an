@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogHeading, DialogTitle, Input, Select } from '@openbitfun/ui';
+import { Button, Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogHeading, DialogTitle, Field, Input, Select } from '@openbitfun/ui';
 import { useI18n } from '@/infrastructure/i18n';
 import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
 import { configManager } from '../services/ConfigManager';
@@ -53,45 +53,45 @@ export function ModelBillingDetails({ model, onClose, onSaved }: Props) {
     }
   };
   const priceField = (label: string, value: string, change: (value: string) => void) => (
-    <label className="model-billing__field">
-      <span>{label}</span>
+    <Field label={label} controlWidth="fill">
       <Input type="number" min="0" step="any" size="sm" value={value} onValueChange={change}
         disabled={saving} invalid={invalidRate(value)} placeholder={t('billing.unknown')} />
-    </label>
+    </Field>
   );
   return <Dialog open size="md" closeOnEscape={!saving} closeOnPointerOutside={false} onOpenChange={open => { if (!open && !saving) onClose(); }}>
     <DialogHeader><DialogHeading><DialogTitle>{t('billing.details')}</DialogTitle></DialogHeading><DialogClose disabled={saving} /></DialogHeader>
     <DialogBody>
       <div className="model-billing__editor" data-testid="model-billing-editor" data-openbitfun-component="model-billing" data-openbitfun-part="editor">
-        <strong className="model-billing__model-title">{model.model_name} · {model.name}</strong>
-        <p className="model-billing__hint">{t('billing.quoteHint')}</p>
+        <div className="model-billing__identity">
+          <strong className="model-billing__model-title">{model.model_name} · {model.name}</strong>
+          <p className="model-billing__hint">{t('billing.quoteHint')}</p>
+        </div>
         {unsupported && <p className="model-billing__warning" role="alert">{t('billing.unsupported')}</p>}
         {saved && !isModelBillingCurrent(model, saved) && <p className="model-billing__warning" role="status">{t('billing.stale')}</p>}
-        <label className="model-billing__field"><span>{t('billing.method')}</span>
+        <Field label={t('billing.method')} controlWidth="fill"
+          description={model.auth?.type === 'subscription' ? t('billing.subscriptionAuthHint') : t('billing.apiAuthHint')}>
           <Select aria-label={t('billing.method')} size="sm" value={kind} disabled={saving || unsupported} onValueChange={value => setKind(value as ModelBillingKind)} options={[
             { value: 'unknown', label: t('billing.unknown') },
             { value: 'api', label: t('billing.api') },
             { value: 'subscription', label: t('billing.subscription') },
           ]} />
-        </label>
-        <p className="model-billing__hint">{model.auth?.type === 'subscription' ? t('billing.subscriptionAuthHint') : t('billing.apiAuthHint')}</p>
-        <label className="model-billing__field"><span>{t('billing.account')}</span>
+        </Field>
+        <Field label={t('billing.account')} controlWidth="fill">
           <Input size="sm" value={account} disabled={saving} onValueChange={setAccount} placeholder={t('billing.accountPlaceholder')} maxLength={120} />
-        </label>
+        </Field>
         {kind === 'api' && <>
-          <label className="model-billing__field"><span>{t('billing.currency')}</span>
+          <Field label={t('billing.currency')} description={t('billing.rateUnit')} controlWidth="fill">
             <Select aria-label={t('billing.currency')} size="sm" value={currency} disabled={saving} onValueChange={value => setCurrency(value as 'CNY' | 'USD')}
               options={[{ value: 'CNY', label: 'CNY' }, { value: 'USD', label: 'USD' }]} />
-          </label>
-          <p className="model-billing__hint">{t('billing.rateUnit')}</p>
+          </Field>
           {priceField(t('billing.input'), input, setInput)}
           {priceField(t('billing.output'), output, setOutput)}
           {priceField(t('billing.cacheRead'), cacheRead, setCacheRead)}
         </>}
         {kind === 'subscription' && <p className="model-billing__hint">{t('billing.quotaUnknown')}</p>}
-        <label className="model-billing__field"><span>{t('billing.source')}</span>
+        <Field label={t('billing.source')} controlWidth="fill">
           <Input size="sm" value={source} disabled={saving} onValueChange={setSource} maxLength={500} placeholder={t('billing.sourcePlaceholder')} />
-        </label>
+        </Field>
         {saved && <p className="model-billing__hint">{t('billing.updated', { date: formatDate(new Date(saved.updatedAt)) })}</p>}
         {error && <p role="alert" className="model-billing__warning">{t('billing.saveFailed')}</p>}
       </div>
