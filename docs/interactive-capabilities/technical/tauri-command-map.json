@@ -2,12 +2,12 @@
   "schemaVersion": 2,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
   "catalogDigest": "05afb29f354928738ed26d4275819bbe3c165c7878bb24996b5169639ba03330",
-  "commandCount": 692,
+  "commandCount": 693,
   "coverage": {
-    "commandCount": 692,
+    "commandCount": 693,
     "documentedCommandCount": 642,
-    "implementationCommandCount": 50,
-    "implementationDigest": "1dc90be1a699f521e7faee78c128d6332ef0806daccb389b288fbe2fa3fd3c2c"
+    "implementationCommandCount": 51,
+    "implementationDigest": "b9ffc435b3b60049737b988fa48409ec88e570fcf52eb71a79d75ce13877086f"
   },
   "commands": [
     {
@@ -5614,6 +5614,20 @@
       "sourceFile": "src/apps/desktop/src/api/acp_client_api.rs",
       "signature": "fn load_acp_json_config(state: State<'_, AppState>) -> Result<String, String>",
       "remoteWorkspacePolicy": "LegacyUnaudited"
+    },
+    {
+      "id": "load_agent_companion_pet_spritesheet",
+      "moduleId": "commands",
+      "capabilityId": "feature.projects",
+      "capabilityIds": [
+        "feature.projects"
+      ],
+      "documentedItemIds": [],
+      "visibility": "implementation",
+      "rustPath": "load_agent_companion_pet_spritesheet",
+      "sourceFile": "src/apps/desktop/src/api/commands.rs",
+      "signature": "fn load_agent_companion_pet_spritesheet( state: State<'_, AppState>, request: LoadAgentCompanionPetSpritesheetRequest, ) -> Result<tauri::ipc::Response, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
     },
     {
       "id": "load_canvas_artifact",
