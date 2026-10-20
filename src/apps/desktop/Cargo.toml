@@ -162,6 +162,7 @@ devtools = ["tauri/devtools", "openbitfun-webdriver/embedded"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = { workspace = true }
+gtk = { workspace = true }
 atspi = { workspace = true, features = ["zbus"] }
 gstreamer = { workspace = true }
 gstreamer-app = { workspace = true }
