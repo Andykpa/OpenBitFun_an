@@ -361,13 +361,13 @@ export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOpti
           setInputValue(payload.url);
           setCurrentUrl(payload.url);
           setError(null);
+          void injectBrowserPageScripts(label).catch(() => {});
         }
         // Run even when the URL did not change (reload/same-URL history). A
         // cached document can be ready without a matching native Finished.
         // Probe only after a native commit/completion, never while a navigation
         // command may still be showing the previous, already-complete document.
         void evalWebview(label, createBrowserPageLifecycleScript(label, pageLoadSequenceRef.current)).catch(() => {});
-        void injectBrowserPageScripts(label).catch(() => {});
       },
     );
     try {
