@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, ty
 import { Button, Card, Field, Icon, IconButton, MenuItem, MenuList, MenuPopover, MenuSection, OverflowText, ScrollArea, SearchField, SegmentedControl, Select, StatusPill, Tooltip } from '@openbitfun/ui';
 import { ArrowLeft, Brain, Check, Search, SlidersHorizontal, Sparkles, X, Zap } from 'lucide-react';
 import { useI18n } from '@/infrastructure/i18n';
-import type { AIModelConfig, SubagentModelSelection } from '@/infrastructure/config/types';
+import type { AIModelConfig, SmartSubagentModel, SubagentModelSelection } from '@/infrastructure/config/types';
 import { ModelBillingSummary } from '@/infrastructure/config/components/ModelBillingSummary';
 import { filterSelectableTextChatModels } from '@/infrastructure/config/services/modelCategory';
 import { getProviderDisplayName, getProviderGroupKey } from '@/infrastructure/config/services/modelConfigs';
@@ -12,13 +12,14 @@ import './NativeModelSelectionPanel.scss';
 interface Props {
   models: AIModelConfig[];
   primary?: AIModelConfig; fast?: AIModelConfig; economy?: AIModelConfig; selected?: AIModelConfig;
-  routing?: { mode: 'manual' | 'smart'; ready: boolean; supported: boolean; issue?: string | null; summaryEnabled?: boolean; subagentModel?: string };
+  routing?: { mode: 'manual' | 'smart'; ready: boolean; supported: boolean; issue?: string | null; summaryEnabled?: boolean; subagentModel?: string; subagentRoutingSupported?: boolean };
   onModeChange?: (mode: 'manual' | 'smart') => Promise<boolean>;
-  onSubagentModelChange?: (model: 'primary' | 'economy') => Promise<boolean>;
+  onSubagentModelChange?: (model: SmartSubagentModel) => Promise<boolean>;
   onRoutingSettings?: () => void;
   modelLabel: string; selectedId: string; scope: ModelSelectionScope;
   canRemember: boolean; hasSession: boolean; disabled: boolean;
   canConfigureDefaults: boolean;
+  strategyReadOnly?: boolean;
   advancedOpen: boolean;
   onAdvancedOpenChange: (open: boolean) => void;
   fastUsesPrimary: boolean;
@@ -43,6 +44,9 @@ export function NativeModelSelectionPanel(props: Props) {
   const smartView = view === 'smart';
   const smartSubagentModel = props.routing?.subagentModel === 'primary' ? props.primary
     : props.routing?.subagentModel === 'economy' ? props.economy : undefined;
+  const subagentPolicy = props.routing?.subagentModel;
+  const knownSubagentPolicy = subagentPolicy === 'auto' || subagentPolicy === 'primary' || subagentPolicy === 'economy';
+  const canRouteSubagents = props.routing?.subagentRoutingSupported === true;
   const advancedId = useId();
   const subagentHintId = useId();
   const scopeRef = useRef<HTMLButtonElement>(null);
@@ -71,6 +75,7 @@ export function NativeModelSelectionPanel(props: Props) {
     : role === 'economy' ? 'modelSelector.economyModel' : 'modelSelector.fastModel');
   const chooseScope = (scope: ModelSelectionScope) => { setScopeOpen(false); props.onScopeChange(scope); };
   const chooseMode = async (mode: 'manual' | 'smart') => {
+    if (props.strategyReadOnly) return;
     setScopeOpen(false);
     // Unconfigured smart mode can be inspected. Active strategies follow the
     // host response so a rejected write never looks like a successful switch.
@@ -183,22 +188,26 @@ export function NativeModelSelectionPanel(props: Props) {
       <div className="native-model-selection__title"><strong>{t('modelSelector.modelSelection')}</strong>
       </div>
       <div className="native-model-selection__header-actions">
-      {smartView && selectionScope}
+      {smartView && !props.strategyReadOnly && selectionScope}
       {props.onClose && <IconButton size="xs" variant="quiet" disabled={props.disabled} icon={<Icon glyph={X} />} aria-label={t('modelSelector.close')} onClick={props.onClose} />}
       </div>
     </div>
     <div className="native-model-selection__mode-section">
-      <div data-openbitfun-component="model-selector" data-openbitfun-part="modeChoices"><SegmentedControl data-testid="chat-model-selector-mode-choices" aria-label={t('modelSelector.modes.selection')}
+      {props.strategyReadOnly ? smartView && <StatusPill tone="neutral" data-testid="model-selection-session-routing">
+        {t('modelSelector.modes.smart')}
+      </StatusPill> : <div data-openbitfun-component="model-selector" data-openbitfun-part="modeChoices"><SegmentedControl data-testid="chat-model-selector-mode-choices" aria-label={t('modelSelector.modes.selection')}
         interaction="buttons" distribution="fill" variant="pills" size="md" labelBehavior="static" value={view} disabled={props.disabled}
         onValueChange={value => { if (value === 'manual' || value === 'smart') void chooseMode(value); }} options={[
           { value: 'manual', label: t('modelSelector.modes.manual'), icon: <Icon glyph={SlidersHorizontal} /> },
           { value: 'smart', label: t('modelSelector.modes.smart'), icon: <Icon glyph={Sparkles} /> },
           { value: 'pool', label: t('modelSelector.modes.pool'), disabled: true },
-        ]} /></div>
-      <p className="native-model-selection__hint">{t(smartView ? 'modelSelector.modes.smartSummary'
+        ]} /></div>}
+      <p className="native-model-selection__hint">{t(smartView
+        ? props.strategyReadOnly ? 'modelSelector.modes.smartSessionSummary'
+          : canRouteSubagents && subagentPolicy === 'auto' ? 'modelSelector.modes.smartSummary' : 'modelSelector.modes.smartMainSummary'
         : props.canConfigureDefaults ? 'modelSelector.modes.manualSummary' : 'modelSelector.roles.sessionSummary')}</p>
     </div>
-    {smartView ? <>
+    {smartView && !props.strategyReadOnly ? <>
       <div className="native-model-selection__roles">
         <div className="native-model-selection__section-heading"><span>{t('modelSelector.roles.title')}</span><small>{t('modelSelector.roles.shared')}</small></div>
         <MenuList data-testid="model-selection-smart-preview">
@@ -215,8 +224,9 @@ export function NativeModelSelectionPanel(props: Props) {
             {t('modelSelector.roles.advanced')}
           </Button>
           {!props.advancedOpen && <OverflowText className="native-model-selection__support">
-            {t(props.routing?.subagentModel === 'primary' ? 'modelSelector.routing.subagents.primarySummary'
-              : props.routing?.subagentModel === 'economy' ? 'modelSelector.routing.subagents.economySummary'
+            {t(subagentPolicy === 'auto' ? 'modelSelector.routing.subagents.autoSummary'
+              : subagentPolicy === 'primary' ? 'modelSelector.routing.subagents.primarySummary'
+              : subagentPolicy === 'economy' ? 'modelSelector.routing.subagents.economySummary'
                 : 'modelSelector.routing.subagents.title')}
           </OverflowText>}
         </div>
@@ -225,23 +235,31 @@ export function NativeModelSelectionPanel(props: Props) {
             labelAction={<StatusPill tone="neutral">{t('modelSelector.roles.shared')}</StatusPill>}
             data-testid="model-selection-subagent-field">
             <Select size="sm" data-testid="model-selection-subagent-select"
-              leading={typeof props.routing?.subagentModel === 'string' ? <Icon glyph={props.routing.subagentModel === 'economy' ? Zap : Brain} size="sm" /> : undefined}
+              leading={knownSubagentPolicy ? <Icon glyph={subagentPolicy === 'auto' ? Sparkles : subagentPolicy === 'economy' ? Zap : Brain} size="sm" /> : undefined}
               aria-label={t('modelSelector.routing.subagents.title')} aria-describedby={subagentHintId}
-              value={props.routing?.subagentModel ?? ''} placeholder={t('modelSelector.modelNotConfigured')}
-              disabled={props.disabled || !props.canConfigureDefaults || typeof props.routing?.subagentModel !== 'string'}
+              value={subagentPolicy ?? ''} placeholder={t('modelSelector.modelNotConfigured')}
+              disabled={props.disabled || !props.canConfigureDefaults || typeof subagentPolicy !== 'string'}
               onValueChange={value => {
-                if (value === 'primary' || value === 'economy') void props.onSubagentModelChange?.(value);
+                if (value === 'primary' || value === 'economy' || (value === 'auto' && canRouteSubagents)) void props.onSubagentModelChange?.(value);
               }}
               options={[
+                { value: 'auto', label: t('modelSelector.routing.subagents.auto'), disabled: !canRouteSubagents, testId: 'model-selection-subagent-auto' },
                 { value: 'primary', label: t('modelSelector.routing.subagents.primary'), testId: 'model-selection-subagent-primary' },
                 { value: 'economy', label: t('modelSelector.routing.subagents.economy'), disabled: !props.economy, testId: 'model-selection-subagent-economy' },
+                ...(typeof subagentPolicy === 'string' && !knownSubagentPolicy
+                  ? [{ value: subagentPolicy, label: t('modelSelector.routing.subagents.unknown'), disabled: true }] : []),
               ]} />
           </Field>
+          {subagentPolicy === 'auto' && canRouteSubagents && <p className="native-model-selection__support">
+            {t('modelSelector.routing.subagents.autoHint')}
+          </p>}
           {smartSubagentModel && <OverflowText className="native-model-selection__support">
             {smartSubagentModel.model_name} · {getProviderDisplayName(smartSubagentModel)}
           </OverflowText>}
-          <p id={subagentHintId} className="native-model-selection__support">{t(typeof props.routing?.subagentModel === 'string'
-            ? 'modelSelector.routing.subagents.hint' : 'modelSelector.routing.subagents.unsupported')}</p>
+          <p id={subagentHintId} className="native-model-selection__support">{t(typeof subagentPolicy === 'string'
+            ? 'modelSelector.routing.subagents.hint' : 'modelSelector.routing.subagents.unsupported')}
+            {typeof subagentPolicy === 'string' && !canRouteSubagents && <><br />{t('modelSelector.routing.subagents.autoUnsupported')}</>}
+          </p>
         </Card>}
       </div>
     </> : <>
@@ -286,7 +304,7 @@ export function NativeModelSelectionPanel(props: Props) {
       </div>
       {props.children && <div className="native-model-selection__controls">{props.children}</div>}
     </>}
-    {smartView && <div className="native-model-selection__routing" data-testid="model-routing-section">
+    {smartView && !props.strategyReadOnly && <div className="native-model-selection__routing" data-testid="model-routing-section">
       <div className="native-model-selection__routing-status">
         <span className="native-model-selection__setting-title">{t('modelSelector.routing.settings')}</span>
         <StatusPill tone={props.routing?.ready && props.routing.mode === 'smart' ? 'success' : 'neutral'}>

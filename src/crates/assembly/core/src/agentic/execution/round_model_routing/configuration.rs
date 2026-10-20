@@ -196,6 +196,8 @@ pub struct ModelRoutingStatus {
     pub summary_enabled: bool,
     /// Presence advertises support for the smart-session subagent default setting.
     pub subagent_model: String,
+    /// Explicit capability: older hosts may support only fixed subagent roles.
+    pub subagent_routing_supported: bool,
 }
 
 pub async fn session_status(
@@ -212,7 +214,8 @@ pub async fn session_status(
 }
 
 pub fn session_eligible(session: &crate::agentic::core::Session) -> bool {
-    session.kind != crate::agentic::core::SessionKind::Subagent
+    (session.kind != crate::agentic::core::SessionKind::Subagent
+        || session.config.model_routing.as_deref() == Some("smart"))
         && session.config.model_binding_policy
             != crate::agentic::core::SessionModelBindingPolicy::ApprovedImmutable
         && matches!(
@@ -252,9 +255,10 @@ pub async fn status(
         connected: None,
         summary_enabled: config.model_routing.summary_enabled,
         subagent_model: config.model_routing.subagent_model.clone(),
+        subagent_routing_supported: true,
     };
     let check = async {
-        if !eligible { return Err(OpenBitFunError::Configuration("Smart mode is unavailable for external agents, subagents and immutable dispatched sessions".into())); }
+        if !eligible { return Err(OpenBitFunError::Configuration("Smart mode is unavailable for external agents, fixed-model subagents and immutable dispatched sessions".into())); }
         economy_model_id(&config, mode.is_none() && legacy_enabled())?;
         if config.resolve_model_selection("primary").is_none() {
             return Err(OpenBitFunError::Configuration("Configure an enabled primary model before using smart mode".into()));
@@ -287,7 +291,7 @@ mod tests {
     use crate::service::config::types::AIModelConfig;
 
     #[test]
-    fn restored_subagents_and_immutable_jobs_never_enter_smart_routing() {
+    fn only_explicitly_routed_subagents_enter_smart_routing() {
         use crate::agentic::core::{
             Session, SessionConfig, SessionKind, SessionModelBindingPolicy,
         };
@@ -295,6 +299,13 @@ mod tests {
         assert!(session_eligible(&session));
         session.kind = SessionKind::Subagent;
         assert!(!session_eligible(&session));
+        session.config.model_routing = Some("manual".into());
+        assert!(!session_eligible(&session));
+        session.config.model_routing = Some("smart".into());
+        assert!(session_eligible(&session));
+        session.config.model_binding_policy = SessionModelBindingPolicy::ApprovedImmutable;
+        assert!(!session_eligible(&session));
+        session.config.model_binding_policy = SessionModelBindingPolicy::Mutable;
         session.kind = SessionKind::Standard;
         session.config.model_binding_policy = SessionModelBindingPolicy::ApprovedImmutable;
         assert!(!session_eligible(&session));

@@ -1942,8 +1942,7 @@ impl ExecutionEngine {
             .map(str::to_string)
             .unwrap_or(fallback_model_id.clone());
         let configured_model_id = if session.config.model_routing.as_deref() == Some("smart")
-            && session.config.model_binding_policy != SessionModelBindingPolicy::ApprovedImmutable
-            && session.kind != crate::agentic::core::SessionKind::Subagent
+            && super::round_model_routing::configuration::session_eligible(&session)
         {
             "primary".to_string()
         } else {
@@ -2013,6 +2012,19 @@ impl ExecutionEngine {
             } => image_attachments.as_ref().is_some_and(|a| !a.is_empty()),
             _ => false,
         }
+    }
+
+    fn routing_capability_fallback(
+        messages: &[Message],
+        primary: &PrimaryModelFacts,
+        economy: &PrimaryModelFacts,
+    ) -> Option<&'static str> {
+        // A cheaper route must not silently discard observations that the
+        // admitted primary model can read, including Computer Use tool images.
+        (primary.supports_image_inputs
+            && !economy.supports_image_inputs
+            && messages.iter().any(Self::message_bears_images))
+        .then_some("economy_model_cannot_read_images")
     }
 
     /// Indices of the last image-bearing messages that should keep image payloads.
@@ -3339,19 +3351,52 @@ impl ExecutionEngine {
         let mut active_round_model: Option<RoundExecutionModel> = None;
         // Router context is per execution generation and never writes to `messages` or
         // the primary compactor. Capture initial history before any main compression.
-        let routing_allowed = context.subagent_parent_info.is_none()
-            && super::round_model_routing::configuration::session_eligible(&session);
+        let routing_allowed = super::round_model_routing::configuration::session_eligible(&session)
+            && (context.subagent_parent_info.is_none()
+                || (session.kind == crate::agentic::core::SessionKind::Subagent
+                    && session.config.model_routing.as_deref() == Some("smart")));
         let configured_routing = super::round_model_routing::configuration::prepare_turn(
             session.config.model_routing.as_deref(),
             routing_allowed,
         )
         .await?;
-        let turn_router = if let Some(routing) = configured_routing.as_ref() {
+        let mut turn_router = if let Some(routing) = configured_routing.as_ref() {
             Some(routing.router.clone())
         } else if routing_allowed && session.config.model_routing.as_deref() != Some("manual") {
             self.round_model_router.clone()
         } else {
             None
+        };
+        let mut routing_setup_failure = None;
+        let routing_root_session_id = if turn_router.is_some() {
+            match self
+                .session_manager
+                .routing_root_session_id(&context.session_id)
+                .await
+            {
+                Ok(root) => root,
+                Err(error) => {
+                    warn!("Router task-family resolution failed; retaining primary model: session_id={}, error={}", context.session_id, error);
+                    routing_setup_failure = Some("router_task_family_unavailable".to_string());
+                    turn_router = None;
+                    context.session_id.clone()
+                }
+            }
+        } else {
+            context.session_id.clone()
+        };
+        let routing_parent_session_id = context
+            .subagent_parent_info
+            .as_ref()
+            .map(|parent| parent.session_id.clone());
+        let routing_task = if context.subagent_parent_info.is_some() {
+            let task = context
+                .context
+                .get("router_task_input")
+                .unwrap_or(&original_user_input);
+            format!("Subagent role: {agent_type}\nAssigned task:\n{task}")
+        } else {
+            original_user_input.clone()
         };
         // Freeze the candidate/client at admission. Mid-turn settings edits apply next turn.
         let economy_model_id = if let Some(routing) = configured_routing.as_ref() {
@@ -3372,14 +3417,24 @@ impl ExecutionEngine {
         } else {
             None
         };
+        let economy_model_facts = match (economy_model_id.as_deref(), economy_client.as_ref()) {
+            (Some(id), Some(client)) => Some(Self::resolve_primary_model_context(
+                id,
+                session.config.model_binding_policy,
+                &client.config.model,
+                &client.config.format,
+                "Config service unavailable, assuming routed model is text-only for image input gating",
+            ).await),
+            _ => None,
+        };
         let mut router_context = turn_router.as_ref().and_then(|router| {
-            router.create_context(
-                &context.session_id,
-                &context.dialog_turn_id,
-                &original_user_input,
-            )
+            router.create_context(&context.session_id, &context.dialog_turn_id, &routing_task)
         });
         if let Some(router_context) = router_context.as_mut() {
+            router_context.set_task_family(
+                &routing_root_session_id,
+                routing_parent_session_id.as_deref(),
+            );
             // The host's complete visible turn order survives context compression
             // and changes when undo/rollback branches history. Controller state is
             // never used as Router recovery authority.
@@ -3520,13 +3575,13 @@ impl ExecutionEngine {
 
             // Select once at the logical-round boundary. Everything below, including
             // provider retries and context-overflow recovery, reuses this selection.
-            // Approved immutable sessions and subagents retain the admitted model.
+            // Fixed-model subagents and approved immutable sessions retain the admitted model.
             let selected_model = if let Some(selected_model) = active_round_model.clone() {
                 selected_model
             } else {
                 let routing_started = std::time::Instant::now();
-                let mut fallback_reason = None;
-                let requested_route = if turn_router.is_some() {
+                let mut fallback_reason = routing_setup_failure.clone();
+                let mut requested_route = if turn_router.is_some() {
                     if self
                         .round_executor
                         .is_dialog_turn_cancelled(&dialog_turn_id)
@@ -3562,12 +3617,14 @@ impl ExecutionEngine {
                         None
                     };
                     let request = RoundModelRouteRequest {
+                        root_session_id: routing_root_session_id.clone(),
+                        parent_session_id: routing_parent_session_id.clone(),
                         session_id: context.session_id.clone(),
                         dialog_turn_id: context.dialog_turn_id.clone(),
                         turn_index: context.turn_index,
                         round_index,
                         agent_type: agent_type.clone(),
-                        original_user_input: original_user_input.clone(),
+                        original_user_input: routing_task.clone(),
                         messages: if prepared_context.is_some() {
                             Vec::new()
                         } else {
@@ -3598,6 +3655,18 @@ impl ExecutionEngine {
                 } else {
                     RoundModelRoute::Primary
                 };
+                if requested_route == RoundModelRoute::Economy {
+                    if let Some(reason) = economy_model_facts.as_ref().and_then(|facts| {
+                        Self::routing_capability_fallback(
+                            &messages,
+                            &baseline_primary_model_facts,
+                            facts,
+                        )
+                    }) {
+                        requested_route = RoundModelRoute::Primary;
+                        fallback_reason = Some(reason.to_string());
+                    }
+                }
 
                 let (route, model_id, ai_client) = match requested_route {
                     RoundModelRoute::Primary => (
@@ -3640,27 +3709,22 @@ impl ExecutionEngine {
                 let model_facts = if route == RoundModelRoute::Primary {
                     baseline_primary_model_facts.clone()
                 } else {
-                    Self::resolve_primary_model_context(
-                        &model_id,
-                        session.config.model_binding_policy,
-                        &ai_client.config.model,
-                        &ai_client.config.format,
-                        "Config service unavailable, assuming routed model is text-only for image input gating",
-                    )
-                    .await
+                    economy_model_facts
+                        .clone()
+                        .expect("Economy client has admitted model facts")
                 };
                 let selected_model = RoundExecutionModel {
                     route,
                     model_id,
                     ai_client,
                     model_facts,
-                    routing: turn_router.as_ref().map(|_| {
-                        openbitfun_events::agentic::ModelRoutingDecision {
+                    routing: (turn_router.is_some() || routing_setup_failure.is_some()).then(
+                        || openbitfun_events::agentic::ModelRoutingDecision {
                             route: route.model_selector().into(),
                             latency_ms: routing_started.elapsed().as_millis() as u64,
                             fallback_reason,
-                        }
-                    }),
+                        },
+                    ),
                 };
                 active_round_model = Some(selected_model.clone());
                 selected_model
@@ -3727,6 +3791,8 @@ impl ExecutionEngine {
             );
             if let Some(router) = turn_router.as_ref() {
                 router.record_execution_model(RoundModelExecutionRecord {
+                    root_session_id: routing_root_session_id.clone(),
+                    parent_session_id: routing_parent_session_id.clone(),
                     session_id: context.session_id.clone(),
                     dialog_turn_id: context.dialog_turn_id.clone(),
                     round_index,
@@ -5326,6 +5392,49 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
+
+    #[test]
+    fn smart_subagent_routing_keeps_visual_observations_on_a_capable_model() {
+        use tool_runtime::context::PrimaryModelFacts;
+        let primary = PrimaryModelFacts::new("primary", "vision", "openai", true);
+        let economy = PrimaryModelFacts::new("economy", "text", "openai", false);
+        let image = Message::tool_result(ToolResult {
+            tool_id: "observe".into(),
+            tool_name: "ComputerUse".into(),
+            effective_tool_name: None,
+            result: json!({"screenshot_id": "frame"}),
+            result_for_assistant: None,
+            is_error: false,
+            duration_ms: None,
+            image_attachments: Some(vec![crate::util::types::ToolImageAttachment {
+                mime_type: "image/png".into(),
+                data_base64: "fixture-pixels".into(),
+            }]),
+        });
+        assert_eq!(
+            ExecutionEngine::routing_capability_fallback(&[image.clone()], &primary, &economy),
+            Some("economy_model_cannot_read_images")
+        );
+        assert_eq!(
+            ExecutionEngine::routing_capability_fallback(&[image.clone()], &primary, &primary),
+            None
+        );
+        assert_eq!(
+            ExecutionEngine::routing_capability_fallback(
+                &[Message::user("inspect code".into())],
+                &primary,
+                &economy
+            ),
+            None
+        );
+        let ui_only = image.with_semantic_kind(
+            crate::agentic::core::MessageSemanticKind::ComputerUseVerificationScreenshot,
+        );
+        assert_eq!(
+            ExecutionEngine::routing_capability_fallback(&[ui_only], &primary, &economy),
+            None
+        );
+    }
 
     #[tokio::test]
     async fn computer_use_pixels_and_geometry_reach_real_provider_wire() {

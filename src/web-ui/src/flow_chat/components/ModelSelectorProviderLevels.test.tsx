@@ -28,6 +28,7 @@ const aiApiMocks = vi.hoisted(() => ({
 const flowChatStoreMocks = vi.hoisted(() => {
   type TestSession = {
     config: { agentType?: string; modelName?: string; reasoningPreset?: string };
+    sessionKind?: string;
     draft?: { workspaceId: string; phase: 'editing'; turnId: string; modelRouting?: 'manual' | 'smart' };
   };
   const sessions = new Map<string, TestSession>();
@@ -255,7 +256,7 @@ describe('ModelSelector provider levels', () => {
       vi.mocked(configManager.getConfigs).mockResolvedValue({ ...config, [path]: changed });
       return changed;
     });
-    vi.mocked(agentAPI.getModelRoutingStatus).mockReset().mockResolvedValue({ apiVersion: 1, mode: 'manual', defaultMode: 'manual', ready: false, connected: null, issue: 'Configure Router', summaryEnabled: false, subagentModel: 'primary' });
+    vi.mocked(agentAPI.getModelRoutingStatus).mockReset().mockResolvedValue({ apiVersion: 1, mode: 'manual', defaultMode: 'manual', ready: false, connected: null, issue: 'Configure Router', summaryEnabled: false, subagentModel: 'primary', subagentRoutingSupported: true });
     aiApiMocks.getModelCatalog.mockReset();
     vi.mocked(agentAPI.updateSessionModel).mockReset().mockResolvedValue(undefined);
     notificationStore.clearActiveNotifications();
@@ -1044,12 +1045,12 @@ describe('ModelSelector provider levels', () => {
   const smartSubagentField = () => document.body.querySelector<HTMLElement>('[data-testid="model-selection-subagent-field"]');
   const smartSubagentTrigger = () => smartSubagentField()!.querySelector<HTMLButtonElement>('button[role="combobox"]')!;
   const smartSubagentValue = () => smartSubagentField()!.querySelector<HTMLSelectElement>('select')!.value;
-  const smartSubagentOption = (role: 'primary' | 'economy') => document.body.querySelector<HTMLButtonElement>(
+  const smartSubagentOption = (role: 'auto' | 'primary' | 'economy') => document.body.querySelector<HTMLButtonElement>(
     `button[role="option"][data-testid="model-selection-subagent-${role}"]`,
   )!;
 
   it('configures smart subagent defaults under advanced options without changing manual roles', async () => {
-    const host = { apiVersion: 1, mode: 'manual', defaultMode: 'manual', ready: false, connected: null, issue: 'Configure Router', summaryEnabled: false, subagentModel: 'primary' };
+    const host = { apiVersion: 1, mode: 'manual', defaultMode: 'manual', ready: false, connected: null, issue: 'Configure Router', summaryEnabled: false, subagentModel: 'primary', subagentRoutingSupported: true };
     vi.mocked(agentAPI.getModelRoutingStatus).mockImplementation(async () => ({ ...host }));
     vi.mocked(configManager.setConfig).mockImplementation(async (path, value) => {
       if (path === 'ai.model_routing.subagent_model') host.subagentModel = value as string;
@@ -1072,6 +1073,76 @@ describe('ModelSelector provider levels', () => {
     await act(async () => modeOption('manual')!.click());
     expect(document.body.querySelector('[data-testid="model-selection-config-fast"]')).not.toBeNull();
     expect(document.body.querySelector('[data-testid="model-selection-subagent-policy"]')?.textContent).toContain('modelSelector.roles.subagentDefault');
+  });
+
+  it('shows the host automatic default first and lets users explicitly switch between auto and fixed roles', async () => {
+    const host = { apiVersion: 1, mode: 'manual', defaultMode: 'manual', ready: false, connected: null, issue: 'Configure Router', summaryEnabled: false, subagentModel: 'auto', subagentRoutingSupported: true };
+    vi.mocked(agentAPI.getModelRoutingStatus).mockImplementation(async () => ({ ...host }));
+    vi.mocked(configManager.setConfig).mockImplementation(async (path, value) => {
+      if (path === 'ai.model_routing.subagent_model') host.subagentModel = value as string;
+    });
+    await renderSelector(); await openSettingsMenu();
+    await act(async () => modeOption('smart')!.click());
+    expect(document.body.textContent).toContain('modelSelector.modes.smartSummary');
+    expect(smartAdvancedToggle().parentElement?.textContent).toContain('modelSelector.routing.subagents.autoSummary');
+    await act(async () => smartAdvancedToggle().click());
+    expect(smartSubagentValue()).toBe('auto');
+    expect(smartSubagentTrigger().textContent).toContain('modelSelector.routing.subagents.auto');
+    expect(document.body.textContent).toContain('modelSelector.routing.subagents.hint');
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+    await act(async () => smartSubagentTrigger().click());
+    expect(document.body.querySelector('button[role="option"]')).toBe(smartSubagentOption('auto'));
+    expect(smartSubagentOption('auto').getAttribute('aria-selected')).toBe('true');
+    await act(async () => smartSubagentOption('primary').click());
+    expect(smartSubagentValue()).toBe('primary');
+    expect(document.body.textContent).toContain('modelSelector.modes.smartMainSummary');
+    await act(async () => smartSubagentTrigger().click());
+    await act(async () => smartSubagentOption('auto').click());
+    expect(smartSubagentValue()).toBe('auto');
+    expect(vi.mocked(configManager.setConfig).mock.calls).toEqual([
+      ['ai.model_routing.subagent_model', 'primary'],
+      ['ai.model_routing.subagent_model', 'auto'],
+    ]);
+    expect(configManager.updateConfig).not.toHaveBeenCalled();
+    expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, false])('explains an older host capability while preserving fixed choices: %s', async support => {
+    const host = { apiVersion: 1, mode: 'manual', defaultMode: 'manual', ready: false, connected: null, issue: null, summaryEnabled: false, subagentModel: 'primary', subagentRoutingSupported: support };
+    vi.mocked(agentAPI.getModelRoutingStatus).mockImplementation(async () => ({ ...host }));
+    vi.mocked(configManager.setConfig).mockImplementation(async (path, value) => {
+      if (path === 'ai.model_routing.subagent_model') host.subagentModel = value as string;
+    });
+    await renderSelector(); await openSettingsMenu();
+    await act(async () => modeOption('smart')!.click());
+    await act(async () => smartAdvancedToggle().click());
+    expect(document.body.textContent).toContain('modelSelector.routing.subagents.autoUnsupported');
+    expect(document.body.textContent).toContain('modelSelector.modes.smartMainSummary');
+    await act(async () => smartSubagentTrigger().click());
+    expect(smartSubagentOption('auto').disabled).toBe(true);
+    expect(smartSubagentOption('primary').disabled).toBe(false);
+    expect(smartSubagentOption('economy').disabled).toBe(false);
+    await act(async () => smartSubagentOption('auto').click());
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+    await act(async () => smartSubagentOption('economy').click());
+    expect(smartSubagentValue()).toBe('economy');
+    expect(configManager.setConfig).toHaveBeenCalledExactlyOnceWith('ai.model_routing.subagent_model', 'economy');
+  });
+
+  it('retains an unknown future subagent policy while opening the picker', async () => {
+    vi.mocked(agentAPI.getModelRoutingStatus).mockResolvedValue({
+      apiVersion: 1, mode: 'manual', defaultMode: 'manual', ready: false, connected: null, issue: null,
+      summaryEnabled: false, subagentModel: 'future-policy', subagentRoutingSupported: true,
+    });
+    await renderSelector(); await openSettingsMenu();
+    await act(async () => modeOption('smart')!.click());
+    await act(async () => smartAdvancedToggle().click());
+    expect(smartSubagentValue()).toBe('future-policy');
+    expect(smartSubagentTrigger().textContent).toContain('modelSelector.routing.subagents.unknown');
+    await act(async () => smartSubagentTrigger().click());
+    expect(document.body.querySelector<HTMLButtonElement>('button[role="option"][aria-selected="true"]')?.disabled).toBe(true);
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+    expect(configManager.updateConfig).not.toHaveBeenCalled();
   });
 
   it('keeps the current subagent choice while saving and after a rejected change', async () => {
@@ -1224,6 +1295,59 @@ describe('ModelSelector provider levels', () => {
     expect(flowChatStoreMocks.sessions.get('subagent-a')?.config.modelName).toBe('acme-deep');
     expect(configManager.setConfig).not.toHaveBeenCalled();
     expect(configManager.updateConfig).not.toHaveBeenCalled();
+  });
+
+  it.each(['umbra-main', 'acme-deep'])('shows an automatic child and fixes its chosen model without remembering it: %s', async modelId => {
+    const host = { apiVersion: 1, mode: 'smart', defaultMode: 'smart', ready: true, connected: null, issue: null,
+      summaryEnabled: false, subagentModel: 'auto', subagentRoutingSupported: true };
+    vi.mocked(agentAPI.getModelRoutingStatus).mockImplementation(async () => ({ ...host }));
+    vi.mocked(agentAPI.updateSessionModel).mockImplementation(async request => { host.mode = request.routingMode!; });
+    flowChatStoreMocks.sessions.set('subagent-a', { sessionKind: 'subagent', config: { modelName: 'umbra-main' } });
+    await renderSelector(CATALOG_MODELS, 'primary', 'subagent-a');
+    expect(agentAPI.getModelRoutingStatus).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'subagent-a', includeInternal: true }));
+    expect(container.querySelector('[data-testid="chat-model-selector-btn"]')?.textContent).toContain('modelSelector.modes.smart');
+    await openSettingsMenu();
+    expect(document.body.querySelector('[data-testid="model-selection-session-routing"]')?.textContent).toBe('modelSelector.modes.smart');
+    expect(document.body.textContent).toContain('modelSelector.modes.smartSessionSummary');
+    expect(document.body.querySelector('[data-testid="model-selection-scope"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="chat-model-selector-mode-choices"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="model-selection-smart-advanced"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="model-routing-settings"]')).toBeNull();
+    await openModelList();
+    await act(async () => modelOption(modelId)!.click());
+    expect(agentAPI.updateSessionModel).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      sessionId: 'subagent-a', modelName: modelId, routingMode: 'manual', includeInternal: true,
+    }));
+    expect(flowChatStoreMocks.sessions.get('subagent-a')?.config.modelName).toBe(modelId);
+    expect(container.querySelector('[data-testid="chat-model-selector-btn"]')?.textContent).not.toContain('modelSelector.modes.smart');
+    expect(document.body.querySelector('[data-testid="model-selection-session-routing"]')).toBeNull();
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+    expect(configManager.updateConfig).not.toHaveBeenCalled();
+  });
+
+  it('keeps an automatic child visibly routed when its fixed model override fails', async () => {
+    vi.mocked(agentAPI.getModelRoutingStatus).mockResolvedValue({ apiVersion: 1, mode: 'smart', defaultMode: 'smart',
+      ready: true, connected: null, issue: null, summaryEnabled: false, subagentModel: 'auto', subagentRoutingSupported: true });
+    vi.mocked(agentAPI.updateSessionModel).mockRejectedValue(new Error('offline'));
+    flowChatStoreMocks.sessions.set('subagent-a', { sessionKind: 'subagent', config: { modelName: 'umbra-main' } });
+    await renderSelector(CATALOG_MODELS, 'primary', 'subagent-a');
+    await openSettingsMenu(); await openModelList();
+    await act(async () => modelOption('acme-deep')!.click());
+    expect(flowChatStoreMocks.sessions.get('subagent-a')?.config.modelName).toBe('umbra-main');
+    expect(container.querySelector('[data-testid="chat-model-selector-btn"]')?.textContent).toContain('modelSelector.modes.smart');
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+    expect(configManager.updateConfig).not.toHaveBeenCalled();
+  });
+
+  it('keeps legacy child model selection available without sending an unadvertised routing field', async () => {
+    vi.mocked(agentAPI.getModelRoutingStatus).mockRejectedValue(new Error('unknown command'));
+    flowChatStoreMocks.sessions.set('subagent-a', { sessionKind: 'subagent', config: { modelName: 'umbra-main' } });
+    await renderSelector(CATALOG_MODELS, 'primary', 'subagent-a');
+    await openSettingsMenu(); await openModelList();
+    await act(async () => modelOption('acme-deep')!.click());
+    expect(agentAPI.updateSessionModel).toHaveBeenCalledOnce();
+    expect(vi.mocked(agentAPI.updateSessionModel).mock.calls[0][0]).not.toHaveProperty('routingMode');
+    expect(configManager.setConfig).not.toHaveBeenCalled();
   });
 
   it.each(['unknown', 'higher'] as const)('uses economy billing copy in smart mode and fast billing copy in manual mode: %s', async pricing => {

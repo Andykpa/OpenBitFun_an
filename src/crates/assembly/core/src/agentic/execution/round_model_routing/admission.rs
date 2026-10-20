@@ -1,9 +1,10 @@
 //! Host-local Router service capacity. No request payload or Session state is shared.
 
 use super::{parse_env_usize, OpenBitFunError, OpenBitFunResult};
+use openbitfun_agent_runtime::router_summary_queue::{RouterSummaryPermit, RouterSummaryQueue};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::sync::Semaphore;
 use tokio::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,27 +50,27 @@ impl RouterAdmissionLimits {
 
 pub(super) struct RouterAdmission {
     limits: RouterAdmissionLimits,
-    // One total slot is held throughout waiting AND execution. This bounds memory
-    // without an unbounded collection of tasks waiting for a queue permit.
-    capacity: Arc<Semaphore>,
-    running: Arc<Semaphore>,
+    queue: Arc<RouterSummaryQueue<()>>,
 }
 
-#[derive(Debug)]
 pub(super) struct RouterPermit {
-    // Release total capacity before waking the next execution waiter. A newly
-    // arriving request still cannot jump Tokio's FIFO execution semaphore queue.
-    _capacity: OwnedSemaphorePermit,
-    _running: OwnedSemaphorePermit,
+    _permit: RouterSummaryPermit<()>,
+    // Keep the service registry entry alive if a client is rebuilt during work.
+    _admission: Arc<RouterAdmission>,
+}
+
+impl std::fmt::Debug for RouterPermit {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("RouterPermit")
+    }
 }
 
 impl RouterAdmission {
     fn new(limits: RouterAdmissionLimits) -> OpenBitFunResult<Self> {
-        let total = limits.validate()?;
+        limits.validate()?;
         Ok(Self {
             limits,
-            capacity: Arc::new(Semaphore::new(total)),
-            running: Arc::new(Semaphore::new(limits.max_concurrent)),
+            queue: RouterSummaryQueue::new(limits.max_concurrent, limits.max_queued),
         })
     }
 
@@ -97,25 +98,43 @@ impl RouterAdmission {
         Ok(gate)
     }
 
-    /// Dropping this future removes its FIFO waiter and returns its total slot.
+    /// Compatibility for callers without a task hierarchy, including old probes.
+    /// Each anonymous request is an independent fair-share participant.
+    pub(super) async fn acquire(
+        self: &Arc<Self>,
+        deadline: Instant,
+    ) -> OpenBitFunResult<RouterPermit> {
+        self.acquire_for(&uuid::Uuid::new_v4().to_string(), deadline)
+            .await
+    }
+
+    /// Dropping this future removes its waiter and returns its total slot.
     /// The caller uses the same deadline for the subsequent HTTP request.
-    pub(super) async fn acquire(&self, deadline: Instant) -> OpenBitFunResult<RouterPermit> {
+    pub(super) async fn acquire_for(
+        self: &Arc<Self>,
+        root_session_id: &str,
+        deadline: Instant,
+    ) -> OpenBitFunResult<RouterPermit> {
         if Instant::now() >= deadline {
             return Err(OpenBitFunError::Http(
                 "Router deadline expired before admission".into(),
             ));
         }
-        let capacity = self
-            .capacity
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| OpenBitFunError::Http("Router waiting queue is full".into()))?;
-        let running = tokio::time::timeout_at(deadline, self.running.clone().acquire_owned())
+        // Classifier requests are never coalesced; only their root task is shared.
+        let (_, ticket) = self
+            .queue
+            .submit_for(root_session_id, uuid::Uuid::new_v4().to_string(), ())
+            .map_err(|_| {
+                OpenBitFunError::Http(
+                    "Router waiting queue is full for this root task or service".into(),
+                )
+            })?;
+        let (_, permit) = tokio::time::timeout_at(deadline, ticket.start())
             .await
             .map_err(|_| {
                 OpenBitFunError::Http("Router deadline expired while waiting in the queue".into())
             })?
-            .map_err(|_| OpenBitFunError::Http("Router admission is closed".into()))?;
+            .ok_or_else(|| OpenBitFunError::Http("Router admission was cancelled".into()))?;
         // Tokio timeouts poll a ready inner future first. A permit becoming ready
         // at the deadline must not start another classifier call after its budget.
         if Instant::now() >= deadline {
@@ -124,8 +143,8 @@ impl RouterAdmission {
             ));
         }
         Ok(RouterPermit {
-            _capacity: capacity,
-            _running: running,
+            _permit: permit,
+            _admission: self.clone(),
         })
     }
 }
@@ -176,8 +195,7 @@ mod tests {
         assert!(poll_once(third_session.as_mut()).is_pending());
         drop(second);
         drop(third_session.await.unwrap());
-        assert_eq!(gate.capacity.available_permits(), 3);
-        assert_eq!(gate.running.available_permits(), 1);
+        assert_eq!(gate.queue.available_permits(), 1);
     }
 
     #[tokio::test]
@@ -191,7 +209,7 @@ mod tests {
         assert!(poll_once(next.as_mut()).is_pending());
         drop(first);
         drop(next.await.unwrap());
-        assert_eq!(gate.capacity.available_permits(), 2);
+        assert_eq!(gate.queue.available_permits(), 1);
     }
 
     #[tokio::test(start_paused = true)]
@@ -203,7 +221,7 @@ mod tests {
             .await
             .unwrap_err();
         assert!(error.to_string().contains("deadline expired while waiting"));
-        assert_eq!(gate.capacity.available_permits(), 1);
+        assert_eq!(gate.queue.available_permits(), 0);
         drop(first);
         assert!(gate.acquire(deadline()).await.is_ok());
     }
@@ -217,8 +235,62 @@ mod tests {
         tokio::time::advance(Duration::from_secs(1)).await;
         drop(first);
         assert!(waiting.await.is_err());
-        assert_eq!(gate.capacity.available_permits(), 2);
-        assert_eq!(gate.running.available_permits(), 1);
+        assert_eq!(gate.queue.available_permits(), 1);
+    }
+
+    #[tokio::test]
+    async fn sibling_classifiers_cannot_starve_another_root_or_coalesce() {
+        let gate = gate(1, 8);
+        let active = gate.acquire_for("a", deadline()).await.unwrap();
+        let mut a1 = Box::pin(gate.acquire_for("a", deadline()));
+        let mut a2 = Box::pin(gate.acquire_for("a", deadline()));
+        let mut b = Box::pin(gate.acquire_for("b", deadline()));
+        assert!(poll_once(a1.as_mut()).is_pending());
+        assert!(poll_once(a2.as_mut()).is_pending());
+        assert!(gate.acquire_for("a", deadline()).await.is_err());
+        assert!(poll_once(b.as_mut()).is_pending());
+        drop(active);
+        assert!(poll_once(a1.as_mut()).is_pending());
+        let permit = b.await.unwrap();
+        drop(permit);
+        assert!(poll_once(a2.as_mut()).is_pending());
+        drop(a1.await.unwrap());
+        drop(a2.await.unwrap());
+        assert_eq!(gate.queue.available_permits(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn expired_root_waiter_releases_its_share_for_a_new_child() {
+        let gate = gate(1, 4);
+        let active = gate.acquire_for("busy", deadline()).await.unwrap();
+        let mut expiring = Box::pin(gate.acquire_for("a", Instant::now() + Duration::from_secs(1)));
+        assert!(poll_once(expiring.as_mut()).is_pending());
+        assert!(gate.acquire_for("a", deadline()).await.is_err());
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert!(expiring.await.unwrap_err().to_string().contains("deadline"));
+        let mut next = Box::pin(gate.acquire_for("a", deadline()));
+        assert!(poll_once(next.as_mut()).is_pending());
+        drop(active);
+        drop(next.await.unwrap());
+        assert_eq!(gate.queue.available_permits(), 1);
+    }
+
+    #[tokio::test]
+    async fn cancelled_root_waiter_releases_share_without_resetting_other_roots() {
+        let gate = gate(1, 4);
+        let active = gate.acquire_for("a", deadline()).await.unwrap();
+        let mut a = Box::pin(gate.acquire_for("a", deadline()));
+        let mut b = Box::pin(gate.acquire_for("b", deadline()));
+        assert!(poll_once(a.as_mut()).is_pending());
+        assert!(poll_once(b.as_mut()).is_pending());
+        drop(a);
+        let mut a = Box::pin(gate.acquire_for("a", deadline()));
+        assert!(poll_once(a.as_mut()).is_pending());
+        drop(active);
+        assert!(poll_once(a.as_mut()).is_pending());
+        drop(b.await.unwrap());
+        drop(a.await.unwrap());
+        assert_eq!(gate.queue.available_permits(), 1);
     }
 
     #[tokio::test]
@@ -236,6 +308,23 @@ mod tests {
         let other = RouterAdmission::shared(&format!("{key}-other"), limits).unwrap();
         assert!(other.acquire(deadline()).await.is_ok());
         assert!(RouterAdmission::shared(&key, RouterAdmissionLimits::default()).is_err());
+    }
+
+    #[tokio::test]
+    async fn active_permit_keeps_service_capacity_shared_after_its_client_is_dropped() {
+        let key = uuid::Uuid::new_v4().to_string();
+        let limits = RouterAdmissionLimits {
+            max_concurrent: 1,
+            max_queued: 0,
+        };
+        let original = RouterAdmission::shared(&key, limits).unwrap();
+        let permit = original.acquire_for("a", deadline()).await.unwrap();
+        drop(original);
+        let rebuilt = RouterAdmission::shared(&key, limits).unwrap();
+        assert!(rebuilt.acquire_for("b", deadline()).await.is_err());
+        assert!(RouterAdmission::shared(&key, RouterAdmissionLimits::default()).is_err());
+        drop(permit);
+        assert!(rebuilt.acquire_for("b", deadline()).await.is_ok());
     }
 
     #[test]
@@ -285,6 +374,8 @@ mod tests {
     fn request(session: &str) -> super::super::RoundModelRouteRequest {
         super::super::RoundModelRouteRequest {
             session_id: session.into(),
+            root_session_id: session.into(),
+            parent_session_id: None,
             dialog_turn_id: format!("{session}-turn"),
             turn_index: 0,
             round_index: 0,

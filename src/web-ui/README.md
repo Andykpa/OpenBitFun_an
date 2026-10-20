@@ -200,19 +200,26 @@ sessions by default. **Only this session** keeps a temporary choice on the
 current session without changing that default. Choosing it after changing the
 model in the same open picker also restores the previous default, unless another
 editor has since changed it. Existing sessions keep their explicit model choices.
-Delegated subagents and external agent transports keep their own model ownership.
-Before a draft session exists, only the remembered default is available.
+Individually configured subagents and external agent transports keep their own
+model ownership. A session-only choice made before the first message is applied
+when the draft becomes a session.
 
 The session model and remembered default use the existing host configuration and
 session APIs, including the active peer surface. The picker remembers its
 save-scope preference locally per device and session; it does not store model
-credentials or a second copy of the host's default. Smart mode opens a clearly
-marked preview of the primary/fast model pair and billing hints. Select either
-role to search configured text models by model or provider within the same
-popover. Choosing a model updates that preview pair and its billing comparison;
-the back button or Escape returns without opening Settings. Previewing it
-does not change the current model, session or remembered default; actual routing
-remains unavailable. Battery mode remains disabled until supported by the runtime.
+credentials or a second copy of the host's default. Smart mode routes each step
+between the primary and economy models on the executing host. New configurations
+also route subagents automatically; existing fixed primary/economy policies and
+individual subagent settings are preserved. **Advanced options** can select
+automatic routing or either fixed role as the shared default for new subagents.
+Automatic subagent routing requires an explicit host capability; older hosts keep
+their fixed-role choices and show an unavailable explanation for automatic routing.
+Unknown future policies are retained until the user explicitly chooses another one.
+The main conversation and subagent policy use the same primary/economy pair.
+Select either role to search configured models within the picker; the back button
+or Escape returns without opening Settings. An unconfigured smart mode can be
+inspected without enabling routing. Battery mode remains disabled until supported
+by the runtime.
 
 **Billing details**, in the picker and Settings → Models → Default models, lets
 you annotate each configured model channel with its billing method, currency,

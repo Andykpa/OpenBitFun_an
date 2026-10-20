@@ -48,6 +48,9 @@ impl RoundModelRoute {
 /// treat it as read-only and must not inject its prediction into the agent transcript.
 #[derive(Debug, Clone)]
 pub struct RoundModelRouteRequest {
+    /// Authoritative task family for scheduling; never used as a context/checkpoint key.
+    pub root_session_id: String,
+    pub parent_session_id: Option<String>,
     pub session_id: String,
     pub dialog_turn_id: String,
     pub turn_index: usize,
@@ -86,6 +89,8 @@ pub trait RoundModelRouter: Send + Sync {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RoundModelExecutionRecord {
+    pub root_session_id: String,
+    pub parent_session_id: Option<String>,
     pub session_id: String,
     pub dialog_turn_id: String,
     pub round_index: usize,
@@ -257,6 +262,16 @@ impl HttpRoundModelRouter {
     async fn predict(
         &self,
         input: &str,
+        trace: Option<&mut RouterTraceGuard>,
+    ) -> OpenBitFunResult<RouterPrediction> {
+        self.predict_for("router-connection-probe", input, trace)
+            .await
+    }
+
+    async fn predict_for(
+        &self,
+        root_session_id: &str,
+        input: &str,
         mut trace: Option<&mut RouterTraceGuard>,
     ) -> OpenBitFunResult<RouterPrediction> {
         let started = Instant::now();
@@ -270,7 +285,7 @@ impl HttpRoundModelRouter {
         if let Some(trace) = trace.as_deref_mut() {
             trace.begin_queue();
         }
-        let admission = self.admission.acquire(deadline).await;
+        let admission = self.admission.acquire_for(root_session_id, deadline).await;
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_queue_wait(started.elapsed(), admission.is_ok());
         }
@@ -314,6 +329,10 @@ impl RoundModelRouter for HttpRoundModelRouter {
                 &request.dialog_turn_id,
                 &request.original_user_input,
             );
+            context.set_task_family(
+                &request.root_session_id,
+                request.parent_session_id.as_deref(),
+            );
             context.observe(&request.messages);
             let mut prepared = context.render();
             prepared.preparation_ms = preparation_started.elapsed().as_millis() as u64;
@@ -326,6 +345,8 @@ impl RoundModelRouter for HttpRoundModelRouter {
             "router_request_started",
             "router_cancelled",
             json!({
+                "root_session_id": request.root_session_id,
+                "parent_session_id": request.parent_session_id,
                 "session_id": request.session_id,
                 "dialog_turn_id": request.dialog_turn_id,
                 "turn_index": request.turn_index,
@@ -335,7 +356,11 @@ impl RoundModelRouter for HttpRoundModelRouter {
             }),
         );
         let route_result = self
-            .predict(user_prompt, Some(&mut trace_guard))
+            .predict_for(
+                &request.root_session_id,
+                user_prompt,
+                Some(&mut trace_guard),
+            )
             .await
             .and_then(|prediction| {
                 let generated_route = if prediction.generated_simple {
@@ -370,6 +395,8 @@ impl RoundModelRouter for HttpRoundModelRouter {
                         &json!({
                             "event": "router_failure",
                             "request_id": trace_guard.request_id(),
+                            "root_session_id": request.root_session_id,
+                            "parent_session_id": request.parent_session_id,
                             "session_id": request.session_id,
                             "dialog_turn_id": request.dialog_turn_id,
                             "turn_index": request.turn_index,
@@ -393,6 +420,8 @@ impl RoundModelRouter for HttpRoundModelRouter {
             &json!({
                 "event": "router_decision",
                 "request_id": trace_guard.request_id(),
+                "root_session_id": request.root_session_id,
+                "parent_session_id": request.parent_session_id,
                 "session_id": request.session_id,
                 "dialog_turn_id": request.dialog_turn_id,
                 "turn_index": request.turn_index,
@@ -440,6 +469,8 @@ impl RoundModelRouter for HttpRoundModelRouter {
             self.config.trace_path.as_ref(),
             &json!({
                 "event": "execution_model_selected",
+                "root_session_id": record.root_session_id,
+                "parent_session_id": record.parent_session_id,
                 "session_id": record.session_id,
                 "dialog_turn_id": record.dialog_turn_id,
                 "round_index": record.round_index,
@@ -693,6 +724,7 @@ mod tests {
         );
         let tokenizer_dir = tempfile::tempdir().unwrap();
         let tokenizer_path = tokenizer_dir.path().join("tokenizer.json");
+        let trace_path = tokenizer_dir.path().join("router.jsonl");
         std::fs::write(&tokenizer_path, r#"{"version":"1.0","truncation":null,"padding":null,"added_tokens":[],"normalizer":null,"pre_tokenizer":{"type":"Whitespace"},"post_processor":null,"decoder":null,"model":{"type":"WordLevel","vocab":{"[UNK]":0},"unk_token":"[UNK]"}}"#).unwrap();
         let router = HttpRoundModelRouter::new(HttpRoundModelRouterConfig {
             endpoint,
@@ -703,7 +735,7 @@ mod tests {
             admission: Default::default(),
             recent_rounds: 3,
             simple_threshold: 0.7,
-            trace_path: None,
+            trace_path: Some(trace_path.clone()),
             tokenizer_path,
             proxy: None,
             custom_headers: Default::default(),
@@ -759,11 +791,12 @@ mod tests {
             Message::assistant("long evidence 世界 ".repeat(8_000)),
             Message::assistant("LATEST_VISIBLE_RESULT".into()),
         ];
+        let task = "Subagent role: Explore\nAssigned task:\ninspect parser";
         for prepared in [false, true] {
             let prepared_context = if prepared {
                 Some(
                     router
-                        .create_context("session", "turn", "fix bug")
+                        .create_context("child", "turn", task)
                         .unwrap()
                         .prepare(&messages)
                         .await,
@@ -772,12 +805,14 @@ mod tests {
                 None
             };
             let request = RoundModelRouteRequest {
-                session_id: "session".into(),
+                root_session_id: "root".into(),
+                parent_session_id: Some("parent".into()),
+                session_id: "child".into(),
                 dialog_turn_id: "turn".into(),
                 turn_index: 0,
                 round_index: 2,
-                agent_type: "code".into(),
-                original_user_input: "fix bug".into(),
+                agent_type: "Explore".into(),
+                original_user_input: task.into(),
                 messages: if prepared {
                     Vec::new()
                 } else {
@@ -804,7 +839,33 @@ mod tests {
         assert!(prompt.contains("LATEST_VISIBLE_RESULT"));
         assert!(!prompt.contains("DO_NOT_REUSE_MAIN_SUMMARY"));
         assert!(prompt.starts_with("## Task\n"));
+        assert!(prompt.contains(task));
         let trajectory = prompt.split("## Recent trajectory\n").nth(1).unwrap();
         serde_json::from_str::<Value>(trajectory).unwrap();
+        let traces = std::fs::read_to_string(trace_path).unwrap();
+        let traces = traces
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        for event in [
+            "router_request_started",
+            "router_request_admitted",
+            "router_decision",
+        ] {
+            assert_eq!(
+                traces
+                    .iter()
+                    .filter(|trace| trace["event"] == event)
+                    .count(),
+                2
+            );
+        }
+        for trace in traces {
+            assert_eq!(trace["root_session_id"], "root");
+            assert_eq!(trace["parent_session_id"], "parent");
+            assert_eq!(trace["session_id"], "child");
+            assert_eq!(trace["dialog_turn_id"], "turn");
+            assert_eq!(trace["round_index"], 2);
+        }
     }
 }

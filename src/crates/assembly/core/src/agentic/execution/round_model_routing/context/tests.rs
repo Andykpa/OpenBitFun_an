@@ -848,3 +848,53 @@ async fn session_continuity_survives_compacted_history_without_cross_session_lea
     assert!(!unrelated.render().user_prompt.contains("parser regression"));
     assert_eq!(unrelated.state.summarized_through, 0);
 }
+
+#[tokio::test]
+async fn sibling_subagents_share_admission_but_restore_only_their_own_summary() {
+    let dir = tempfile::tempdir().unwrap();
+    let (fixture, provider) = fixture(false);
+    let mut child = fixture
+        .factory
+        .create("child-a", "child-turn", "inspect parser");
+    child.set_task_family("root", Some("parent"));
+    child
+        .restore_session(Some(dir.path().to_path_buf()), &["child-turn".into()], &[])
+        .await;
+    let messages = rounds(8);
+    child.prepare(&messages).await;
+    tokio::task::yield_now().await;
+    provider.release.notify_one();
+    settle(&mut child).await;
+    child.finish(&messages).await;
+
+    // Even identical turn IDs and a shared root/storage directory do not grant
+    // a sibling (or a fork) ownership of the first child's Router checkpoint.
+    let mut sibling = fixture
+        .factory
+        .create("child-b", "child-turn", "inspect UI");
+    sibling.set_task_family("root", Some("parent"));
+    sibling
+        .restore_session(Some(dir.path().to_path_buf()), &["child-turn".into()], &[])
+        .await;
+    assert!(sibling.state.summary.is_empty());
+    assert!(!sibling.render().user_prompt.contains("parser regression"));
+    assert!(sibling.render().user_prompt.contains("inspect UI"));
+
+    let mut resumed = fixture
+        .factory
+        .create("child-a", "followup-turn", "validate parser fix");
+    resumed.set_task_family("root", Some("parent"));
+    resumed.factory.config.summary_enabled = false;
+    resumed
+        .restore_session(
+            Some(dir.path().to_path_buf()),
+            &["child-turn".into(), "followup-turn".into()],
+            &messages,
+        )
+        .await;
+    assert!(resumed.render().user_prompt.contains("parser regression"));
+    assert!(resumed.render().user_prompt.contains("validate parser fix"));
+    assert!(!resumed.render().user_prompt.contains("inspect UI"));
+    assert_eq!(resumed.root_session_id, "root");
+    assert_eq!(resumed.state.session_id, "child-a");
+}

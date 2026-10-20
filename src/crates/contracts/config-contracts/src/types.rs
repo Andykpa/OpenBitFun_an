@@ -1102,8 +1102,9 @@ pub struct ModelRoutingConfig {
     pub tokenizer_path: String,
     pub simple_threshold: f64,
     pub timeout_ms: u64,
-    /// Default role for unconfigured subagents of smart sessions: primary or economy.
+    /// Default policy for unconfigured subagents of smart sessions: auto, primary or economy.
     /// Retain unknown future values on disk; the runtime rejects unsupported choices.
+    #[serde(default = "legacy_smart_subagent_model")]
     pub subagent_model: String,
     /// Optional auxiliary summaries use the economy model, with separate usage.
     pub summary_enabled: bool,
@@ -1117,9 +1118,20 @@ impl Default for ModelRoutingConfig {
             tokenizer_path: String::new(),
             simple_threshold: 0.75,
             timeout_ms: 10_000,
-            subagent_model: "primary".into(),
+            subagent_model: "auto".into(),
             summary_enabled: false,
         }
+    }
+}
+
+fn legacy_smart_subagent_model() -> String {
+    "primary".into()
+}
+
+fn legacy_model_routing_config() -> ModelRoutingConfig {
+    ModelRoutingConfig {
+        subagent_model: legacy_smart_subagent_model(),
+        ..Default::default()
     }
 }
 
@@ -1138,7 +1150,7 @@ pub struct AIConfig {
     #[serde(default)]
     pub default_models: DefaultModelsConfig,
 
-    #[serde(default)]
+    #[serde(default = "legacy_model_routing_config")]
     pub model_routing: ModelRoutingConfig,
 
     /// Default selectors for future mode and delegated-subagent sessions.
@@ -2295,6 +2307,10 @@ impl AIModelConfig {
 mod tests {
     #[test]
     fn model_routing_defaults_preserve_legacy_and_future_settings() {
+        assert_eq!(
+            super::AIConfig::default().model_routing.subagent_model,
+            "auto"
+        );
         let legacy: super::AIConfig = serde_json::from_value(
             serde_json::json!({"default_models": {"primary": "main", "fast": "worker"}}),
         )
@@ -2303,6 +2319,20 @@ mod tests {
         assert_eq!(legacy.model_routing.subagent_model, "primary");
         assert!(legacy.default_models.economy.is_none());
         assert_eq!(legacy.default_models.fast.as_deref(), Some("worker"));
+        let old_partial: super::ModelRoutingConfig =
+            serde_json::from_value(serde_json::json!({"router_model_id": "router"})).unwrap();
+        assert_eq!(old_partial.subagent_model, "primary");
+        let round_trip: super::ModelRoutingConfig =
+            serde_json::from_value(serde_json::to_value(old_partial).unwrap()).unwrap();
+        assert_eq!(round_trip.subagent_model, "primary");
+        for role in ["auto", "primary", "economy", "future-role"] {
+            let config: super::AIConfig = serde_json::from_value(
+                serde_json::json!({"model_routing": {"subagent_model": role}}),
+            )
+            .unwrap();
+            let saved = serde_json::to_value(config).unwrap();
+            assert_eq!(saved["model_routing"]["subagent_model"], role);
+        }
         let config: super::ModelRoutingConfig = serde_json::from_value(
             serde_json::json!({"default_mode":"future-policy", "subagent_model":"future-role", "future_field":true}),
         )

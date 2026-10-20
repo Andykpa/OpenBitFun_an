@@ -429,6 +429,8 @@ impl RouterContextFactory {
         factory.counter = Arc::new(CachedRouterTokenCounter::new(self.counter.clone()));
         RoundRouterContext {
             factory,
+            root_session_id: session_id.into(),
+            parent_session_id: None,
             state: RouterContextState {
                 session_id: session_id.into(),
                 dialog_turn_id: dialog_turn_id.into(),
@@ -450,6 +452,8 @@ impl RouterContextFactory {
 
 /// Owned by one execution generation. Dropping it aborts only its auxiliary request.
 pub struct RoundRouterContext {
+    root_session_id: String,
+    parent_session_id: Option<String>,
     factory: RouterContextFactory,
     state: RouterContextState,
     checkpoint: Option<PathBuf>,
@@ -476,6 +480,13 @@ impl Drop for RoundRouterContext {
 }
 
 impl RoundRouterContext {
+    /// Scheduling/trace identity is independent of leaf-owned summary state and
+    /// provider prompt-cache affinity. It is resolved by the execution host.
+    pub fn set_task_family(&mut self, root_session_id: &str, parent_session_id: Option<&str>) {
+        self.root_session_id = root_session_id.to_owned();
+        self.parent_session_id = parent_session_id.map(str::to_owned);
+    }
+
     /// Runtime entry point: continuity requires the authoritative visible history,
     /// never merely a matching turn ID in an old per-turn sidecar.
     pub async fn restore_session(
@@ -799,11 +810,11 @@ impl RoundRouterContext {
         {
             return;
         }
-        let Ok((update, ticket)) = self
-            .factory
-            .summary_queue
-            .submit(self.state.session_id.clone(), work.clone())
-        else {
+        let Ok((update, ticket)) = self.factory.summary_queue.submit_for(
+            self.root_session_id.clone(),
+            self.state.session_id.clone(),
+            work.clone(),
+        ) else {
             return;
         };
         self.summary_update = Some(update);
@@ -814,6 +825,8 @@ impl RoundRouterContext {
             pending_tokens: work.pending_tokens,
         });
         let factory = self.factory.clone();
+        let root_session_id = self.root_session_id.clone();
+        let parent_session_id = self.parent_session_id.clone();
         let session_id = self.state.session_id.clone();
         let dialog_turn_id = self.state.dialog_turn_id.clone();
         self.pending_summary = Some(tokio::spawn(async move {
@@ -839,6 +852,7 @@ impl RoundRouterContext {
                 "router_context_summary_started",
                 "router_context_summary_cancelled",
                 json!({
+                    "root_session_id": root_session_id, "parent_session_id": parent_session_id,
                     "session_id": session_id, "dialog_turn_id": dialog_turn_id,
                     "base_through": work.base_through, "through": work.through,
                     "pending_tokens": work.pending_tokens,
@@ -871,7 +885,8 @@ impl RoundRouterContext {
             append_trace_record(
                 factory.trace_path.as_ref(),
                 &json!({
-                    "event": "router_context_summary", "session_id": session_id, "dialog_turn_id": dialog_turn_id,
+                    "event": "router_context_summary", "root_session_id": root_session_id, "parent_session_id": parent_session_id,
+                    "session_id": session_id, "dialog_turn_id": dialog_turn_id,
                     "request_id": trace_guard.request_id(),
                     "base_through": work.base_through, "through": work.through,
                     "model_selector": model_selector, "queue_wait_ms": queue_wait_ms, "model_config_id": model_id, "effective_model_name": model_name,

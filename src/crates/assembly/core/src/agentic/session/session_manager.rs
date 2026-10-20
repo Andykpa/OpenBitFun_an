@@ -2916,6 +2916,90 @@ impl SessionManager {
         self.sessions.get(session_id).map(|s| s.clone())
     }
 
+    /// Resolve the task family used for Router admission from owned session
+    /// lineage. Prompt-cache lineage and model-facing agent aliases are not
+    /// session ownership. A broken child chain must not gain an independent slot.
+    pub(crate) async fn routing_root_session_id(
+        &self,
+        session_id: &str,
+    ) -> OpenBitFunResult<String> {
+        let mut current_id = session_id.to_string();
+        let mut visited = HashSet::new();
+        let mut storage_hint = None;
+        loop {
+            openbitfun_core_types::validate_session_id(&current_id)
+                .map_err(OpenBitFunError::Validation)?;
+            if !visited.insert(current_id.clone()) {
+                return Err(OpenBitFunError::Validation(
+                    "Router session lineage contains a cycle".into(),
+                ));
+            }
+            let loaded = self.get_session(&current_id);
+            if let Some(session) = loaded.as_ref().filter(|s| s.kind != SessionKind::Subagent) {
+                return Ok(session.session_id.clone());
+            }
+            let storage_path = if loaded.is_some()
+                || Self::committed_session_storage_path(
+                    &self.session_storage_path_index,
+                    &current_id,
+                )
+                .is_some()
+            {
+                Some(self.require_session_storage_path(&current_id).await?)
+            } else {
+                // Legacy cold ancestors share the child's admitted store. This
+                // is an exact ID lookup, never a scan of unrelated workspaces.
+                storage_hint.clone()
+            };
+            let session = match loaded {
+                Some(session) => session,
+                None => {
+                    let path = storage_path.as_deref().ok_or_else(|| {
+                        OpenBitFunError::NotFound(format!(
+                            "Router ancestor storage is unavailable: {current_id}"
+                        ))
+                    })?;
+                    self.validate_session_storage_path_binding(&current_id, path)?;
+                    self.persistence_manager
+                        .load_session_header(path, &current_id)
+                        .await?
+                }
+            };
+            if session.kind != SessionKind::Subagent {
+                return Ok(session.session_id);
+            }
+            let relationship_parent = if self.should_persist_session_id(&current_id) {
+                let path = storage_path.as_deref().ok_or_else(|| {
+                    OpenBitFunError::NotFound(format!(
+                        "Router child storage is unavailable: {current_id}"
+                    ))
+                })?;
+                self.load_session_metadata(path, &current_id)
+                    .await?
+                    .and_then(|metadata| metadata.relationship)
+                    .and_then(|relationship| relationship.parent_session_id)
+            } else {
+                None
+            };
+            let parent_id = relationship_parent
+                .or_else(|| {
+                    session
+                        .created_by
+                        .as_deref()
+                        .and_then(|value| value.strip_prefix("session-"))
+                        .map(str::to_string)
+                })
+                .filter(|id| !id.trim().is_empty())
+                .ok_or_else(|| {
+                    OpenBitFunError::Validation(format!(
+                        "Router child has no authoritative parent: {current_id}"
+                    ))
+                })?;
+            current_id = parent_id;
+            storage_hint = storage_path;
+        }
+    }
+
     /// Read only the execution fact; navigation must not clone Session content.
     pub fn get_session_state(&self, session_id: &str) -> Option<SessionState> {
         self.sessions
@@ -15729,6 +15813,190 @@ mod tests {
                     .join("request-traces")
             )
         );
+    }
+
+    #[tokio::test]
+    async fn routing_root_session_id_follows_owned_lineage_across_cold_stores() {
+        let root_workspace = TestWorkspace::new();
+        let child_workspace = TestWorkspace::new();
+        let persistence = Arc::new(
+            PersistenceManager::new(root_workspace.path_manager()).expect("persistence manager"),
+        );
+        let manager = test_manager(persistence);
+        let root = manager
+            .create_session(
+                "Root".into(),
+                "Standard".into(),
+                SessionConfig {
+                    workspace_path: Some(root_workspace.path().to_string_lossy().into_owned()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        let child = manager
+            .create_session_with_id_and_details(
+                None,
+                "Child".into(),
+                "Explore".into(),
+                SessionConfig {
+                    workspace_path: Some(child_workspace.path().to_string_lossy().into_owned()),
+                    prompt_cache_lineage_id: Some("unrelated-provider-prefix".into()),
+                    ..Default::default()
+                },
+                Some("session-stale-parent".into()),
+                SessionKind::Subagent,
+            )
+            .await
+            .unwrap();
+        manager
+            .persist_session_lineage(
+                &child.session_id,
+                SessionRelationship {
+                    kind: Some(SessionRelationshipKind::Subagent),
+                    parent_session_id: Some(root.session_id.clone()),
+                    parent_request_id: None,
+                    parent_dialog_turn_id: Some("parent-turn".into()),
+                    parent_turn_index: None,
+                    parent_tool_call_id: Some("parent-tool".into()),
+                    subagent_type: Some("Explore".into()),
+                    continuation_policy: Some(
+                        openbitfun_core_types::SessionContinuationPolicy::Reusable,
+                    ),
+                },
+            )
+            .await
+            .unwrap();
+        let grandchild = manager
+            .create_transient_session_with_id_and_details(
+                None,
+                "Grandchild".into(),
+                "Explore".into(),
+                child.config.clone(),
+                Some(format!("session-{}", child.session_id)),
+                SessionKind::Subagent,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            manager
+                .routing_root_session_id(&root.session_id)
+                .await
+                .unwrap(),
+            root.session_id
+        );
+        manager.evict_loaded_session_for_test(&root.session_id);
+        manager.evict_loaded_session_for_test(&child.session_id);
+        assert_eq!(
+            manager
+                .routing_root_session_id(&grandchild.session_id)
+                .await
+                .unwrap(),
+            root.session_id
+        );
+        assert!(manager.get_session(&root.session_id).is_none());
+        assert!(manager.get_session(&child.session_id).is_none());
+    }
+
+    #[tokio::test]
+    async fn routing_root_session_id_rejects_orphans_and_cycles_without_mutation() {
+        let workspace = TestWorkspace::new();
+        let manager = test_manager(Arc::new(
+            PersistenceManager::new(workspace.path_manager()).unwrap(),
+        ));
+        let child = manager
+            .create_transient_session_with_id_and_details(
+                None,
+                "Orphan".into(),
+                "Explore".into(),
+                SessionConfig {
+                    workspace_path: Some(workspace.path().to_string_lossy().into_owned()),
+                    ..Default::default()
+                },
+                None,
+                SessionKind::Subagent,
+            )
+            .await
+            .unwrap();
+        assert!(manager
+            .routing_root_session_id(&child.session_id)
+            .await
+            .is_err());
+        assert!(manager.get_session(&child.session_id).is_some());
+        let missing_parent = Uuid::new_v4().to_string();
+        manager
+            .sessions
+            .get_mut(&child.session_id)
+            .unwrap()
+            .created_by = Some(format!("session-{missing_parent}"));
+        assert!(manager
+            .routing_root_session_id(&child.session_id)
+            .await
+            .is_err());
+        let other = manager
+            .create_transient_session_with_id_and_details(
+                None,
+                "Other Explore".into(),
+                "Explore".into(),
+                child.config.clone(),
+                Some(format!("session-{}", child.session_id)),
+                SessionKind::Subagent,
+            )
+            .await
+            .unwrap();
+        manager
+            .sessions
+            .get_mut(&child.session_id)
+            .unwrap()
+            .created_by = Some(format!("session-{}", other.session_id));
+        let error = manager
+            .routing_root_session_id(&child.session_id)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("cycle"));
+        assert_eq!(
+            manager.get_session(&child.session_id).unwrap().created_by,
+            Some(format!("session-{}", other.session_id))
+        );
+    }
+
+    #[tokio::test]
+    async fn routing_root_session_id_reads_legacy_cold_parent_from_child_store() {
+        let workspace = TestWorkspace::new();
+        let persistence = Arc::new(PersistenceManager::new(workspace.path_manager()).unwrap());
+        let manager = test_manager(persistence);
+        let root = manager
+            .create_session(
+                "Root".into(),
+                "Standard".into(),
+                SessionConfig {
+                    workspace_path: Some(workspace.path().to_string_lossy().into_owned()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        let child = manager
+            .create_session_with_id_and_details(
+                None,
+                "Legacy child".into(),
+                "Explore".into(),
+                root.config.clone(),
+                Some(format!("session-{}", root.session_id)),
+                SessionKind::Subagent,
+            )
+            .await
+            .unwrap();
+        manager.evict_loaded_session_for_test(&root.session_id);
+        manager.session_storage_path_index.remove(&root.session_id);
+        assert_eq!(
+            manager
+                .routing_root_session_id(&child.session_id)
+                .await
+                .unwrap(),
+            root.session_id
+        );
+        assert!(manager.get_session(&root.session_id).is_none());
     }
 
     #[tokio::test]

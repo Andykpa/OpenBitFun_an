@@ -8,10 +8,13 @@ OpenBitFun 连接已经运行的 OpenAI-compatible Router 服务，不会在客�
 
 在“设置 → AI → 模型”中添加 Router 服务模型，再打开“路由服务”选择该配置，填写
 执行 OpenBitFun 主机上的 `tokenizer.json` 路径并检查连接。GUI 智能模式使用独立的
-`ai.default_models.economy`。智能模式中新启动、未单独配置的子代理默认跟随主力模型，
-可在模型选择的高级选项中改为跟随经济模型，对应 `ai.model_routing.subagent_model`
-（`primary` / `economy`，缺省为 `primary`）。该设置在执行主机上全局共享，也用于嵌套
-子代理；单独配置、显式指定和已有子代理的模型选择保持不变。子代理本身不按步骤路由，
+`ai.default_models.economy`。新安装的智能模式默认让主对话和未单独配置的子代理
+按步骤自动路由。模型选择的高级选项对应 `ai.model_routing.subagent_model`：`auto` 为
+自动路由，`primary` / `economy` 为固定跟随主力 / 经济模型。已有配置的显式值保持不变，
+旧配置缺字段时按原来的 `primary` 读取；新配置默认 `auto`。设置在执行主机上共享，
+嵌套子代理同样适用，单独配置和显式 model/inherit 优先。已有固定子代理恢复时仍固定，
+自动子代理恢复时仍自动；恢复时显式指定模型会切为固定模型。旧 Peer 主机未声明
+`subagentRoutingSupported` 时，GUI 禁用自动选项并保留已有固定选择。
 手动模式仍保留快速模型分工。辅助摘要默认关闭；开启后额外调用经济模型，无需配置快速模型。
 GUI 内置提示词由 Core 随程序打包，不依赖本部署目录存在。
 
@@ -22,7 +25,7 @@ GUI 内置提示词由 Core 随程序打包，不依赖本部署目录存在。
 
 ## 目录内容
 
-- `router_system_prompt.txt`：OpenBitFun 在每个主 Agent round 开始前发送给 Router 的
+- `router_system_prompt.txt`：OpenBitFun 在每个参与路由的 Agent round 开始前发送给 Router 的
   固定系统提示词。
 - `run_openbitfun_with_router.sh`：配置 Router 客户端环境变量，然后完整启动 OpenBitFun；不传
   参数时进入原有交互模式，传入参数时则原样转发。
@@ -54,7 +57,7 @@ export ROUTER_API_URL='http://<router-host>:<port>/v1'
 ```
 
 脚本没有改变 OpenBitFun 的运行模式，只是在启动前注入 Router 配置。进入交互界面后可以
-像原版 OpenBitFun 一样连续对话，每个主 Agent round 都会自动调用 Router。
+像原版 OpenBitFun 一样连续对话，每个参与路由的 Agent round 都会自动调用 Router。
 
 需要执行单个非交互任务时，才传入 OpenBitFun CLI 的 `exec` 参数：
 
@@ -105,14 +108,16 @@ Fast 增量摘要：     开启；离开最近窗口的内容累计达到 8192 t
 未指定正文目标时取生成上限的一半与 4096 的较小值，以兼容已有的较小生成上限；显式目标
 必须为正数且不大于生成上限。直接运行宿主时使用相应的 `OPENBITFUN_ROUND_ROUTER_*` 变量。
 
-这些默认值来自当前训练数据和配置，而不是模型理论窗口：固定 system prompt 为 1580
+这些默认值来自训练数据和配置，而不是模型理论窗口：训练时的 system prompt 为 1580
 tokens，数据中 user prompt 最大 26517 tokens，完整 chat 输入最大 28110 tokens，SFT
 `max_length` 为 28672。线上 vLLM 的 `--max-model-len` 与 OpenBitFun 配置上限均设为 65536；
 OpenBitFun 会从中扣除固定 system prompt、128 个输出 tokens 和 256 个 chat-template 预留，
 所得值才是动态 user prompt 的实际兜底上限。通常输入远低于该值，不会为了上限进行补齐。
 
 同一执行宿主访问同一 Router API 地址时共享并发额度，模型名称或凭证变化不会建立新的并发池。
-不同会话的请求可以并发；额度用完后按请求先后等待，不需要等另一个会话的整个任务结束。
+不同会话的请求可以并发；额度用完后按根会话轮转，根内子代理按入队顺序等待，不需要等
+另一个会话的整个任务结束。每个根的等待上限是总等待容量的四分之一向上取整，最多 8 个，
+空闲执行槽可以借用。这是进程内公平调度，多宿主共用服务仍需服务端限制总容量。
 排队和网络请求共用超时，队列满或超时仍按现有路径回退主力模型，取消会立即释放等待位置。
 可在启动宿主前设置 `OPENBITFUN_ROUND_ROUTER_MAX_CONCURRENT`（默认 2）和
 `OPENBITFUN_ROUND_ROUTER_MAX_QUEUED`（默认 32，允许 0）；GUI 与环境变量配置都使用这些
@@ -121,15 +126,18 @@ OpenBitFun 会从中扣除固定 system prompt、128 个输出 tokens 和 256 �
 
 ## Router 专用增量上下文
 
-每个主 Agent logical round 开始前，运行时从消息中只读收集尚未见过的增量，固定组成
+每个参与路由的 Agent logical round 开始前，运行时从消息中只读收集尚未见过的增量，固定组成
 `## Task`、`## Earlier history summary`、`## Recent trajectory` 三段。Task 包含当前任务及
 最新用户纠偏；最近 3 轮包含 assistant 文本/推理、工具名/参数/结果和错误标记，最新一轮
 优先保留细节。后台结果、用户 steering、失败恢复反馈也作为独立观察保留。大字符串按
 预算保留头尾并标记省略，工具结果优先使用实际提供给 Agent 的版本，不发送图片二进制。
 超过 64KiB 的大字符串先做带标记的头尾投影，避免在路由边界反复 tokenize 整份大日志。
 
-Router 有自己的去重游标、待摘要增量和历史摘要；不读取主 Agent 的 compression summary，
-不调用主 Agent 压缩器，不改主消息、主压缩配置或主压缩触发条件。
+Router 有自己的去重游标、待摘要增量和历史摘要；子代理按独立 session UUID 隔离，
+目标明确来自本次子任务。Fork 可读取复制的历史，但不继承父 Router checkpoint 或摘要游标；
+继续子代理只恢复自身可见 turn 历史对应的状态。供应商提示词缓存 lineage 的继承保持不变。
+Router 不读取主 Agent 的 compression summary，不调用主 Agent 压缩器，
+不改主消息、主压缩配置或主压缩触发条件。
 
 每条观察先完成与 Router 输入一致的确定性预处理，再由 Router 自己的 tokenizer 计算并
 保存 token 数。离开最近 3 轮的旧轨迹累计达到 8192 tokens 后，发起一次独立、无工具的后台
@@ -140,7 +148,8 @@ Router 有自己的去重游标、待摘要增量和历史摘要；不读取主 
 history，不计算也不持久化 summary 的 tokens。
 摘要尚未完成时直接使用旧摘要加待处理增量，不等待模型返回。每个进程最多同时执行两个
 摘要请求，另有最多 128 个等待会话；每个会话最多一个等待项，同会话不能同时执行两个摘要。
-等待中的新观察合并到最新快照，保留原先的队列位置，不会让活跃会话反复抢占其他会话。
+等待中的新观察仅在同一子会话内合并，保留队列位置；调度按根会话轮转，兄弟摘要不合并。
+每个根最多等待 8 个摘要，空闲槽可以借用；一个根的子代理不会反复抢占另一个根。
 取消或结束执行会移除该执行代的等待项并终止其活动请求。队列满时保留原增量，后续轮次
 重试入队，不阻塞主任务。摘要失败、超时、辅助模型未配置或返回空/截断内容时
 保留原状态；同一 Router round 内不会循环重试，下一轮会重新压缩现有的 summary + pending，
@@ -192,7 +201,8 @@ Router 上下文并访问 Router/fast API。这里是宿主侧实现约束；各
 smoke 验证。
 
 评测程序只需传入真实任务描述，不要逐轮自行构造 Router 输入。`ROUTER_TRACE_PATH` 的每条
-`router_decision` 与失败/取消记录包含 `queue_wait_ms`，用于区分排队与服务耗时。
+`router_decision` 与失败/取消记录包含根会话、父会话、子会话、turn/round 身份和
+`queue_wait_ms`，用于区分排队与服务耗时。
 `router_decision` 还会记录 Router 输入预算/计数方式/准备耗时/增量游标、pending 总 tokens、
 每条 pending/recent entry 的 sequence、round ID、类型、token 数和错误标记，以及本轮观察到的
 压缩状态。压缩记录包含 `in_flight`、`applied`、`failed`、`incomplete` 或 `stale` 状态及其
@@ -211,3 +221,14 @@ Router 与 fast 摘要请求可能包含任务原文、历史摘要、推理文�
 使用受信任的服务。启用 Router 也默认启用上述 fast 辅助调用；可单独关闭。sidecar 保存独立
 摘要与裁剪后的增量；启用 `ROUTER_TRACE_PATH` 后，本地 trace 也会记录完整 Router 输入和输出；
 评测结束后请按数据敏感级别妥善保管或清理该文件。
+
+## 子代理路由验收
+
+同一逻辑 round 的请求重试复用已选模型，下一 round 才重新分类。图片观察需要主力模型
+的视觉能力而经济模型不具备时回退主力；工具协议、推理历史和上下文窗口继续通过既有
+执行模型适配、请求投影和压缩路径处理。外部模型绑定与批准后不可变的任务不进入路由。
+
+本地模拟服务与持久化测试覆盖子任务目标、兄弟隔离、恢复、排队公平、取消和旧配置。
+这不代表分类器对子代理的质量已通过真实任务评测。接入真实 Router 后，应对同一组
+检索、修改、审查和嵌套任务比较全主力与自动路由的完成质量、总耗时、缓存命中、执行
+模型用量与 Router/摘要额外用量；服务没有返回用量时保持未知，不推算为零。

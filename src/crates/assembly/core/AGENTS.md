@@ -194,6 +194,7 @@ For smart routing, subagent defaults and resumed subagent model choices:
 
 ```bash
 cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib smart_subagent
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib routing_root_session_id
 cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib round_model_routing
 cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib coordinator::tests::reused_subagent
 ```

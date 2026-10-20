@@ -39,6 +39,15 @@ describe('Router setup', () => {
     expect(onClose).toHaveBeenCalledOnce(); expect(onSaved).toHaveBeenCalledOnce();
   });
 
+  it.each([undefined, 'primary', 'economy', 'auto', 'future-policy'])('preserves the host subagent policy while saving Router details: %s', async policy => {
+    await render();
+    if (policy !== undefined) host.subagent_model = policy;
+    await act(async () => button('router.save').click());
+    expect(host.subagent_model).toBe(policy);
+    if (policy === undefined) expect(Object.hasOwn(host, 'subagent_model')).toBe(false);
+    expect(onSaved).toHaveBeenCalledOnce();
+  });
+
   it('does not write configuration to an older host', async () => {
     await render(); vi.mocked(agentAPI.getModelRoutingStatus).mockRejectedValueOnce(new Error('unsupported host'));
     await act(async () => button('router.save').click());

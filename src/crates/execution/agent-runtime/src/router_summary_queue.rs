@@ -1,8 +1,9 @@
 //! Fair, bounded admission for background Router summaries.
 //!
 //! Product assembly supplies the work and owns provider calls, deadlines and
-//! persistence. This queue only coordinates admission: one pending snapshot per
-//! session, FIFO between runnable sessions, and one running summary per session.
+//! persistence. This queue coordinates admission: one pending snapshot per leaf
+//! session, round-robin between root tasks, FIFO inside each root, and one running
+//! item per leaf. Classifier calls can use unique request IDs as leaf identities.
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
@@ -13,6 +14,7 @@ use tokio::sync::Notify;
 pub struct RouterSummaryQueue<T> {
     concurrency: usize,
     max_pending_sessions: usize,
+    max_pending_per_root: usize,
     state: Mutex<QueueState<T>>,
 }
 
@@ -20,13 +22,16 @@ struct QueueState<T> {
     next_id: u64,
     entries: HashMap<u64, Entry<T>>,
     waiting: VecDeque<u64>,
+    waiting_roots: VecDeque<String>,
+    last_dispatched_root: Option<String>,
     /// Includes reserved work until its ticket consumes the snapshot.
     pending_by_session: HashMap<String, u64>,
     /// Includes reservations so a slow poll cannot exceed the concurrency cap.
-    active: HashMap<String, u64>,
+    active: HashMap<String, (u64, String)>,
 }
 
 struct Entry<T> {
+    root_session_id: String,
     session_id: String,
     work: T,
     reserved: bool,
@@ -74,10 +79,15 @@ impl<T> RouterSummaryQueue<T> {
         Arc::new(Self {
             concurrency,
             max_pending_sessions,
+            // Leave room for unrelated conversations even when one root creates
+            // many children. Only waiting work is capped: idle capacity is borrowed.
+            max_pending_per_root: max_pending_sessions.div_ceil(4).clamp(1, 8),
             state: Mutex::new(QueueState {
                 next_id: 0,
                 entries: HashMap::new(),
                 waiting: VecDeque::new(),
+                waiting_roots: VecDeque::new(),
+                last_dispatched_root: None,
                 pending_by_session: HashMap::new(),
                 active: HashMap::new(),
             }),
@@ -93,14 +103,46 @@ impl<T> RouterSummaryQueue<T> {
         work: T,
     ) -> Result<(RouterSummaryUpdate<T>, RouterSummaryTicket<T>), RouterSummaryQueueFull> {
         let session_id = session_id.into();
+        self.submit_for(session_id.clone(), session_id, work)
+    }
+
+    /// Scheduling uses the root task, while replacement and running exclusion
+    /// continue to use the leaf session. Sibling contexts never replace each other.
+    pub fn submit_for(
+        self: &Arc<Self>,
+        root_session_id: impl Into<String>,
+        session_id: impl Into<String>,
+        work: T,
+    ) -> Result<(RouterSummaryUpdate<T>, RouterSummaryTicket<T>), RouterSummaryQueueFull> {
+        let session_id = session_id.into();
         let mut state = self
             .state
             .lock()
             .expect("Router summary queue lock poisoned");
         let previous_id = state.pending_by_session.get(&session_id).copied();
+        // Existing work retains its admitted root even if a caller's attribution
+        // changes during recovery; changing roots must not evade waiting limits.
+        let root_session_id = previous_id
+            .and_then(|id| {
+                state
+                    .entries
+                    .get(&id)
+                    .map(|entry| entry.root_session_id.clone())
+            })
+            .or_else(|| state.active.get(&session_id).map(|(_, root)| root.clone()))
+            .unwrap_or_else(|| root_session_id.into());
         let can_start =
             state.active.len() < self.concurrency && !state.active.contains_key(&session_id);
-        if previous_id.is_none() && state.waiting.len() >= self.max_pending_sessions && !can_start {
+        let root_waiting = state
+            .waiting
+            .iter()
+            .filter(|id| state.entries[*id].root_session_id == root_session_id)
+            .count();
+        if previous_id.is_none()
+            && !can_start
+            && (state.waiting.len() >= self.max_pending_sessions
+                || root_waiting >= self.max_pending_per_root)
+        {
             return Err(RouterSummaryQueueFull);
         }
 
@@ -112,6 +154,7 @@ impl<T> RouterSummaryQueue<T> {
         state.entries.insert(
             id,
             Entry {
+                root_session_id: root_session_id.clone(),
                 session_id: session_id.clone(),
                 work,
                 reserved,
@@ -120,7 +163,7 @@ impl<T> RouterSummaryQueue<T> {
         );
         state.pending_by_session.insert(session_id.clone(), id);
         if reserved {
-            state.active.insert(session_id, id);
+            state.active.insert(session_id, (id, root_session_id));
             notify.notify_one();
         } else if let Some(previous_id) = previous_id {
             let position = state
@@ -131,6 +174,9 @@ impl<T> RouterSummaryQueue<T> {
             *position = id;
         } else {
             state.waiting.push_back(id);
+            if !state.waiting_roots.contains(&root_session_id) {
+                state.waiting_roots.push_back(root_session_id);
+            }
         }
         state.dispatch(self.concurrency);
         drop(state);
@@ -172,6 +218,15 @@ impl<T> RouterSummaryQueue<T> {
                 state.active.remove(&entry.session_id);
             } else {
                 state.waiting.retain(|queued_id| *queued_id != id);
+                if !state
+                    .waiting
+                    .iter()
+                    .any(|id| state.entries[id].root_session_id == entry.root_session_id)
+                {
+                    state
+                        .waiting_roots
+                        .retain(|root| *root != entry.root_session_id);
+                }
             }
             state.dispatch(self.concurrency);
         }
@@ -184,18 +239,57 @@ impl<T> RouterSummaryQueue<T> {
 impl<T> QueueState<T> {
     fn dispatch(&mut self, concurrency: usize) {
         while self.active.len() < concurrency {
-            // A session waiting on its own running request must not block an
-            // unrelated session when another concurrency slot is free.
-            let Some(index) = self.waiting.iter().position(|id| {
-                let entry = &self.entries[id];
-                !self.active.contains_key(&entry.session_id)
-            }) else {
+            let runnable_position = |root: &str| {
+                self.waiting.iter().position(|id| {
+                    let entry = &self.entries[id];
+                    entry.root_session_id == root && !self.active.contains_key(&entry.session_id)
+                })
+            };
+            // Rotate roots, not children. When a second root joins a previously
+            // solitary busy root, it gets the next released slot. A root blocked
+            // by its own running leaf cannot hold up other runnable work.
+            let mut candidates =
+                self.waiting_roots
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(root_index, root)| {
+                        runnable_position(root).map(|position| {
+                            (
+                                root_index,
+                                position,
+                                Some(root) == self.last_dispatched_root.as_ref(),
+                            )
+                        })
+                    });
+            let first = candidates.next();
+            let choice = first.and_then(|first| {
+                if first.2 {
+                    candidates
+                        .find(|(_, _, is_last_root)| !is_last_root)
+                        .or(Some(first))
+                } else {
+                    Some(first)
+                }
+            });
+            let Some((root_index, index, _)) = choice else {
                 break;
             };
+            let root = self
+                .waiting_roots
+                .remove(root_index)
+                .expect("Root queue position exists");
             let id = self.waiting.remove(index).expect("Queue position exists");
+            if self
+                .waiting
+                .iter()
+                .any(|id| self.entries[id].root_session_id == root)
+            {
+                self.waiting_roots.push_back(root.clone());
+            }
+            self.last_dispatched_root = Some(root.clone());
             let entry = self.entries.get_mut(&id).expect("Queued entry exists");
             entry.reserved = true;
-            self.active.insert(entry.session_id.clone(), id);
+            self.active.insert(entry.session_id.clone(), (id, root));
             entry.notify.notify_one();
         }
     }
@@ -292,7 +386,11 @@ impl<T> Drop for RouterSummaryPermit<T> {
             .state
             .lock()
             .expect("Router summary queue lock poisoned");
-        if state.active.get(&self.session_id) == Some(&self.id) {
+        if state
+            .active
+            .get(&self.session_id)
+            .is_some_and(|(id, _)| *id == self.id)
+        {
             state.active.remove(&self.session_id);
             state.dispatch(self.queue.concurrency);
         }
@@ -361,6 +459,108 @@ mod tests {
         drop(a_running);
         let (work, _permit) = ready(a_next.as_mut()).unwrap().unwrap();
         assert_eq!(work, 2);
+    }
+
+    #[tokio::test]
+    async fn busy_root_children_rotate_with_other_roots_in_leaf_fifo_order() {
+        let queue = RouterSummaryQueue::new(1, 16);
+        let (_, active) = queue.submit_for("a", "a-0", 0).unwrap();
+        let (_, active) = active.start().await.unwrap();
+        let (_, a1) = queue.submit_for("a", "a-1", 1).unwrap();
+        let (_, a2) = queue.submit_for("a", "a-2", 2).unwrap();
+        let (_, b1) = queue.submit_for("b", "b-1", 3).unwrap();
+        let (_, b2) = queue.submit_for("b", "b-2", 4).unwrap();
+        let mut a1 = pin!(a1.start());
+        let mut a2 = pin!(a2.start());
+        let mut b1 = pin!(b1.start());
+        let mut b2 = pin!(b2.start());
+
+        drop(active);
+        assert!(ready(a1.as_mut()).is_none());
+        let (work, permit) = ready(b1.as_mut()).unwrap().unwrap();
+        assert_eq!(work, 3);
+        drop(permit);
+        assert!(ready(b2.as_mut()).is_none());
+        let (work, permit) = ready(a1.as_mut()).unwrap().unwrap();
+        assert_eq!(work, 1);
+        drop(permit);
+        assert!(ready(a2.as_mut()).is_none());
+        let (work, permit) = ready(b2.as_mut()).unwrap().unwrap();
+        assert_eq!(work, 4);
+        drop(permit);
+        let (work, permit) = ready(a2.as_mut()).unwrap().unwrap();
+        assert_eq!(work, 2);
+        drop(permit);
+        assert_eq!(queue.available_permits(), 1);
+    }
+
+    #[tokio::test]
+    async fn one_root_borrows_idle_capacity_but_cannot_fill_the_waiting_queue() {
+        let queue = RouterSummaryQueue::new(2, 8);
+        let (_, a0) = queue.submit_for("a", "a-0", 0).unwrap();
+        let (_, a1) = queue.submit_for("a", "a-1", 1).unwrap();
+        assert_eq!(queue.available_permits(), 0);
+        let (_, a2) = queue.submit_for("a", "a-2", 2).unwrap();
+        let (_, a3) = queue.submit_for("a", "a-3", 3).unwrap();
+        assert!(queue.submit_for("a", "a-4", 4).is_err());
+        let (_, b0) = queue.submit_for("b", "b-0", 5).unwrap();
+        let mut b0 = pin!(b0.start());
+        drop(a0);
+        let (work, permit) = ready(b0.as_mut()).unwrap().unwrap();
+        assert_eq!(work, 5);
+        drop(a2);
+        let (_, a4) = queue.submit_for("a", "a-4", 4).unwrap();
+        drop((a1, a3, a4, permit));
+        assert_eq!(queue.available_permits(), 2);
+    }
+
+    #[tokio::test]
+    async fn root_grouping_keeps_sibling_coalescing_and_attribution_separate() {
+        let queue = RouterSummaryQueue::new(1, 8);
+        let (_, active) = queue.submit_for("a", "a-0", 0).unwrap();
+        let (_, old_a1) = queue.submit_for("a", "a-1", 1).unwrap();
+        let (a2_update, a2) = queue.submit_for("a", "a-2", 2).unwrap();
+        // A changed attribution must not move an existing leaf or bypass its root cap.
+        let (_, a1) = queue.submit_for("unrelated", "a-1", 3).unwrap();
+        assert!(old_a1.start().await.is_none());
+        assert!(queue.submit_for("a", "a-3", 4).is_err());
+        assert!(a2_update.update(5));
+        let (_, b) = queue.submit_for("b", "b-0", 6).unwrap();
+        let mut a1 = pin!(a1.start());
+        let mut a2 = pin!(a2.start());
+        let mut b = pin!(b.start());
+        drop(active);
+        let (work, permit) = ready(b.as_mut()).unwrap().unwrap();
+        assert_eq!(work, 6);
+        drop(permit);
+        let (work, permit) = ready(a1.as_mut()).unwrap().unwrap();
+        assert_eq!(work, 3);
+        drop(permit);
+        let (work, permit) = ready(a2.as_mut()).unwrap().unwrap();
+        assert_eq!(work, 5);
+        drop(permit);
+        assert_eq!(queue.available_permits(), 1);
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_roots_last_waiter_does_not_leave_a_phantom_group() {
+        let queue = RouterSummaryQueue::new(1, 8);
+        let (_, active) = queue.submit_for("a", "a-0", 0).unwrap();
+        let (_, a1) = queue.submit_for("a", "a-1", 1).unwrap();
+        let (_, b) = queue.submit_for("b", "b-0", 2).unwrap();
+        let mut cancelled = Box::pin(b.start());
+        assert!(ready(cancelled.as_mut()).is_none());
+        drop(cancelled);
+        drop(active);
+        let (_, permit) = a1.start().await.unwrap();
+        let (_, a2) = queue.submit_for("a", "a-2", 3).unwrap();
+        let (_, b) = queue.submit_for("b", "b-1", 4).unwrap();
+        let mut b = pin!(b.start());
+        drop(permit);
+        let (work, permit) = ready(b.as_mut()).unwrap().unwrap();
+        assert_eq!(work, 4);
+        drop((a2, permit));
+        assert_eq!(queue.available_permits(), 1);
     }
 
     #[tokio::test]

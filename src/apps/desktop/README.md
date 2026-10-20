@@ -10,13 +10,15 @@ default. Use **Only this conversation** for a temporary choice. Manual mode uses
 the primary model for the main conversation and the fast model for ordinary
 subagents; explicit subagent overrides still apply. Smart mode chooses between
 the primary model and an independently configured economy model for each main
-conversation step. Role assignments are shared across conversations.
-In smart mode, new subagents default to the primary model. Under **Advanced →
-Default subagent model**, choose **Follow primary model** or **Follow economy
-model**. This host-wide setting also applies to nested subagents; individual
-agent settings and explicit model/inherit requests take precedence. Existing
-subagents keep their chosen model when resumed. Subagents use a fixed model
-throughout execution, not per-step routing, and do not require a fast model.
+conversation or automatically routed subagent step. Role assignments are shared
+across conversations. New installations default unconfigured smart subagents to
+**Automatic routing**. Under **Advanced → Default subagent model**, you can also
+choose **Follow primary model** or **Follow economy model** for a fixed model.
+This host-wide setting applies to nested subagents; individual agent settings
+and explicit model/inherit requests take precedence. Existing saved defaults
+and fixed subagents keep their choices after upgrading. Resuming an automatic
+subagent preserves its strategy; explicitly choosing a model makes it fixed.
+Smart mode does not require a fast model.
 Choices made in a new conversation draft are applied on its execution host
 before the first message is sent, including temporary session-only strategies.
 
@@ -37,12 +39,18 @@ storage start from the remaining original messages instead of the main context
 compression summary.
 
 The execution host bounds Router requests per service (two running and up to
-32 waiting by default). Requests wait for capacity, not another conversation's
-whole task, and queue time counts toward the routing timeout. Cancellation removes
-the waiter; overload and timeout retain the primary-model fallback. Optional
+32 waiting by default). Root conversations take turns receiving capacity, with
+FIFO ordering among their children; one task family can have at most eight
+waiting requests at the default limits. Idle slots can be borrowed. Queue time
+counts toward the routing timeout. Cancellation removes the waiter; overload
+and timeout retain the primary-model fallback. Optional
 background summaries use a separate fair queue, merge pending observations per
-conversation, and do not block model selection. Host startup overrides and
-persistence details are in the deployment guide linked above.
+child conversation, and do not block model selection. Subagents retain their
+own task, history and summary checkpoints, even when a fork shares a provider
+prompt-cache lineage. Traces include root, parent, child, turn and round IDs.
+A route that would discard images readable by the primary model falls back to
+primary; retries retain the model chosen for that logical round. Host startup
+overrides and persistence details are in the deployment guide linked above.
 
 Peer Device Mode applies configuration on the execution host and requires a host
 advertising smart-routing support. SSH/Docker workspaces also use their owning
@@ -50,7 +58,11 @@ OpenBitFun runtime's Router configuration, not a tokenizer path on the
 controller. Mobile and bot model editors explicitly reject changes to smart
 sessions; use the GUI to change the strategy. External agents and approved
 immutable dispatch jobs retain their existing model bindings. Older Peer hosts
-that do not advertise subagent-default support show this setting as unavailable.
+without the explicit automatic-subagent capability cannot select
+Automatic routing; hosts that support fixed roles retain those two choices.
+Local fixture tests do not establish live remote execution or classifier quality.
+Before production evaluation, compare fixed-primary and routed subagent runs for
+completion quality, total latency, model/cache usage and auxiliary request cost.
 
 ## Remote Connect
 

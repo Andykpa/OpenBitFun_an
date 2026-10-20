@@ -23,7 +23,7 @@ import {
 } from '@/infrastructure/api/service-api/AIApi';
 import { ACPClientAPI, type AcpSessionOptions } from '@/infrastructure/api/service-api/ACPClientAPI';
 import { getProviderDisplayName, getProviderGroupKey } from '@/infrastructure/config/services/modelConfigs';
-import type { AIModelConfig, AgentModelDefaultsConfig, DefaultModelsConfig, SubagentModelSelection } from '@/infrastructure/config/types';
+import type { AIModelConfig, AgentModelDefaultsConfig, DefaultModelsConfig, SmartSubagentModel, SubagentModelSelection } from '@/infrastructure/config/types';
 import { Tooltip, Icon } from '@openbitfun/ui';
 import { RetainedMountBoundary } from '@/shared/presence';
 import { notificationService } from '@/shared/notification-system';
@@ -1169,8 +1169,10 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     scopeKey: deviceSurfaceScope.key('model-selection-scope', sessionId),
     request: { sessionId, workspaceId: activeSession?.workspaceId || activeSession?.config.workspaceId,
       workspacePath: activeSession ? sessionProjectWorkspacePath(activeSession) : undefined,
-      remoteConnectionId: activeSession?.remoteConnectionId, remoteSshHost: activeSession?.remoteSshHost },
-    allowed: canRememberSelection, open: dropdownOpen,
+      remoteConnectionId: activeSession?.remoteConnectionId, remoteSshHost: activeSession?.remoteSshHost,
+      ...(targetIsSubagent || shouldIncludeInternalModelSession(activeSession) ? { includeInternal: true } : {}) },
+    allowed: isNativeModelSelection && (canRememberSelection || targetIsSubagent),
+    readOnly: !canRememberSelection, open: dropdownOpen,
     draft: sessionDraft ? { mode: sessionDraft.modelRouting, onChange: mode => {
       if (!sessionId) return;
       FlowChatStore.getInstance().setState(state => {
@@ -1194,7 +1196,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       return false;
     }
   };
-  const handleSmartSubagentModel = async (model: 'primary' | 'economy') => {
+  const handleSmartSubagentModel = async (model: SmartSubagentModel) => {
     try { return await routing.selectSubagentModel(model); }
     catch (error) {
       if (deviceSurfaceScope.isCurrent()) {
@@ -1333,7 +1335,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
 
       const updateTargetSessionModel = async () => {
         if (!sessionId) return;
-        if (previousSessionModelName === modelId && previousReasoningPreset === nextReasoningPreset) return;
+        if (!targetIsSubagent && previousSessionModelName === modelId && previousReasoningPreset === nextReasoningPreset) return;
 
         // Update the frontend session model immediately so the UI reflects the
         // switch without waiting for the backend IPC round-trip.
@@ -1353,7 +1355,10 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
             workspacePath: sessionProjectWorkspacePath(session),
             remoteConnectionId: session.remoteConnectionId,
             remoteSshHost: session.remoteSshHost,
-            includeInternal: shouldIncludeInternalModelSession(session),
+            includeInternal: targetIsSubagent || shouldIncludeInternalModelSession(session),
+            // A concrete choice overrides an auto-routed child. Only send the
+            // strategy field when this host has advertised its routing API.
+            ...(targetIsSubagent && routing.status ? { routingMode: 'manual' as const } : {}),
           });
           selectionScope.assertCurrent('select model');
         }
@@ -1361,6 +1366,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
 
       if (targetIsSubagent) {
         await updateTargetSessionModel();
+        await routing.refresh();
+        selectionScope.assertCurrent('select subagent model');
         setRecentManualModel(modelSelectionScopeKey, modelId);
         log.info('Subagent session model updated', { sessionId, modelId });
         return true;
@@ -1435,6 +1442,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     sessionId,
     t,
     targetIsSubagent,
+    routing.status,
+    routing.refresh,
     activeSession?.config.workspaceId,
     activeSession?.workspaceId,
   ]);
@@ -2575,7 +2584,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                 fast={resolveModelReference(allModels, 'fast', defaultModels) ?? undefined}
                 economy={allModels.find(model => model.id === defaultModels.economy && isSelectableTextChatModel(model))}
                 routing={{ mode: routing.mode, supported: Boolean(routing.status), ready: routing.status?.ready ?? false,
-                  issue: routing.status?.issue, summaryEnabled: routing.status?.summaryEnabled, subagentModel: routing.status?.subagentModel }}
+                  issue: routing.status?.issue, summaryEnabled: routing.status?.summaryEnabled, subagentModel: routing.status?.subagentModel,
+                  subagentRoutingSupported: routing.status?.subagentRoutingSupported }}
                 onModeChange={handleRoutingMode}
                 onSubagentModelChange={handleSmartSubagentModel}
                 onRoutingSettings={() => { setRouterSettingsScope(routingIdentity); }}
@@ -2586,6 +2596,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                 canRemember={canRememberSelection}
                 hasSession={Boolean(sessionId)}
                 canConfigureDefaults={canRememberSelection}
+                strategyReadOnly={!canRememberSelection}
                 advancedOpen={advancedScopeKey === modelSelectionScopeKey}
                 onAdvancedOpenChange={open => setAdvancedScopeKey(open ? modelSelectionScopeKey : null)}
                 fastUsesPrimary={!allModels.some(model => model.id === defaultModels.fast && isSelectableTextChatModel(model))}

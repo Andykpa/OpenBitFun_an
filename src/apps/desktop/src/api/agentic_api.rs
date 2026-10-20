@@ -2174,6 +2174,8 @@ pub struct ModelRoutingStatusRequest {
     pub remote_connection_id: Option<String>,
     pub remote_ssh_host: Option<String>,
     #[serde(default)]
+    pub include_internal: bool,
+    #[serde(default)]
     pub probe: bool,
 }
 
@@ -2194,7 +2196,7 @@ pub async fn get_model_routing_status(
             request.workspace_path,
             request.remote_connection_id,
             request.remote_ssh_host,
-            false,
+            request.include_internal,
         )
         .await?;
         Some(
@@ -4407,6 +4409,25 @@ mod tests {
         }))
         .expect("explicit reasoning preset");
         assert_eq!(explicit.reasoning_preset, Some(Some("high".to_string())));
+    }
+
+    #[test]
+    fn model_routing_status_preserves_legacy_requests_and_internal_session_opt_in() {
+        let legacy: ModelRoutingStatusRequest = serde_json::from_value(json!({
+            "sessionId": "session-1"
+        }))
+        .unwrap();
+        assert!(!legacy.include_internal);
+        assert!(!legacy.probe);
+        let child: ModelRoutingStatusRequest = serde_json::from_value(json!({
+            "sessionId": "child-1",
+            "includeInternal": true,
+            "probe": false,
+            "futureOption": true
+        }))
+        .unwrap();
+        assert!(child.include_internal);
+        assert_eq!(child.session_id.as_deref(), Some("child-1"));
     }
 
     #[test]

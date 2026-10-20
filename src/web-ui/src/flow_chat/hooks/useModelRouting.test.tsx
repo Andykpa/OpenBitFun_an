@@ -18,11 +18,11 @@ describe('host-owned model routing', () => {
   let host: ModelRoutingStatus;
   const changed = vi.fn();
   const Harness = (props: Parameters<typeof useModelRouting>[0]) => { result = useModelRouting(props); return null; };
-  const render = async (sessionId: string | undefined = 'session-a', allowed = true) => {
+  const render = async (sessionId: string | undefined = 'session-a', allowed = true, readOnly = false) => {
     const surface = getActiveSurfaceScope();
     const scopeKey = surface.key('routing-test', sessionId);
     await act(async () => root.render(<Harness identity={`${surface.epoch}:${scopeKey}`} epoch={surface.epoch} scopeKey={scopeKey}
-      request={{ sessionId, workspacePath: '/remote/workspace' }} allowed={allowed} open modelName="custom-main"
+      request={{ sessionId, workspacePath: '/remote/workspace' }} allowed={allowed} readOnly={readOnly} open modelName="custom-main"
       reasoningPreset="high" onModelChange={changed} />));
   };
   beforeEach(() => {
@@ -54,6 +54,22 @@ describe('host-owned model routing', () => {
     await act(async () => { await result!.select('smart'); });
     expect(agentAPI.updateSessionModel).toHaveBeenCalledOnce();
     expect(configManager.setConfig).not.toHaveBeenCalled(); expect(host.defaultMode).toBe('manual');
+  });
+
+  it('reads an automatic child strategy without granting session or global policy mutations', async () => {
+    host.mode = 'smart'; host.subagentRoutingSupported = true;
+    await render('subagent-a', true, true);
+    expect(result.mode).toBe('smart');
+    expect(agentAPI.getModelRoutingStatus).toHaveBeenCalledWith({ sessionId: 'subagent-a', workspacePath: '/remote/workspace' });
+    await act(async () => {
+      expect(await result.select('manual')).toBe(false);
+      expect(await result.selectSubagentModel('auto')).toBe(false);
+      await result.changeScope('remember');
+    });
+    expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+    expect(configManager.updateConfig).not.toHaveBeenCalled();
+    expect(result.mode).toBe('smart');
   });
 
   it('keeps a draft-only strategy local and reads host readiness without a nonexistent session ID', async () => {
@@ -111,6 +127,41 @@ describe('host-owned model routing', () => {
     expect(result.status?.subagentModel).toBe('economy');
     await act(async () => { expect(await result.selectSubagentModel('primary')).toBe(true); });
     expect(result.status?.subagentModel).toBe('primary');
+  });
+
+  it('selects automatic subagent routing only after the executing host advertises support', async () => {
+    host.subagentRoutingSupported = true;
+    await render(); await act(async () => result.changeScope('session'));
+    await act(async () => { expect(await result.selectSubagentModel('auto')).toBe(true); });
+    expect(configManager.setConfig).toHaveBeenCalledExactlyOnceWith('ai.model_routing.subagent_model', 'auto');
+    expect(result.status?.subagentModel).toBe('auto');
+    expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
+    expect(host.defaultMode).toBe('manual');
+  });
+
+  it.each([undefined, false])('keeps fixed roles available without automatic subagent support: %s', async support => {
+    host.subagentRoutingSupported = support;
+    await render();
+    await act(async () => { expect(await result.selectSubagentModel('auto')).toBe(false); });
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+    await act(async () => { expect(await result.selectSubagentModel('economy')).toBe(true); });
+    expect(configManager.setConfig).toHaveBeenCalledExactlyOnceWith('ai.model_routing.subagent_model', 'economy');
+  });
+
+  it('does not write auto after the host withdraws its capability during negotiation', async () => {
+    host.subagentRoutingSupported = true;
+    await render(); delete host.subagentRoutingSupported;
+    await act(async () => { expect(await result.selectSubagentModel('auto')).toBe(false); });
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+    expect(result.status?.subagentRoutingSupported).toBeUndefined();
+    expect(result.status?.subagentModel).toBe('primary');
+  });
+
+  it('keeps the confirmed automatic policy when an attempted fixed role fails to save', async () => {
+    host.subagentModel = 'auto'; host.subagentRoutingSupported = true;
+    await render(); vi.mocked(configManager.setConfig).mockRejectedValueOnce(new Error('offline'));
+    await act(async () => { await expect(result.selectSubagentModel('economy')).rejects.toThrow('offline'); });
+    expect(result.status?.subagentModel).toBe('auto'); expect(result.pending).toBe(false);
   });
 
   it('does not write unsupported settings when a host omits the capability on recheck', async () => {
