@@ -61,6 +61,7 @@ remaining native acceptance scenarios separately.
 - `macos_*` / `windows_*` — platform AX, capture, list-apps, shortcuts
 - `windows_capture.rs` — WGC frame conversion and authoritative window bounds
 - `windows_wgc_capture.rs` — Windows.Graphics.Capture (Direct3D11)
+- `windows_window_target.rs` — Win32 window facts and portable default-target policy
 - `linux_ax_ui.rs` — AT-SPI locate
 - `linux_control.rs` — portal lifetime, PipeWire frame consumption, foreground seat input
 - `linux_control_ax.rs` — AT-SPI background semantic operations
@@ -125,6 +126,8 @@ node scripts/test-macos-control-capture.mjs
 node scripts/test-macos-control-capture.mjs --locked
 # macOS passive cursor lifecycle; no capture or accessibility permission required.
 node scripts/test-macos-control-pointer.mjs
+# Shared macOS/Windows presentation math; also runnable on Linux without a GUI.
+node scripts/test-computer-use-pointer-motion.mjs
 # macOS + Accessibility and Screen Recording permissions; clicks only its dedicated fixture process.
 node scripts/test-macos-directed-input.mjs
 # Covered standard controls: exact native AX hit + semantic action + fresh capture.
@@ -236,7 +239,19 @@ execution; full Desktop compilation and native fixtures still belong on Windows.
 node scripts/test-windows-computer-use-native.mjs
 # Other hosts with the target installed: compile production native modules only.
 node scripts/test-windows-computer-use-native.mjs --check --target x86_64-pc-windows-msvc
+# Interactive Windows: own-process main + topmost companion selection and real WGC pixels.
+node scripts/test-windows-computer-use-native.mjs default_window_captures_main_beside_topmost_companion -- --ignored --test-threads=1
 ```
+
+For default Windows target selection, run
+`node scripts/test-computer-use-context.mjs windows_window_target`.
+The portable regression includes issue #3291's reported HWNDs, styles and bounds;
+it is not evidence of WGC execution. Native default selection must prefer content
+over floating utility windows without app-name rules. Explicit HWNDs and existing
+bindings bypass ranking. WGC rejection reports the selected HWND and window facts;
+never probe another target or substitute desktop pixels after a failure. The
+interactive fixture captures only its own Win32 window; it does not establish
+Tauri/WebView2 compatibility on every Windows build.
 
 Observation IDs and target revisions are additive wire fields. Keep accepting
 legacy payloads, advertise `observation-id-v1`, and reject explicit stale IDs
@@ -263,3 +278,14 @@ These UI tests cover permission requests, stale device/grant responses, geometry
 gesture cancellation and cursor math. They do not establish native delivery or
 remote end-to-end behavior. The strict macOS fixture also exercises native shared
 preview capture/input and stale preview rejection after revocation.
+
+Native pointer presentation uses `pointer_motion.h` for both AppKit and Win32.
+Keep elapsed-time spring math free of OS/input dependencies. AppKit's visibility
+refresh must never snap an in-flight movement; Win32 reuses one worker/window,
+coalesces only visual targets and wakes on Stop. The native click pulse follows
+visual arrival without delaying input. Linux/Wayland uses the shared Web preview;
+do not introduce an X11/global pointer fallback. After native-motion changes run
+the portable math fixture plus the platform fixture above. The Windows
+`--check` command validates types only; its native test mode links the shared C
+model. Browser tests and portable math on macOS are not native Windows/Linux
+or remote-session evidence.

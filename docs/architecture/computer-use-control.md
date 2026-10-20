@@ -170,6 +170,15 @@ binding. Older hosts and Linux reject exact-window requests explicitly; Linux
 keeps its existing AT-SPI and portal selection contracts. No remote-workspace
 request falls back to the controller's desktop.
 
+For an unbound Windows PID/name selector, default selection prefers ordinary
+content windows over tool/no-activate windows and topmost companions, preserving
+native order among equal candidates. An enabled dialog can outrank a disabled
+main window, and utility-only applications remain selectable. Known hidden,
+minimized, cloaked, capture-restricted or empty targets are ineligible for this
+default. Explicit IDs and live bindings bypass ranking. WGC remains the capture
+authority; a creation failure returns the exact HWND and window facts with
+explicit-selection guidance, without probing or switching to another window.
+
 The optional manual-sharing API uses `awaiting_share`, opaque process-bound
 choices, observe-first capture and a separate revocable input grant. Its scope
 does not apply to normal Agent tasks. Existing remembered preferences and manual
@@ -644,6 +653,18 @@ preview feedback conservatively when native visibility cannot be established.
 Ubuntu preview does not invent a Wayland global overlay. Reduced-motion retains
 static position feedback without movement transitions.
 
+macOS and Windows use the same platform-independent, critically damped spring
+in `pointer_motion.h`. It retains displayed position and velocity on retarget,
+uses elapsed monotonic time, and catches up after a delayed frame without
+replaying queued movements. macOS samples motion separately from its slower
+window/occlusion refresh. Windows coalesces visual destinations on a persistent
+window-owning worker; Stop wakes it and releases the window. Both stop frequent
+updates at rest, respect the OS motion preference and pulse clicks at visual
+arrival without delaying native input. This follows the displayed-tip and
+retained-velocity approach in
+[open-computer-use Cursor Motion](https://github.com/ifuryst/open-computer-use/blob/43eb4b53de7a15b3f99ec2c9922bedeb95602266/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/CursorMotionModel.swift);
+the native integration remains asynchronous.
+
 The physical preview cursor is a deterministic 240 Hz simulation sampled by
 `requestAnimationFrame`, with retargeting, directional rotation, speed stretch,
 arrival deformation, opacity/blur and resize behavior from the reference. Motion
@@ -651,6 +672,12 @@ never acknowledges, schedules or delays native input. Reduced-motion uses
 immediate feedback. Rust-generated golden traces test the mathematical port,
 not native OS delivery. The click ring expires independently of the persistent
 pointer.
+Both the Agent control card and the shared interactive preview use this renderer
+on macOS, Windows and Linux, including peer-host previews. Position is written
+through `translate3d` rather than per-frame layout properties. Unchanged resize
+notifications do not retarget it, and direct user manipulation cancels animation
+immediately. The golden model is unchanged; component tests separately cover
+render scheduling, cancellation, resize and live reduced-motion changes.
 
 The product surface shows authoritative target, mode, status and Stop while the
 chat card is collapsed. Preview sampling is bounded and stops when unobserved;
