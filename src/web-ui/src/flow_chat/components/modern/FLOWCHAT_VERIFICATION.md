@@ -65,7 +65,7 @@ each missing what the other had.
 | `../../selection/useExcerptComposerActions.test.tsx` | main/side draft routing, focus after activation, ordinary child ownership, and stale surface rejection |
 | `../../../shared/utils/conversationExcerpt.test.ts` | quote deduplication, source-data framing, and legacy/additive presentation metadata |
 | `flowChatSearchPresentation.test.ts` | visible source highlighting and single-line marker geometry, wrapping, scrolling, and clipping |
-| `FlowChatHeader.test.tsx` | shared SearchField composition, result controls, input identity while expanding, native-view occlusion declaration for session overview, and the default active-only Agent tree toggle |
+| `FlowChatHeader.test.tsx` | shared SearchField composition, result controls, input identity while expanding, native-view occlusion declaration for session overview, overview positioning during pane resize/collapse, and the default active-only Agent tree toggle |
 | `SessionTreePopover.test.tsx` | Agent selection/cancellation/deletion menus, type-only metadata, active branch filtering with ancestor retention, restoring all agents, and the active empty state |
 | `../../services/deleteSessionTreeBranch.test.ts` | Unloaded descendant deletion in child-first order, remote location forwarding, failure retention, and device surface guards |
 
@@ -90,8 +90,10 @@ only that pending annotation from the composer or queue and close the dialog.
 The first ordinary side question forks the parent on send. Model and reasoning
 choices stay in its draft until that request; its Agent mode is inherited.
 Its permission control reads the parent and becomes editable after submission.
-Peers advertise `btw_initial_model_selection_v1` before showing those draft
-settings as editable. Older hosts retain inherited settings and readable quotes.
+Peers advertise `btw_initial_model_selection_v1` for legacy fixed-model draft
+settings, and `btw_model_pool_selection_v1` for typed model/pool choices. Inherited
+pools send no scalar override and retain the parent's current binding under both
+routing strategies. Older hosts retain inherited settings and readable quotes.
 
 For completed-turn image export, check both option cards in light/dark and
 high-contrast themes: hover, press, and keyboard focus change the neutral fill

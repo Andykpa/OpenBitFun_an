@@ -464,13 +464,11 @@ export interface ModelRoutingStatus {
   connected: boolean | null;
   issue: string | null;
   summaryEnabled: boolean;
-  /** Present only when the executing host supports smart subagent defaults. */
+  /** Legacy response field; current hosts omit this retired control. */
   subagentModel?: string;
-  /** Explicit execution-host capability; missing on hosts without subagent auto routing. */
-  subagentRoutingSupported?: boolean;
 }
 export type ModelRoutingStatusRequest = Partial<Pick<UpdateSessionModelRequest,
-  'sessionId' | 'workspaceId' | 'workspacePath' | 'remoteConnectionId' | 'remoteSshHost' | 'includeInternal'>> & { probe?: boolean };
+  'sessionId' | 'workspaceId' | 'workspacePath' | 'remoteConnectionId' | 'remoteSshHost'>> & { probe?: boolean };
 
 export interface UpdateSessionModelRequest {
   sessionId: string;

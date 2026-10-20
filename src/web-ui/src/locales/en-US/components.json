@@ -654,5 +654,51 @@
     "unsavedMessage": "Save changes to “{{title}}” before closing?",
     "closeOtherContent": "Close other content tabs",
     "closeAllContent": "Close all content tabs"
+  },
+  "desktopCard": {
+    "loading": "Loading…",
+    "loadFailed": "This card could not be loaded.",
+    "unsupportedTemplate": "This card needs a newer version of OpenBitFun.",
+    "updated": "Updated {{time}}",
+    "refreshFailed": "Refresh failed: {{error}}",
+    "menu": {
+      "more": "More actions",
+      "refresh": "Refresh",
+      "openLink": "Open link",
+      "openSession": "Open source session",
+      "alwaysOnTop": "Keep on top",
+      "hide": "Hide card",
+      "delete": "Delete card"
+    },
+    "deleteConfirm": {
+      "title": "Delete card",
+      "message": "Delete this card? This cannot be undone.",
+      "cancel": "Cancel",
+      "confirm": "Delete"
+    },
+    "countdown": {
+      "due": "Time's up",
+      "days": "{{count}}d",
+      "dismiss": "Dismiss"
+    },
+    "checklist": {
+      "empty": "No items"
+    },
+    "cron": {
+      "failed": "Could not load the scheduled job.",
+      "missing": "This scheduled job no longer exists.",
+      "enabled": "Active",
+      "paused": "Paused",
+      "nextRun": "Next run",
+      "lastRun": "Last run",
+      "neverRun": "Not run yet",
+      "status": {
+        "ok": "Succeeded",
+        "error": "$t(shared:statuses.failed)",
+        "running": "$t(shared:statuses.running)",
+        "queued": "Queued",
+        "cancelled": "$t(shared:statuses.cancelled)"
+      }
+    }
   }
 }

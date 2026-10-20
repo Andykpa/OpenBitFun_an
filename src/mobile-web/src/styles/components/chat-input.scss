@@ -85,6 +85,9 @@
   min-width: 0;
 
   [data-openbitfun-part="label"] {
+    // MobileButton uses display: contents by default; ellipsis needs a box.
+    display: block;
+    flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;

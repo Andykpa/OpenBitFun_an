@@ -33,6 +33,7 @@ export const agentRuntimeRootPublicModules = [
   'event_source',
   'events',
   'evidence_ledger',
+  'model_pool',
   'review_read_receipt',
   'native_hooks',
   'permission',
@@ -44,6 +45,8 @@ export const agentRuntimeRootPublicModules = [
   'remote_file_delivery',
   // Pure Router observation state/budgets consumed by Core, no concrete AI or IO.
   'router_context',
+  // Pure Router summary admission and coalescing; Core supplies AI and IO.
+  'router_summary_queue',
   'runtime',
   'scheduled_job',
   'scheduler',
@@ -285,6 +288,17 @@ function opencodeReferenceAdapterEntry(symbol, consumer) {
 }
 
 export const opencodeAdapterPublicApiEntries = [
+  {
+    symbol: 'session',
+    owner: 'OpenCode-compatible SQLite session history translator',
+    consumer: 'openbitfun-core external_session_import and the Zcode source identity adapter',
+    verification: 'OpenCode and Zcode history fixtures, committed WAL test, and installed-session follow/fork verification',
+    p0: 'read-only persisted history import through the existing native lifecycle',
+    contractSlice: contractSlices.externalSessionImportContract,
+    wireImpact: false,
+    rationale: 'both consumers use the same session/message/part protocol; path and provenance remain source-owned',
+    exit: 'remove only when an equivalent typed session reader replaces this shared format implementation',
+  },
   opencodeAdapterEntry(
     'load_opencode_package_adapter',
     'openbitfun-core managed plugin composition root and DefaultPluginRuntimeClient integration tests',
@@ -523,7 +537,17 @@ export const claudeCodeAdapterPublicApiEntries = [
 ))).concat([
   'load_claude_code_user_instructions',
   'ClaudeCodeInstructionSourceOptions',
-].map((symbol) => userInstructionSourceAdapterEntry(symbol, 'Claude Code')));
+].map((symbol) => userInstructionSourceAdapterEntry(symbol, 'Claude Code'))).concat([{
+  symbol: 'session',
+  owner: 'Claude Code adapter read-only session history translator',
+  consumer: 'openbitfun-core external_session_import composition facade',
+  verification: 'Claude Code transcript fixtures and installed-session follow/fork verification',
+  p0: 'read-only Claude Code history import with native continuation and preserved provenance',
+  contractSlice: contractSlices.externalSessionImportContract,
+  wireImpact: false,
+  rationale: 'the adapter translates transcripts; core owns native persistence and lifecycle',
+  exit: 'remove only when an equivalent typed session history adapter replaces this module',
+}]);
 
 export const codexAdapterPublicApiEntries = [
   'CodexHookProvider',

@@ -1,6 +1,6 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, Combobox, Icon, IconButton, Tooltip } from '@openbitfun/ui';
+import { Combobox, Icon, IconButton, Tooltip } from '@openbitfun/ui';
 import { notificationService } from '@/shared/notification-system';
 import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
 import { configManager } from '../services/ConfigManager';
@@ -16,9 +16,7 @@ import {
   isSelectableModelForCapability,
 } from '../services/modelCategory';
 import './DefaultModelConfig.scss';
-import { ModelRouterSettings } from './ModelRouterSettings';
 import { agentAPI } from '@/infrastructure/api/service-api/AgentAPI';
-import { ModelBillingSummary } from './ModelBillingSummary';
 
 const log = createLogger('DefaultModelConfig');
 
@@ -45,7 +43,6 @@ export const DefaultModelConfig: React.FC<DefaultModelConfigProps> = ({
   onDefaultModelsChange,
 }) => {
   const { t } = useTranslation('settings/default-model');
-  const [routerOpen, setRouterOpen] = useState(false);
   const { buildModelOption } = useModelSelectPresentation();
   const controlsDisabled = loading || disabled || models.length === 0;
   const pendingPlaceholder = loading ? (
@@ -196,11 +193,6 @@ export const DefaultModelConfig: React.FC<DefaultModelConfigProps> = ({
           onValueChange={value => handleDefaultModelChange('economy', normalizeSelectValue(value))} disabled={controlsDisabled}
           options={[{ label: t('core.economy.notSet'), value: '' }, ...enabledModels.map(buildModelOption)]} />
       </ConfigPageRow>
-      <ConfigPageRow label={t('router')} align="center">
-        <Button size="sm" variant="outline" disabled={loading || disabled} onClick={() => setRouterOpen(true)}>{t('routerConfigure')}</Button>
-      </ConfigPageRow>
-      {routerOpen && <ModelRouterSettings models={models} onClose={() => setRouterOpen(false)} onSaved={() => {}} />}
-
       <ConfigPageRow
         label={renderSlotLabel(
           t('optional.capabilities.image_understanding.label'),
@@ -247,13 +239,6 @@ export const DefaultModelConfig: React.FC<DefaultModelConfigProps> = ({
           size="sm"
         />
       </ConfigPageRow>
-      <ModelBillingSummary
-        key={`${defaultModels.primary}:${defaultModels.fast}`}
-        primary={models.find(model => model.id === defaultModels.primary)}
-        fast={models.find(model => model.id === (defaultModels.fast ?? defaultModels.primary))}
-        disabled={controlsDisabled}
-        onSaved={() => undefined}
-      />
     </div>
   );
 };

@@ -77,6 +77,8 @@
     "inheritedSettings": "On this device version, the first side question uses the main conversation settings. You can change the model after sending.",
     "actions": "Selected text actions",
     "annotate": "Add annotation",
+    "moveEditor": "Move annotation editor",
+    "resizeEditor": "Resize annotation editor",
     "annotation": "Annotation",
     "annotationPlaceholder": "Write your annotation…",
     "editAnnotation": "Annotate selected text",
@@ -3028,7 +3030,8 @@
         "FinalizeMiniApp": "Update Mini App",
         "PublishMiniApp": "Submit Mini App",
         "PublishAppearance": "Submit Skin",
-        "Playbook": "Read operation guide"
+        "Playbook": "Read operation guide",
+        "DesktopCard": "Desktop card"
       },
       "fields": {
         "results": "Results",
@@ -3131,7 +3134,13 @@
         "checksFailed": "Checks failed",
         "checksPending": "Checks pending",
         "author": "Author",
-        "lastOutcome": "Last transaction outcome"
+        "lastOutcome": "Last transaction outcome",
+        "card": "Card ID",
+        "dataSource": "Data source",
+        "visibility": "Visibility",
+        "refreshError": "Last refresh error",
+        "presets": "Presets",
+        "cards": "Cards"
       },
       "states": {
         "active": "Active",
@@ -3172,7 +3181,10 @@
         "idle": "Idle",
         "managed": "Managed worktree",
         "permanent": "Permanent worktree",
-        "external": "External worktree"
+        "external": "External worktree",
+        "cardCreated": "Created and shown",
+        "cardShown": "Shown",
+        "cardHidden": "Hidden"
       },
       "operations": {
         "list": "View list",
@@ -3264,7 +3276,36 @@
       "imageUnavailable": "Image preview is unavailable. You can open the recorded path to inspect the source.",
       "imageLoading": "Loading source image…",
       "hostUnavailable": "This record belongs to a dispatched host. Open the resource on that host; local navigation is unavailable.",
-      "remoteLoopback": "This loopback address belongs to the executing host. Open it on that host."
+      "remoteLoopback": "This loopback address belongs to the executing host. Open it on that host.",
+      "desktopCard": {
+        "actions": {
+          "presets": "Browse card presets",
+          "create": "Create desktop card",
+          "update": "Update desktop card",
+          "list": "List desktop cards",
+          "get": "Read desktop card",
+          "show": "Show desktop card",
+          "hide": "Hide desktop card",
+          "delete": "Delete desktop card",
+          "refresh": "Refresh desktop card"
+        },
+        "templates": {
+          "countdown": "Countdown",
+          "checklist": "Checklist",
+          "note": "Note",
+          "progress": "Progress",
+          "metrics": "Metrics",
+          "cronJob": "Scheduled job",
+          "custom": "Custom"
+        },
+        "sources": {
+          "http": "HTTP · {{target}} · every {{interval}}s",
+          "command": "Local command · {{target}} · every {{interval}}s"
+        },
+        "visible": "Shown on desktop",
+        "hidden": "Hidden",
+        "disabledNotice": "Desktop cards are turned off in settings, so these cards are not displayed."
+      }
     }
   },
   "welcome": {
@@ -3340,7 +3381,7 @@
       "mode": "Mode",
       "currentModel": "Current model",
       "poolConnections": "Battery connections",
-      "modelPool": "Model pool"
+      "modelList": "Model list"
     },
     "modes": {
       "selection": "Select mode",
@@ -3358,9 +3399,7 @@
       "previewNotice": "Automatic routing is not enabled. This chat continues to use: {{model}}.",
       "previewHint": "Previewing does not change this chat or your remembered default.",
       "previewBadge": "Preview",
-      "smartSummary": "Route main conversations and subagents between primary and economy models based on each step’s complexity",
-      "smartMainSummary": "Route the main conversation between primary and economy models based on each step’s complexity",
-      "smartSessionSummary": "This session automatically chooses primary or economy; selecting a specific model fixes it for this session",
+      "smartSummary": "Choose between primary and economy models based on each step’s complexity.",
       "manualSummary": "Use models by role, without automatic switching.",
       "previewStatus": "Preview only · Routing unavailable",
       "primaryPurpose": "Complex steps",
@@ -3402,9 +3441,11 @@
       "targetModelUnavailable": "Target model unavailable"
     },
     "tooltip": {
+      "currentModel": "Current model",
       "configName": "Configuration",
       "modelName": "Model name",
       "contextWindow": "Context window",
+      "poolContextWindow": "Pool context window",
       "compressionTrigger": "Compression trigger",
       "longContextWarning": "This model's configured context window exceeds 400K. Very long context can reduce model quality; consider setting it to around 300K."
     },
@@ -3413,14 +3454,6 @@
       "agentPromptLabel": "Last request prompt",
       "acpContext": "ACP reported context: {{usage}}",
       "acpContextLabel": "ACP reported context"
-    },
-    "scope": {
-      "remember": "Remember selection",
-      "session": "Only this session",
-      "title": "Selection scope",
-      "rememberHint": "For this session and future new sessions",
-      "sessionHint": "Temporary choice; new-session defaults stay unchanged",
-      "saveFailed": "Could not change the save preference. Your current session model is unchanged."
     },
     "close": "Close model selection",
     "manageModels": "Manage models",
@@ -3456,7 +3489,7 @@
     },
     "economyModel": "Economy Model",
     "routing": {
-      "configure": "Configure",
+      "configure": "Configure smart mode",
       "serviceReady": "Ready",
       "serviceNotReady": "Setup needed",
       "serviceUnsupported": "Unavailable",
@@ -3465,26 +3498,29 @@
       "active": "Smart routing enabled; failures use the primary model",
       "ready": "Configured, not enabled",
       "notReady": "Router not ready; the current strategy remains active",
+      "configurationIssue": "Smart-mode configuration is unavailable. Check the Router service and tokenizer file.",
       "unsupported": "This execution host does not support smart routing",
-      "scopeHint": "Remember the strategy by default, or use it for this session only; model roles are shared",
       "costHint": "Router and auxiliary summary calls may incur extra costs that are not included in these billing hints",
       "saveFailed": "Could not save the model strategy; try again",
       "latency": "Routing took {{ms}} ms",
-      "fallback": "Router failed; using primary",
-      "subagents": {
-        "title": "Default subagent model",
-        "auto": "Automatic routing",
-        "autoSummary": "Subagents · Automatic routing",
-        "autoHint": "Choose the primary or economy model based on each step’s complexity",
-        "autoUnsupported": "This execution host does not support automatic subagent routing; fixed primary and economy choices remain available",
-        "unknown": "Current host policy (unsupported in this version)",
-        "primary": "Follow primary model",
-        "economy": "Follow economy model",
-        "primarySummary": "Subagents · Primary model",
-        "economySummary": "Subagents · Economy model",
-        "hint": "Applies to new subagents and preserves individual model settings",
-        "unsupported": "Update the executing host to configure this setting"
-      }
+      "fallback": "Router failed; using primary"
+    },
+    "pools": {
+      "title": "Model pools",
+      "loadError": "Unable to load model pools. Reopen the menu to retry.",
+      "surfaceUnsupported": "Model pools are not supported for this session surface. Select a concrete model.",
+      "actual": "Current model: {{model}}",
+      "unassigned": "Assigned on the first request",
+      "choose": "Choose model pool",
+      "configure": "Configure model pools",
+      "empty": "No model pools configured",
+      "pendingSelection": "Not selected",
+      "unavailable": "No available models",
+      "ordered": "Ordered",
+      "balanced": "Balanced",
+      "members": "{{strategy}} · Models: {{total}}",
+      "orderedDescription": "Uses the first available member when assigning a model; keeps the current healthy binding.",
+      "balancedDescription": "Distributes new session bindings across members; keeps the current healthy binding."
     }
   },
   "reasoningEffort": {

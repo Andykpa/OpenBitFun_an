@@ -22,7 +22,7 @@
       },
       "pet": {
         "label": "宠物与助手",
-        "description": "选择宠物形象，设置助手实时语音通话"
+        "description": "选择宠物形象，设置助手实时语音通话与桌面小卡片"
       },
       "terminal": {
         "label": "终端",
@@ -107,7 +107,8 @@
       "quick-actions": "快捷动作",
       "hooks": "事件 Hooks",
       "pet": "宠物",
-      "voice-call": "实时语音通话"
+      "voice-call": "实时语音通话",
+      "desktop-cards": "小卡片"
     }
   },
   "changeGuard": {

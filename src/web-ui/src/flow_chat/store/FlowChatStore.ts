@@ -1,7 +1,9 @@
 import { workspaceManager } from '@/infrastructure/services/business/workspaceManager';
+import { removeBtwSessionFromAgentCanvas } from '@/app/components/panels/content-canvas/stores/canvasStore';
 import { resolveLegacySessionWorkspace } from '@/infrastructure/api/service-api/legacyWorkspaceCompatibility';
 import { projectUserQuestionTiming } from '../utils/userQuestionTiming';
 import { externalHistoryFromMetadata } from '../utils/externalHistory';
+import { isExternalSessionEcosystem } from '@/shared/types/external-session';
 /**
  * Flow Chat global state store
  * Prevents state loss when components remount
@@ -4697,6 +4699,24 @@ export class FlowChatStore {
     });
   }
 
+  public updateSessionModelPool(
+    sessionId: string, poolId: string | undefined,
+    binding?: import('@/infrastructure/api/service-api/ModelPoolAPI').ModelPoolBinding,
+    pending = false,
+  ): void {
+    this.setState(prev => {
+      const session = prev.sessions.get(sessionId);
+      if (!session) return prev;
+      const sessions = new Map(prev.sessions);
+      sessions.set(sessionId, {
+        ...session,
+        config: { ...session.config, modelPoolId: poolId, modelPoolBinding: binding,
+          modelPoolSelectionPending: pending, ...(poolId ? { reasoningPreset: undefined } : {}) },
+      });
+      return { ...prev, sessions };
+    });
+  }
+
   public updateSessionReasoningPreset(sessionId: string, presetId?: string | null): void {
     this.setState(prev => {
       const session = prev.sessions.get(sessionId);
@@ -5386,7 +5406,7 @@ export class FlowChatStore {
           scope.assertCurrent('complete session deletion');
         }
         stateMachineManager.delete(id);
-        const removedIds = this.removeSession(id, id === sessionId ? options : undefined);
+        const removedIds = this.removeDeletedSession(id, id === sessionId ? options : undefined);
         // A host deletion event may already have removed the presentation.
         const confirmedIds = [...new Set([id, ...removedIds])];
         sessionComposerStore.getState().removeDrafts(confirmedIds);
@@ -5395,6 +5415,14 @@ export class FlowChatStore {
     } finally {
       pendingOptions.delete(sessionId);
     }
+  }
+
+  /** Confirmed deletion retires detail tabs too, including suspended canvases. */
+  public removeDeletedSession(sessionId: string, options?: RemoveSessionOptions): string[] {
+    const removedIds = this.removeSession(sessionId, options);
+    // A deletion event may arrive after the record was already removed.
+    new Set([sessionId, ...removedIds]).forEach(removeBtwSessionFromAgentCanvas);
+    return removedIds;
   }
 
   public removeSession(sessionId: string, options?: RemoveSessionOptions): string[] {
@@ -9154,7 +9182,7 @@ export class FlowChatStore {
               id: tool.id,
               type: 'tool' as const,
               toolName: tool.toolName,
-              importedSource: metadata?.importedFrom === 'codex' || metadata?.importedFrom === 'zcode'
+              importedSource: isExternalSessionEcosystem(metadata?.importedFrom)
                 ? metadata.importedFrom : undefined,
               toolCall: tool.toolCall,
               interruptionReason: normalizePersistedToolInterruptionReason(

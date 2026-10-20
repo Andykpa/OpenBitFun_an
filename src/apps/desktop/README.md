@@ -10,15 +10,14 @@ default. Use **Only this conversation** for a temporary choice. Manual mode uses
 the primary model for the main conversation and the fast model for ordinary
 subagents; explicit subagent overrides still apply. Smart mode chooses between
 the primary model and an independently configured economy model for each main
-conversation or automatically routed subagent step. Role assignments are shared
-across conversations. New installations default unconfigured smart subagents to
-**Automatic routing**. Under **Advanced → Default subagent model**, you can also
-choose **Follow primary model** or **Follow economy model** for a fixed model.
-This host-wide setting applies to nested subagents; individual agent settings
-and explicit model/inherit requests take precedence. Existing saved defaults
-and fixed subagents keep their choices after upgrading. Resuming an automatic
-subagent preserves its strategy; explicitly choosing a model makes it fixed.
-Smart mode does not require a fast model.
+conversation step. Role assignments are shared across conversations.
+In smart mode, new subagents default to the primary model. Under **Advanced →
+Default subagent model**, choose **Follow primary model** or **Follow economy
+model**. This host-wide setting also applies to nested subagents; individual
+agent settings and explicit model/inherit requests take precedence. Existing
+subagents keep their chosen model or pool when resumed. Subagents follow their
+own configuration and do not participate in per-step Router classification or
+Router summaries. Smart mode does not require a fast model.
 Choices made in a new conversation draft are applied on its execution host
 before the first message is sent, including temporary session-only strategies.
 
@@ -39,15 +38,15 @@ storage start from the remaining original messages instead of the main context
 compression summary.
 
 The execution host bounds Router requests per service (two running and up to
-32 waiting by default). Root conversations take turns receiving capacity, with
-FIFO ordering among their children; one task family can have at most eight
+32 waiting by default). Root conversation groups take turns receiving capacity,
+with FIFO ordering within each group; one group can have at most eight
 waiting requests at the default limits. Idle slots can be borrowed. Queue time
 counts toward the routing timeout. Cancellation removes the waiter; overload
 and timeout retain the primary-model fallback. Optional
 background summaries use a separate fair queue, merge pending observations per
-child conversation, and do not block model selection. Subagents retain their
-own task, history and summary checkpoints, even when a fork shares a provider
-prompt-cache lineage. Traces include root, parent, child, turn and round IDs.
+conversation, and do not block model selection. These queues serve eligible main
+conversations; subagents and model-pool conversations do not enter the Router.
+Traces retain root, parent, session, turn and round IDs for isolation.
 A route that would discard images readable by the primary model falls back to
 primary; retries retain the model chosen for that logical round. Host startup
 overrides and persistence details are in the deployment guide linked above.
@@ -58,10 +57,9 @@ OpenBitFun runtime's Router configuration, not a tokenizer path on the
 controller. Mobile and bot model editors explicitly reject changes to smart
 sessions; use the GUI to change the strategy. External agents and approved
 immutable dispatch jobs retain their existing model bindings. Older Peer hosts
-without the explicit automatic-subagent capability cannot select
-Automatic routing; hosts that support fixed roles retain those two choices.
+that do not advertise subagent-default support show this setting as unavailable.
 Local fixture tests do not establish live remote execution or classifier quality.
-Before production evaluation, compare fixed-primary and routed subagent runs for
+Before production evaluation, compare fixed-primary and routed main conversations for
 completion quality, total latency, model/cache usage and auxiliary request cost.
 
 ## Remote Connect
@@ -657,3 +655,120 @@ account device, the existing reply includes an explicit notice that proactive
 scheduled-job and desktop-result notifications are unavailable there. Ordinary
 WeChat-initiated requests keep their existing cross-device reply path. This feature
 does not add cross-host Peer Device or Detached Dispatch result delivery.
+
+## Model pools
+
+In **Settings → AI models → Model pools**, create named pools from existing model
+configurations. Add/remove members, move them up/down, and choose **Ordered** or
+**Balanced**. In a native chat's model menu, switch to **Battery mode** and
+choose a pool. Its summary shows the pool name, the last accepted concrete member
+and the routing strategy. Click the pool name to choose another pool; manual mode
+continues to list only individual models. Pool requests use
+each member's configured defaults; session reasoning overrides are hidden while
+a pool is selected. A successful explicit model or pool choice is remembered for
+new native chats. Existing chats keep their selection; automatic pool failover
+does not change the preference. Subagent defaults, built-in overrides and fork
+defaults accept a model, a pool, or parent inheritance; a child owns its binding.
+
+Ordered uses the first eligible member when establishing or replacing a binding.
+Balanced rotates new assignments across eligible members. Both preserve a healthy
+chat binding, even when a higher-priority member recovers or the pool is reordered.
+This balances assignments within one Runtime, not tokens, cost, or work across
+independent hosts. Native child agents that inherit the parent choice inherit the
+pool and receive their own assignment; externally approved fixed bindings stay fixed.
+
+Health comes from actual requests, without background quota or balance queries.
+Network failures, throttling, quota exhaustion and unavailable providers cool down;
+authentication, billing and permission failures require attention. After cooldown,
+one live request probes the member. The **Retry** action permits another attempt
+after repairing configuration. Disabled, deleted and incompatible members are
+skipped. Health is shared when multiple pools refer to the same model configuration.
+
+Image requests are checked before submission and again when selecting a member.
+A text-only member remains eligible when it can call `analyze_image`, the Agent
+allows that tool, and a separate enabled image understanding model is configured.
+Otherwise the pool skips it and selects a compatible multimodal member. Images
+in inherited context and later user steering follow the same rule; tool-result
+pixels require native image support. Request incompatibility does not mark a
+member unhealthy or change the pool's shared context budget.
+
+Each member retains ordinary response recovery, up to ten attempts including the
+initial request, with the existing early-stop rules. Before effective output,
+network failures, timeouts, throttling and unavailable providers switch promptly
+when another eligible member is ready. Without an alternative, the same member
+retains ordinary retries. Authentication, permission, billing and quota failures
+can also switch members; invalid requests, content-policy rejections and
+cancellation cannot. Empty or malformed responses and unclassified provider
+failures use member-local recovery first, then may switch without marking that
+member globally unhealthy.
+
+Pool traversal has no shared ten-attempt cap: each failed member is excluded for
+the current recovery traversal, so an eleventh member remains reachable. Retry
+backoff and cooldown use the current member's attempt count. Failover is forbidden
+once any attempt in the logical round has produced effective output, even if a
+later attempt fails before output. Existing same-model stream recovery remains
+available; cross-member recovery never replays output or completed tools.
+Switching updates model-specific prompt/tool configuration and provider replay
+projection. If no compatible member is available, the request
+fails with member states and the earliest known retry time; it never silently
+uses the primary model or another pool. Deleting a pool preserves chat references
+and any default pointer so users can explicitly select a replacement. Pool edits
+run under the main configuration write lock; concurrent edits to the same pool
+use the last saved value without stale-draft conflict detection.
+
+Pool chats and subagents use the smallest resolved context window among valid,
+enabled text members. The compression trigger is the smallest member input budget
+(its context window minus its output allowance and safety reserve), which can
+come from a different member. Offline and cooling-down members still contribute;
+request-specific tool/image filtering does not expand the common budget. Member
+configuration and output limits remain unchanged. Automatic and manual compression
+share this budget, and each model round refreshes it after configuration edits.
+The selector tooltip shows the pool window and compression trigger above the
+current member's details. Limits come from the execution host, including Peer
+Device Mode; the controller never substitutes its own model configuration.
+
+Pool definitions are stored in the main configuration at `ai.model_pools`.
+New pools receive an ID such as `model-pool-a7k2m9`: six random lowercase letters
+or digits after the prefix. The execution host checks for collisions while saving;
+renaming or editing a pool preserves its ID and chat references.
+Typed defaults live in `ai.agent_model_selections` (`mode`, plus
+`subagents.default`, `subagents.builtin` and `subagents.fork`). An absent selections
+section is converted from `ai.agent_model_defaults` during configuration loading
+and persisted atomically. Migration only adds the new field to the existing file;
+startup recovery does not rewrite unrelated source records. Once present, the
+whole typed section is authoritative, including empty builtin overrides. Invalid
+or null selections are retained and fail visibly instead of falling back.
+Imports, whole-config/AI replacements and installer-config repairs perform the
+same migration at their ingestion boundary. Fresh configs and resets initialize
+typed defaults directly. Runtime reads require the new section; ordinary field
+updates and saves do not perform legacy migration.
+Legacy defaults remain readable by older versions but are no longer updated.
+Legacy client write requests are translated into typed updates on the new host.
+Old versions may discard new fields when rewriting the main config; preserving
+new settings across downgrade/write/upgrade is not guaranteed. The unreleased standalone pool file is no longer read.
+
+Runtime health, cursors and bindings remain in `model-pool-runtime.v1.json`;
+session metadata retains selection intent and the last accepted binding. Runtime
+state and pool records do not contain copied API credentials. Pool definitions
+and their containing section have no edit revision fields. Typed operations require the execution
+host's advertised `model_pool_selection_v1` capability.
+
+Desktop supports local and SSH/Docker workspace sessions through the shared Runtime.
+BTW side questions inherit the parent's pool and current binding under both
+routing strategies, preserving cache reuse while that member remains usable.
+The BTW selector can explicitly choose another pool or a fixed model, including
+before the first selected-text question. Peer hosts must advertise
+`btw_model_pool_selection_v1` for these typed initial choices; older hosts retain
+the inherited path without silently replacing a pool with its current member.
+
+Peer Device Mode routes pool operations to capable Desktop/CLI hosts. Standalone
+browser clients, detached dispatch, and ACP/external-agent model selection
+do not expose pool selection in this version. Mobile/IM clients can continue a
+host-owned pool chat, but their legacy model-change operation explicitly refuses
+to replace a pool; use a capable desktop controller to change that selection.
+Defaults are snapshotted when native sessions are created; unrelated auxiliary
+model slots and externally approved immutable model bindings keep their rules.
+
+Validation uses local unit tests, mock HTTP streams, transport capability tests,
+and host compilation. These do not establish live SSH/Docker, relay/mobile/IM,
+Peer Device or detached-dispatch behavior. No interactive UI validation was run.

@@ -5,6 +5,13 @@
 
   > button { justify-self: start; }
 
+  &__models {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--openbitfun-space-4);
+    min-inline-size: 0;
+  }
+
   &__status {
     display: grid;
     gap: var(--openbitfun-space-1);

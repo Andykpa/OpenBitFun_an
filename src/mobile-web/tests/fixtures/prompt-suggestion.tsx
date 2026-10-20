@@ -7,12 +7,14 @@ import '../../src/styles/index.scss';
 import ChatComposerBar from '../../src/components/ChatComposerBar';
 import { I18nProvider } from '../../src/i18n';
 import { ThemeProvider } from '../../src/theme';
+import { useWideLayout } from '../../src/hooks/useWideLayout';
 import { SessionSynchronizer } from '../../src/services/SessionSynchronizer';
 import type { RemoteSessionManager } from '../../src/services/RemoteSessionManager';
 
 /** Production stream projection and composer; only host IO is simulated. */
 export function mountPromptSuggestionFixture() {
   const element = document.createElement('main');
+  element.className = 'mobile-app';
   document.body.replaceChildren(element);
   type StreamHandlers = Parameters<RemoteSessionManager['subscribeSessionStream']>[1];
   let handlers: StreamHandlers;
@@ -25,6 +27,7 @@ export function mountPromptSuggestionFixture() {
   } } as unknown as RemoteSessionManager;
   const root = createRoot(element);
   function Fixture() {
+    const wide = useWideLayout();
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const [input, setInput] = useState('');
     const [expanded, setExpanded] = useState(false);
@@ -43,7 +46,7 @@ export function mountPromptSuggestionFixture() {
       return () => stream.stop();
     }, []);
     const noop = () => {};
-    return <ThemeProvider><I18nProvider><div className="chat-page">
+    return <ThemeProvider><I18nProvider><div className={`chat-page${wide ? ' chat-page--wide' : ''}`}>
       <ChatComposerBar cancelling={false} containerRef={null} expanded={expanded}
         imageAnalyzing={false} sending={sending} input={input} inputRef={inputRef} modelControls={null}
         onActivate={() => setExpanded(true)} onAttach={noop} onCancel={noop} onChange={setInput}

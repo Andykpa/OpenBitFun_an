@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "8d5b03e3738713ff3014e11160811b1e815804bea57c56a177af47691d8b82c6",
-  "count": 215,
+  "catalogDigest": "df8dc4bbb51a54b1d2a2ede3c9300a4b5d6c8c41cb7128128d4ec6b172f1ed54",
+  "count": 217,
   "reasonCounts": {
     "externalAuth": 4,
     "secretEntry": 5,
     "unstructuredInteraction": 183,
-    "visualSelection": 23
+    "visualSelection": 25
   },
   "entries": [
     {
@@ -2523,6 +2523,24 @@
       ]
     },
     {
+      "capabilityId": "feature.desktop-cards",
+      "itemId": "drag-restore",
+      "titleZh": "拖动卡片到桌面任意位置；关闭 OpenBitFun 时卡片消失，重新打开后按原位置恢复",
+      "titleEn": "Drag cards anywhere on the desktop; they disappear when OpenBitFun closes and return to the same positions when it reopens",
+      "reasonCode": "visualSelection",
+      "reasonZh": "卡片位置由用户在桌面上直接拖动决定，没有可以代替视觉摆放的结构化命令；智能体只说明操作方式，摆放保留给用户。",
+      "reasonEn": "Card positions are chosen by dragging directly on the desktop, and no structured command can replace that visual placement; the Agent explains the interaction and leaves placement to the user.",
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "application.pet",
+        "sectionId": "desktop-cards"
+      },
+      "evidence": [
+        "source:src/web-ui/src/app/components/DesktopCard/DesktopCardWindow.tsx#startDesktopCardWindowDrag",
+        "source:src/apps/desktop/src/desktop_cards/store.rs#cards.json"
+      ]
+    },
+    {
       "capabilityId": "setting.application.general",
       "itemId": "manual-update",
       "titleZh": "手动检查并后台下载更新，确认后安装并重启，或稍后从关于页面安装",
@@ -2842,11 +2860,11 @@
     {
       "capabilityId": "setting.ai.models",
       "itemId": "smart-routing",
-      "titleZh": "配置智能模式的 Router 服务、主力与经济模型及子代理默认模型",
-      "titleEn": "Configure smart routing, primary and economy models, and subagent defaults",
+      "titleZh": "配置智能模式的 Router 服务、主力与经济模型",
+      "titleEn": "Configure smart routing with primary and economy models",
       "reasonCode": "unstructuredInteraction",
-      "reasonZh": "在模型设置中配置并测试 Router 服务，在模型选择的高级选项中设置子代理默认跟随主力或经济模型；单独配置保持不变，状态检查不代替配置或连接测试",
-      "reasonEn": "Configure and test the Router in model settings; use advanced model selection to set the subagent default to primary or economy while preserving individual overrides. A status read does not configure or test the connection",
+      "reasonZh": "“配置智能模式的 Router 服务、主力与经济模型”需要在智能模式内部选择配置项并核对执行宿主的模型、Router 服务及能力状态，当前没有覆盖这些配置的独立结构化控制命令。",
+      "reasonEn": "“Configure smart routing with primary and economy models” requires reviewing the execution host’s models, Router service and capability status through the smart-mode menu items; no dedicated structured control command covers this configuration.",
       "presentationTarget": {
         "kind": "settings",
         "pageId": "ai.models"
@@ -2854,7 +2872,8 @@
       "evidence": [
         "command:get_model_routing_status",
         "source:src/web-ui/src/infrastructure/config/components/ModelRouterSettings.tsx#ModelRouterSettings",
-        "source:src/web-ui/src/flow_chat/components/NativeModelSelectionPanel.tsx#onSubagentModelChange"
+        "source:src/web-ui/src/flow_chat/components/NativeModelSelectionPanel.tsx#onRoutingSettings",
+        "source:src/web-ui/src/app/scenes/settings/pages/ai/ModelSettingsPage.tsx#settings-smart-mode-configure"
       ]
     },
     {
@@ -2873,6 +2892,29 @@
         "command:test_ai_connection",
         "command:test_ai_config_connection",
         "command:refresh_model_client"
+      ]
+    },
+    {
+      "capabilityId": "setting.ai.models",
+      "itemId": "model-pools",
+      "titleZh": "管理模型池、路由策略与会话模型选择",
+      "titleEn": "Manage model pools, routing strategies, and session model selection",
+      "reasonCode": "visualSelection",
+      "reasonZh": "通过模型池编辑器选择已配置成员、顺序与路由策略，并查看健康状态。",
+      "reasonEn": "Use the pool editor to select configured members, their order and routing strategy, and inspect health.",
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "ai.models"
+      },
+      "evidence": [
+        "command:get_model_pools",
+        "command:save_model_pool",
+        "command:delete_model_pool",
+        "command:get_model_pool_status",
+        "command:get_session_model_target",
+        "command:update_session_model_target",
+        "source:src/web-ui/src/app/scenes/settings/pages/ai/ModelPoolsSection.tsx#ModelPoolsSection",
+        "command:retry_model_pool_member"
       ]
     },
     {
@@ -3267,11 +3309,11 @@
     {
       "capabilityId": "setting.tools.web-search",
       "itemId": "provider",
-      "titleZh": "在免费 Exa MCP、Exa Search API、Tavily 与 OpenBitFun Search HTTP Protocol 之间选择运行时服务",
-      "titleEn": "Choose free Exa MCP, Exa Search API, Tavily, or OpenBitFun Search HTTP Protocol as the runtime provider",
+      "titleZh": "在免费 Exa MCP、Exa Search API、Tavily、DeepSeek 与 OpenBitFun Search HTTP Protocol 之间选择运行时服务",
+      "titleEn": "Choose free Exa MCP, Exa Search API, Tavily, DeepSeek, or OpenBitFun Search HTTP Protocol as the runtime provider",
       "reasonCode": "unstructuredInteraction",
-      "reasonZh": "“在免费 Exa MCP、Exa Search API、Tavily 与 OpenBitFun Search HTTP Protocol 之间选择运行时服务”与各服务的配置状态相关，目前没有一个能安全完成选择、检查和保存整个流程的单一结构化 Command；智能体会打开精确设置入口，由用户确认配置。",
-      "reasonEn": "“Choose free Exa MCP, Exa Search API, Tavily, or OpenBitFun Search HTTP Protocol as the runtime provider” depends on provider-specific configuration state, and no single structured Command can safely complete selection, validation, and saving; the Agent opens the exact settings entry for user confirmation.",
+      "reasonZh": "“在免费 Exa MCP、Exa Search API、Tavily、DeepSeek 与 OpenBitFun Search HTTP Protocol 之间选择运行时服务”与各服务的配置状态相关，目前没有一个能安全完成选择、检查和保存整个流程的单一结构化 Command；智能体会打开精确设置入口，由用户确认配置。",
+      "reasonEn": "“Choose free Exa MCP, Exa Search API, Tavily, DeepSeek, or OpenBitFun Search HTTP Protocol as the runtime provider” depends on provider-specific configuration state, and no single structured Command can safely complete selection, validation, and saving; the Agent opens the exact settings entry for user confirmation.",
       "presentationTarget": {
         "kind": "settings",
         "pageId": "tools.webSearch"

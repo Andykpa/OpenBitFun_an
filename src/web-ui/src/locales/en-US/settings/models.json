@@ -663,8 +663,8 @@
   "editProviderSettingsTitle": "Service connection",
   "sections": {
     "acquisition": "Add or import models",
-    "selectionModes": "Model selection modes",
-    "pool": "Model pool",
+    "selectionModes": "Smart mode",
+    "pool": "All models",
     "more": "More settings"
   },
   "acquisition": {
@@ -686,7 +686,7 @@
     "smartHint": "Powered by OpenBitFun adaptive routing and collaborative multi-model reasoning to improve cost efficiency and task performance.",
     "battery": "Battery mode",
     "batteryHint": "Multi-source model pooling and failover automatically hand off when quota is exhausted or a connection fails.",
-    "unavailable": "Not available yet"
+    "configure": "Configure smart mode"
   },
   "pool": {
     "manageConnections": "Manage connections",
@@ -762,14 +762,11 @@
     "compactEconomyHigher": "Economy costs more · Estimate"
   },
   "router": {
-    "title": "Smart routing settings",
+    "title": "Smart mode settings",
     "service": "Router service model",
     "serviceHint": "Add an API service supporting the classifier protocol in model settings, then select it here; ordinary chat models and Coding Plans may not support it",
     "tokenizer": "Tokenizer file",
     "tokenizerHint": "Path to tokenizer.json on the OpenBitFun execution host, matching the Router service tokenizer",
-    "threshold": "Economy threshold",
-    "thresholdHint": "Use the economy model when the simple-task probability exceeds this value",
-    "timeout": "Request timeout (ms)",
     "summary": "Auxiliary summaries",
     "summaryHint": "Uses the economy model to summarize routing history and incurs additional model calls",
     "on": "On",
@@ -779,10 +776,49 @@
     "connected": "Classifier protocol check passed",
     "notReady": "Router not ready",
     "unsupported": "This execution host does not support smart routing",
-    "loadFailed": "Could not load routing settings; close and retry",
-    "saveFailed": "Could not save routing settings",
+    "checkFailed": "Smart mode could not be checked. Check the Router service and tokenizer file, then try again.",
+    "loadFailed": "Could not load smart-mode settings; close and retry",
+    "saveFailed": "Could not save smart-mode settings; please retry",
     "manageModels": "Manage services and models",
     "test": "Save and test connection",
     "save": "Save"
+  },
+  "pools": {
+    "empty": "No model pools yet",
+    "title": "Model pools",
+    "unsupported": "This host does not support model pools.",
+    "error": "The operation failed. Your edits have been kept. Refresh and reopen the pool after a revision conflict.",
+    "refresh": "Refresh",
+    "ordered": "Ordered failover",
+    "orderedHint": "Choose the first available model in list order when assigning or switching models.",
+    "balanced": "Balanced assignment",
+    "balancedHint": "Rotate new chat assignments across available models to spread them evenly.",
+    "delete": "Delete",
+    "confirmDelete": "Confirm deletion",
+    "deleteTitle": "Delete model pool “{{name}}”?",
+    "deleteHint": "Chats referencing a deleted pool will require a new model selection.",
+    "create": "Create pool",
+    "editTitle": "Edit model pool",
+    "name": "Pool name",
+    "strategy": "Routing strategy",
+    "stickyHint": "Healthy chats keep their model. The strategy applies to new assignments and failover.",
+    "up": "Move up",
+    "down": "Move down",
+    "remove": "Remove",
+    "add": "Add model",
+    "addHint": "The pool uses the smallest context window among its member models. Choose models with similar capabilities and context capacities for a more consistent experience when switching.",
+    "save": "Save",
+    "cancel": "Cancel",
+    "health": {
+      "unverified": "Not yet verified",
+      "available": "Available",
+      "cooling_down": "Cooling down",
+      "probing": "Probing",
+      "needs_attention": "Configuration needs attention",
+      "disabled": "Disabled",
+      "missing": "Model configuration missing"
+    },
+    "retry": "Allow retry",
+    "invalidRecords": "Some pool records cannot be read by this version. They have been preserved."
   }
 }

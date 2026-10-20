@@ -25,6 +25,7 @@ pub mod appearance;
 mod builtin_browser_host;
 pub mod computer_use;
 pub mod crash_diagnostics;
+pub mod desktop_cards;
 mod embedded_relay_host;
 pub mod frontend_workbench;
 pub mod logging;
@@ -753,6 +754,9 @@ pub async fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        // The webview's own clipboard API raises a WebView2 permission prompt on
+        // first read; product clipboard paths go through this plugin instead.
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(
             tauri_plugin_autostart::Builder::new()
                 .app_name("OpenBitFun")
@@ -1099,6 +1103,11 @@ pub async fn run() {
             openbitfun_webdriver::maybe_start(app_handle.clone());
             builtin_browser_host::install(app_handle.clone());
             openbitfun_control_host::install(app_handle.clone());
+            if !miniapp_background {
+                if let Err(error) = desktop_cards::install(&app_handle) {
+                    log::warn!("Desktop cards unavailable: {}", error);
+                }
+            }
             startup_trace.record_elapsed_step(
                 "native_setup",
                 "maybe_start_webdriver",
@@ -1245,6 +1254,10 @@ pub async fn run() {
             move |window, event| {
                 #[cfg(target_os = "windows")]
                 window_webview_geometry::handle_event(window, event);
+                if window.label().starts_with(desktop_cards::DESKTOP_CARD_WINDOW_PREFIX) {
+                    desktop_cards::handle_window_event(window, event);
+                    return;
+                }
                 if window.label() == "main"
                     && !MAIN_WINDOW_USES_TRANSIENT_GEOMETRY.load(Ordering::SeqCst)
                     && matches!(event, tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_))
@@ -1329,6 +1342,13 @@ pub async fn run() {
             api::agentic_api::update_session_mode,
             api::agentic_api::update_session_model,
             api::agentic_api::get_model_routing_status,
+            api::model_pool_api::get_model_pools,
+            api::model_pool_api::retry_model_pool_member,
+            api::model_pool_api::save_model_pool,
+            api::model_pool_api::delete_model_pool,
+            api::model_pool_api::get_model_pool_status,
+            api::model_pool_api::get_session_model_target,
+            api::model_pool_api::update_session_model_target,
             api::agentic_api::update_session_permission_mode,
             api::agentic_api::update_active_turn_permission_mode,
             api::agentic_api::get_session_permission_mode,
@@ -1459,7 +1479,15 @@ pub async fn run() {
             appearance::show_agent_companion_desktop_pet,
             appearance::hide_agent_companion_desktop_pet,
             appearance::resize_agent_companion_desktop_pet,
+            desktop_cards::commands::desktop_card_list,
+            desktop_cards::commands::desktop_card_get,
+            desktop_cards::commands::desktop_card_set_visible,
+            desktop_cards::commands::desktop_card_delete,
+            desktop_cards::commands::desktop_card_refresh,
+            desktop_cards::commands::desktop_card_set_checklist_item,
+            desktop_cards::commands::desktop_card_set_always_on_top,
             list_agent_companion_pets,
+            load_agent_companion_pet_spritesheet,
             import_agent_companion_pet_package,
             delete_agent_companion_pet_package,
             read_file_content,

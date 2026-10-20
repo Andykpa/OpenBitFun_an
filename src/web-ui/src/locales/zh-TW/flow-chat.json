@@ -77,6 +77,8 @@
     "inheritedSettings": "此裝置版本的首次側邊提問沿用主對話設定。傳送後可調整模型。",
     "actions": "選取文字操作",
     "annotate": "新增批註",
+    "moveEditor": "移動批註輸入框",
+    "resizeEditor": "調整批註輸入框大小",
     "annotation": "批註",
     "annotationPlaceholder": "寫下你的批註…",
     "editAnnotation": "批註選取文字",
@@ -3028,7 +3030,8 @@
         "FinalizeMiniApp": "更新小應用程式",
         "PublishMiniApp": "提交小應用程式審核",
         "PublishAppearance": "提交外觀審核",
-        "Playbook": "讀取操作流程"
+        "Playbook": "讀取操作流程",
+        "DesktopCard": "小卡片"
       },
       "fields": {
         "results": "結果",
@@ -3131,7 +3134,13 @@
         "checksFailed": "檢查失敗數",
         "checksPending": "待完成檢查數",
         "author": "作者",
-        "lastOutcome": "上次交易結果"
+        "lastOutcome": "上次交易結果",
+        "card": "卡片 ID",
+        "dataSource": "資料來源",
+        "visibility": "顯示狀態",
+        "refreshError": "最近重新整理錯誤",
+        "presets": "預設卡片",
+        "cards": "卡片"
       },
       "states": {
         "active": "進行中",
@@ -3172,7 +3181,10 @@
         "idle": "閒置",
         "managed": "受管理工作樹",
         "permanent": "永久工作樹",
-        "external": "外部工作樹"
+        "external": "外部工作樹",
+        "cardCreated": "已建立並顯示",
+        "cardShown": "已顯示",
+        "cardHidden": "已隱藏"
       },
       "operations": {
         "list": "檢視清單",
@@ -3264,7 +3276,36 @@
       "imageUnavailable": "無法預覽影像，可開啟記錄的路徑查看來源檔案。",
       "imageLoading": "正在讀取來源影像…",
       "hostUnavailable": "這筆記錄來自被派發工作的主機，請在該主機開啟資源；目前無法從本機跳轉。",
-      "remoteLoopback": "這個回環位址屬於執行主機，請在該主機上開啟。"
+      "remoteLoopback": "這個回環位址屬於執行主機，請在該主機上開啟。",
+      "desktopCard": {
+        "actions": {
+          "presets": "查看預設卡片",
+          "create": "建立小卡片",
+          "update": "更新小卡片",
+          "list": "列出小卡片",
+          "get": "查看小卡片",
+          "show": "顯示小卡片",
+          "hide": "隱藏小卡片",
+          "delete": "刪除小卡片",
+          "refresh": "重新整理小卡片"
+        },
+        "templates": {
+          "countdown": "倒數計時",
+          "checklist": "清單",
+          "note": "便籤",
+          "progress": "進度",
+          "metrics": "指標",
+          "cronJob": "排程任務",
+          "custom": "自訂"
+        },
+        "sources": {
+          "http": "HTTP · {{target}} · 每 {{interval}} 秒",
+          "command": "本機命令 · {{target}} · 每 {{interval}} 秒"
+        },
+        "visible": "顯示在桌面",
+        "hidden": "已隱藏",
+        "disabledNotice": "小卡片功能已在設定中關閉，這些卡片目前不會顯示。"
+      }
     }
   },
   "welcome": {
@@ -3338,9 +3379,9 @@
       "contextSaveFailed": "儲存失敗，請重試",
       "availablePoolModels": "模型池可用模型",
       "mode": "模式",
-      "currentModel": "目前使用模型",
+      "currentModel": "目前模型",
       "poolConnections": "電池接入列表",
-      "modelPool": "模型池清單"
+      "modelList": "模型清單"
     },
     "modes": {
       "selection": "選擇模式",
@@ -3358,9 +3399,7 @@
       "previewNotice": "自動路由尚未啟用，目前對話繼續使用：{{model}}",
       "previewHint": "預覽不會變更目前對話或記住的預設選擇",
       "previewBadge": "預覽",
-      "smartSummary": "主對話與子代理依每一步複雜度自動選擇主力或經濟模型",
-      "smartMainSummary": "主對話依每一步複雜度，在主力與經濟模型間自動選擇",
-      "smartSessionSummary": "目前對話自動選擇主力或經濟模型；指定具體模型後固定使用",
+      "smartSummary": "依每一步的複雜度，在主力與經濟模型間自動選擇",
       "manualSummary": "依角色分工使用模型，不自動切換",
       "previewStatus": "僅預覽，自動路由未啟用",
       "primaryPurpose": "複雜步驟",
@@ -3402,9 +3441,11 @@
       "targetModelUnavailable": "目標模型無法使用"
     },
     "tooltip": {
+      "currentModel": "目前模型",
       "configName": "設定名稱",
       "modelName": "模型名稱",
       "contextWindow": "上下文視窗",
+      "poolContextWindow": "池上下文視窗",
       "compressionTrigger": "壓縮觸發線",
       "longContextWarning": "目前模型設定的上下文視窗超過 400K。超長上下文可能降低模型效果，建議將其調整到 300K 左右。"
     },
@@ -3413,14 +3454,6 @@
       "agentPromptLabel": "上次請求輸入上下文",
       "acpContext": "ACP 回報上下文: {{usage}}",
       "acpContextLabel": "ACP 回報上下文"
-    },
-    "scope": {
-      "remember": "記住選擇",
-      "session": "僅用於目前對話",
-      "title": "選擇適用範圍",
-      "rememberHint": "用於目前對話和之後的新對話",
-      "sessionHint": "暫時切換，不改變新對話的預設選擇",
-      "saveFailed": "適用範圍儲存失敗，目前對話的模型保持不變"
     },
     "close": "關閉模型選擇",
     "manageModels": "管理模型",
@@ -3456,7 +3489,7 @@
     },
     "economyModel": "經濟模型",
     "routing": {
-      "configure": "設定路由",
+      "configure": "設定智慧模式",
       "serviceReady": "已就緒",
       "serviceNotReady": "待設定",
       "serviceUnsupported": "暫不支援",
@@ -3465,26 +3498,29 @@
       "active": "智慧路由已啟用，失敗時回退主力",
       "ready": "設定已就緒，尚未啟用",
       "notReady": "路由未就緒，目前仍按原策略執行",
+      "configurationIssue": "智慧模式設定無法使用，請檢查路由服務和分詞器檔案",
       "unsupported": "目前執行端暫不支援智慧路由",
-      "scopeHint": "策略預設記住，也可僅用於目前對話；模型角色設定全域共用",
       "costHint": "路由和輔助摘要可能產生額外費用，計費提示不包含這部分開銷",
       "saveFailed": "儲存模型策略失敗，請重試",
       "latency": "路由耗時 {{ms}} 毫秒",
-      "fallback": "路由失敗，已回退主力",
-      "subagents": {
-        "title": "子代理預設模型",
-        "auto": "自動路由",
-        "autoSummary": "子代理 · 自動路由",
-        "autoHint": "依每一步複雜度選擇主力或經濟模型",
-        "autoUnsupported": "目前執行端不支援子代理自動路由，可繼續選擇主力或經濟模型",
-        "unknown": "目前主機策略（此版本暫不支援）",
-        "primary": "跟隨主力模型",
-        "economy": "跟隨經濟模型",
-        "primarySummary": "子代理 · 跟隨主力模型",
-        "economySummary": "子代理 · 跟隨經濟模型",
-        "hint": "套用於新啟動的子代理，個別設定保持不變",
-        "unsupported": "目前執行端暫不支援此設定，請升級後重試"
-      }
+      "fallback": "路由失敗，已回退主力"
+    },
+    "pools": {
+      "title": "模型池",
+      "loadError": "模型池載入失敗，請重新開啟選單重試。",
+      "surfaceUnsupported": "此對話入口暫不支援模型池，請選擇具體模型。",
+      "actual": "目前模型：{{model}}",
+      "unassigned": "首次請求時分配",
+      "choose": "選擇模型池",
+      "configure": "設定模型池",
+      "empty": "尚未設定模型池",
+      "pendingSelection": "待選擇",
+      "unavailable": "暫無可用模型",
+      "ordered": "按順序",
+      "balanced": "負載均衡",
+      "members": "{{strategy}} · {{total}} 個模型",
+      "orderedDescription": "分配時選擇首個可用模型，目前模型可用時保持綁定。",
+      "balancedDescription": "將不同對話分配給各個模型，目前模型可用時保持綁定。"
     }
   },
   "reasoningEffort": {

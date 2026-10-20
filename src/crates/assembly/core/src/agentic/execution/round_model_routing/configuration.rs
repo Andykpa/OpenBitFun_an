@@ -194,10 +194,9 @@ pub struct ModelRoutingStatus {
     /// Only an explicit protocol probe establishes a connection, not a config read.
     pub connected: Option<bool>,
     pub summary_enabled: bool,
-    /// Presence advertises support for the smart-session subagent default setting.
-    pub subagent_model: String,
-    /// Explicit capability: older hosts may support only fixed subagent roles.
-    pub subagent_routing_supported: bool,
+    /// Older clients use presence as a feature gate; current hosts no longer expose this control.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subagent_model: Option<String>,
 }
 
 pub async fn session_status(
@@ -214,8 +213,10 @@ pub async fn session_status(
 }
 
 pub fn session_eligible(session: &crate::agentic::core::Session) -> bool {
-    (session.kind != crate::agentic::core::SessionKind::Subagent
-        || session.config.model_routing.as_deref() == Some("smart"))
+    session.config.model_pool_id.is_none()
+        && session.config.model_binding_policy
+            != crate::agentic::core::SessionModelBindingPolicy::Pool
+        && session.kind != crate::agentic::core::SessionKind::Subagent
         && session.config.model_binding_policy
             != crate::agentic::core::SessionModelBindingPolicy::ApprovedImmutable
         && matches!(
@@ -254,11 +255,10 @@ pub async fn status(
         issue: None,
         connected: None,
         summary_enabled: config.model_routing.summary_enabled,
-        subagent_model: config.model_routing.subagent_model.clone(),
-        subagent_routing_supported: true,
+        subagent_model: None,
     };
     let check = async {
-        if !eligible { return Err(OpenBitFunError::Configuration("Smart mode is unavailable for external agents, fixed-model subagents and immutable dispatched sessions".into())); }
+        if !eligible { return Err(OpenBitFunError::Configuration("Smart mode is unavailable for external agents, subagents and immutable dispatched sessions".into())); }
         economy_model_id(&config, mode.is_none() && legacy_enabled())?;
         if config.resolve_model_selection("primary").is_none() {
             return Err(OpenBitFunError::Configuration("Configure an enabled primary model before using smart mode".into()));
@@ -291,7 +291,7 @@ mod tests {
     use crate::service::config::types::AIModelConfig;
 
     #[test]
-    fn only_explicitly_routed_subagents_enter_smart_routing() {
+    fn restored_subagents_and_immutable_jobs_never_enter_smart_routing() {
         use crate::agentic::core::{
             Session, SessionConfig, SessionKind, SessionModelBindingPolicy,
         };
@@ -299,15 +299,19 @@ mod tests {
         assert!(session_eligible(&session));
         session.kind = SessionKind::Subagent;
         assert!(!session_eligible(&session));
-        session.config.model_routing = Some("manual".into());
-        assert!(!session_eligible(&session));
         session.config.model_routing = Some("smart".into());
-        assert!(session_eligible(&session));
-        session.config.model_binding_policy = SessionModelBindingPolicy::ApprovedImmutable;
+        session.config.delegation_model_routing = Some("smart".into());
         assert!(!session_eligible(&session));
-        session.config.model_binding_policy = SessionModelBindingPolicy::Mutable;
+        // Eligibility is read-only: old records remain recoverable and their
+        // concrete model or pool target continues to own execution.
+        assert_eq!(session.config.model_routing.as_deref(), Some("smart"));
         session.kind = SessionKind::Standard;
         session.config.model_binding_policy = SessionModelBindingPolicy::ApprovedImmutable;
+        assert!(!session_eligible(&session));
+        session.config.model_binding_policy = SessionModelBindingPolicy::Pool;
+        assert!(!session_eligible(&session));
+        session.config.model_binding_policy = SessionModelBindingPolicy::Mutable;
+        session.config.model_pool_id = Some("daily".into());
         assert!(!session_eligible(&session));
     }
 

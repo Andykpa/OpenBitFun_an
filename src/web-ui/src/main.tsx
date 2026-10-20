@@ -327,8 +327,9 @@ async function initializeAfterRender(): Promise<void> {
 async function startApplication(): Promise<void> {
   const appStartedAt = nowMs();
   startupTrace.markPhase('start_application_start');
-  const isAgentCompanionWindow = new URLSearchParams(window.location.search)
-    .get('openbitfunWindow') === 'agent-companion';
+  const windowKind = new URLSearchParams(window.location.search).get('openbitfunWindow');
+  const isAgentCompanionWindow = windowKind === 'agent-companion';
+  const isDesktopCardWindow = windowKind === 'desktop-card';
   // Select the dependency graph before importing either window. Start loading
   // alongside appearance initialization, avoiding another startup waterfall.
   // Keep separate import statements: a conditional import expression can be
@@ -336,6 +337,8 @@ async function startApplication(): Promise<void> {
   let windowModule;
   if (isAgentCompanionWindow) {
     windowModule = import('./app/components/AgentCompanionDesktopPet/AgentCompanionDesktopPet');
+  } else if (isDesktopCardWindow) {
+    windowModule = import('./app/components/DesktopCard/DesktopCardWindow');
   } else {
     windowModule = import('./app/startup/MainApplicationRoot');
   }
@@ -354,7 +357,9 @@ async function startApplication(): Promise<void> {
   });
   const { default: WindowContent } = await windowModule;
   const renderStartedAt = nowMs();
-  if (isAgentCompanionWindow) {
+  if (isAgentCompanionWindow || isDesktopCardWindow) {
+    const windowStep = isDesktopCardWindow ? 'scheduleDesktopCardRender' : 'scheduleAgentCompanionRender';
+    const windowPhase = isDesktopCardWindow ? 'desktop_card_render_scheduled' : 'agent_companion_render_scheduled';
     ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
       <AppErrorBoundary>
         <I18nProvider>
@@ -366,14 +371,14 @@ async function startApplication(): Promise<void> {
     );
     logElapsed(log, 'Startup step completed', renderStartedAt, {
       data: {
-        step: 'scheduleAgentCompanionRender',
+        step: windowStep,
         sinceStartupMs: elapsedMs(appStartedAt),
       },
     });
-    startupTrace.markPhase('agent_companion_render_scheduled', {
+    startupTrace.markPhase(windowPhase, {
       sinceStartupMs: elapsedMs(appStartedAt),
     });
-    startupTrace.flushSummary('agent_companion_render_scheduled');
+    startupTrace.flushSummary(windowPhase);
     return;
   }
 

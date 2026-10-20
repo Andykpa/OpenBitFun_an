@@ -1,5 +1,7 @@
+import { modelSelectionsConfigPath } from '@/infrastructure/config/services/modelSelections';
 import '@/app/scenes/settings/pages/ai/ModelSettingsPage.scss';
 import { ModelDiscoveryPicker, type ModelDiscoveryOption } from './ModelDiscoveryPicker';
+import { ModelPoolsSection } from './ModelPoolsSection';
 import { ModelPoolCardActions } from './ModelPoolCardActions';
 import { aiApi, systemAPI } from '@/infrastructure/api';
 import type {
@@ -19,6 +21,7 @@ import {
   ConfigRetryState,
 } from '@/infrastructure/config/components/common';
 import DefaultModelConfig from '@/infrastructure/config/components/DefaultModelConfig';
+import { ModelRouterSettings } from '@/infrastructure/config/components/ModelRouterSettings';
 import ModelTagsField from '@/infrastructure/config/components/ModelTagsField';
 import {
   configsNeedingAutoTest,
@@ -28,6 +31,7 @@ import {
 import { ModelDiscoveryCoordinator } from '@/infrastructure/config/components/modelDiscoveryCoordinator';
 import {
   getModelEditorRequestSettings,
+  prepareModelEditorRequestSettingsForSave,
   updateModelEditorRequestSettings,
   type ModelEditorRequestSettings,
 } from '@/infrastructure/config/components/modelEditorRequestSettings';
@@ -422,6 +426,7 @@ const ModelSettingsPage: React.FC = () => {
   const [showTagSyncNotice, setShowTagSyncNotice] = useState(false);
   const [showSubscriptionManager, setShowSubscriptionManager] = useState(false);
   const [showProviderManager, setShowProviderManager] = useState(false);
+  const [routerSettingsScope, setRouterSettingsScope] = useState<ReturnType<typeof getActiveSurfaceScope> | null>(null);
   const [subscriptionLoadError, setSubscriptionLoadError] = useState(false);
   const [isConfigLoading, setIsConfigLoading] = useState(!modelSeed.loaded);
   const [configLoadError, setConfigLoadError] = useState(false);
@@ -445,6 +450,14 @@ const ModelSettingsPage: React.FC = () => {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [expandedProviderGroupKeys, setExpandedProviderGroupKeys] = useState<Set<string>>(new Set());
   const notification = useNotification();
+
+  useEffect(() => {
+    if (!routerSettingsScope) return;
+    const close = () => setRouterSettingsScope(null);
+    if (!routerSettingsScope.isCurrent()) { close(); return; }
+    routerSettingsScope.signal.addEventListener('abort', close, { once: true });
+    return () => routerSettingsScope.signal.removeEventListener('abort', close);
+  }, [routerSettingsScope]);
 
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
 
@@ -1995,7 +2008,7 @@ const ModelSettingsPage: React.FC = () => {
             [PROVIDER_INSTANCE_METADATA_KEY]: providerInstanceId,
           },
           reasoning: draft.reasoning,
-          ...draft.requestSettings,
+          ...prepareModelEditorRequestSettingsForSave(draft.requestSettings),
           auth: providerConfig.auth || { type: 'api_key' },
         };
       });
@@ -2095,7 +2108,7 @@ const ModelSettingsPage: React.FC = () => {
     const [defaultModels, taskModels, agentModelDefaults] = await Promise.all([
       configManager.getConfig<unknown>('ai.default_models'),
       configManager.getConfig<unknown>('ai.task_models'),
-      configManager.getConfig<unknown>('ai.agent_model_defaults'),
+      configManager.getConfig<unknown>(modelSelectionsConfigPath()),
     ]);
     const ids = new Set(modelIds);
     return [defaultModels, taskModels, agentModelDefaults]
@@ -2911,7 +2924,7 @@ const ModelSettingsPage: React.FC = () => {
                   if (element) modelCapsuleRefs.current.set(draft.key, element);
                   else modelCapsuleRefs.current.delete(draft.key);
                 }}
-                variant="outline"
+                variant="fill"
                 size="xs"
                 className="openbitfun-model-settings__model-capsule-edit"
                 data-testid="settings-model-capsule-edit"
@@ -4150,12 +4163,15 @@ const ModelSettingsPage: React.FC = () => {
 
         <ConfigPageSection title={t('sections.selectionModes')}>
           <ConfigPageRow className="openbitfun-model-settings__mode-row" label={t('selectionModes.smart')} description={t('selectionModes.smartHint')} align="center">
-            <StatusPill tone="neutral">{t('selectionModes.unavailable')}</StatusPill>
+            <Button size="sm" data-testid="settings-smart-mode-configure" disabled={!modelConfigReady}
+              onClick={() => setRouterSettingsScope(getActiveSurfaceScope())}>
+              {t('selectionModes.configure')}
+            </Button>
           </ConfigPageRow>
-          <ConfigPageRow className="openbitfun-model-settings__mode-row" label={t('selectionModes.battery')} description={t('selectionModes.batteryHint')} align="center">
-            <StatusPill tone="neutral">{t('selectionModes.unavailable')}</StatusPill>
-          </ConfigPageRow>
+
         </ConfigPageSection>
+
+        <ModelPoolsSection models={aiModels} />
 
         <div>
           <ConfigPageSection title={t('sections.pool')} bodySurface={false}
@@ -4360,6 +4376,9 @@ const ModelSettingsPage: React.FC = () => {
           {renderSubscriptionManagerContent()}
         </DialogBody>
       </Dialog>
+
+      {routerSettingsScope?.isCurrent() && <ModelRouterSettings models={aiModels}
+        onClose={() => setRouterSettingsScope(null)} onSaved={() => { void loadConfig(); }} />}
 
       <Dialog open={showProviderManager} onOpenChange={setShowProviderManager} size="xl">
         <DialogHeader>

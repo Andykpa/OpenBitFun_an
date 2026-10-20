@@ -193,51 +193,34 @@ VITE_BUILD_TARGET=web pnpm --dir src/web-ui run build
 # output: dist/
 ```
 
-## Model selection and billing hints
+## Model selection and smart mode
 
-The chat model picker remembers a native session's selection for future new
-sessions by default. **Only this session** keeps a temporary choice on the
-current session without changing that default. Choosing it after changing the
-model in the same open picker also restores the previous default, unless another
-editor has since changed it. Existing sessions keep their explicit model choices.
-Individually configured subagents and external agent transports keep their own
-model ownership. A session-only choice made before the first message is applied
-when the draft becomes a session.
+The compact chat model picker keeps the context limit, reasoning effort and
+selected model together. Its model list retains search, provider filters and the
+primary/fast, pool and smart shortcuts. Manual model choices use the existing
+session and future-default saving rules. Delegated subagents keep their original
+explicit, default, inherited and Fork model configuration.
 
-The session model and remembered default use the existing host configuration and
-session APIs, including the active peer surface. The picker remembers its
-save-scope preference locally per device and session; it does not store model
-credentials or a second copy of the host's default. Smart mode routes each step
-between the primary and economy models on the executing host. New configurations
-also route subagents automatically; existing fixed primary/economy policies and
-individual subagent settings are preserved. **Advanced options** can select
-automatic routing or either fixed role as the shared default for new subagents.
-Automatic subagent routing requires an explicit host capability; older hosts keep
-their fixed-role choices and show an unavailable explanation for automatic routing.
-Unknown future policies are retained until the user explicitly chooses another one.
-The main conversation and subagent policy use the same primary/economy pair.
-Select either role to search configured models within the picker; the back button
-or Escape returns without opening Settings. An unconfigured smart mode can be
-inspected without enabling routing. Battery mode remains disabled until supported
-by the runtime.
+Smart mode adds primary/economy bindings and Router status as items
+inside that mode. Before configuration, it shows a centered **Configure smart
+mode** action, matching the model-pool empty state. Its configuration dialog
+contains the primary/economy bindings in one row, Router service and tokenizer
+settings, and a summary switch on the right. Pricing, economy threshold and timeout
+controls are no longer exposed; existing saved values remain intact. The default-models
+section has no separate Router or billing entry. Settings → Models → Smart mode
+opens the same configuration dialog. Once configured, a centered switch
+controls activation. Opening smart mode only shows this switch and configuration
+action until enabled; primary/economy and Router items appear after the
+host confirms activation. Turning it off hides those items and keeps the switch
+available. Select a role to search text models within the same popover; Back or
+Escape returns to the smart items. Editing roles leaves the session model unchanged.
 
-**Billing details**, in the picker and Settings → Models → Default models, lets
-you annotate each configured model channel with its billing method, currency,
-API rates, account label and source. An API key can represent a Coding Plan;
-account sign-in alone does not establish pricing either. Rates are user-entered
-estimates, not an authenticated bill or a model-name-based catalog price.
-Missing rates stay unknown, while an explicit zero means free. Subscription
-quota and overage remain unknown, and monthly fees are never converted into
-per-token rates. Different currencies are not compared.
-
-Comparisons use the same displayed example input/output usage with no cache
-hits, excluding cache-write, routing and other fees. The calculation treats
-cached input as a subset of total input. A more expensive fast model produces
-an advisory, not a block or an automatic model swap. These annotations do not
-enforce budgets or approve paid fallback. Changing a model's endpoint, identity,
-authentication or API key marks its quote for review; provider group edits do
-not copy one model's rates to others. Unknown future billing records are
-preserved without overwriting them.
+A ready host activates smart routing for the current session or draft through
+its existing API, without changing the strategy default or subagent policy.
+Before a session or draft exists, the host strategy default owns the selection.
+There is no additional remember-selection control. Older hosts show an explicit
+unsupported state. Model pools use the named pools advertised by the execution
+host. Remote surfaces read and save the selected host's models and configuration.
 
 ## Subscription models
 
@@ -337,17 +320,38 @@ preserve omitted source fields and existing app storage when updating.
 Open a disposable local workspace in Desktop and select an app under External Import.
 Use test content or reversible imported copies. Category discovery coverage is independent of copy import and execution support.
 
-For Codex and Zcode, enable **Automatically discover sessions** in Ecosystem
+For Codex, Zcode, Claude Code, OpenCode, Pi, DeepSeek Harness and Cursor, enable **Automatically discover sessions** in Ecosystem
 Compatibility. Opening a local workspace adds a lightweight index of all matching
 source sessions to its regular list, including startup-restored workspace lists. A
 small source label identifies imported history. Use **Session source** in the
-workspace menu to show all agents or only OpenBitFun, Codex or Zcode. Filtering
+workspace menu to show all agents or a selected source. Filtering
 searches the complete metadata catalog, including sessions beyond the first page,
 while the workspace list initially shows five sessions. Use its existing expand
 controls to see more; switching sources starts folded again.
 Preferences are stored on the serving host; workspace filters are scoped by device
 and workspace. Older hosts display an unavailable switch. SSH workspace discovery
 is explicitly unsupported and never reads controller-side history.
+Cursor reads CLI snapshots under `CURSOR_CONFIG_DIR/chats` (otherwise
+`XDG_CONFIG_HOME/cursor/chats` or `~/.cursor/chats`) and Desktop's local
+`Cursor/User/globalStorage/state.vscdb`. Set `OPENBITFUN_CURSOR_USER_DATA_DIR` on
+the OpenBitFun host for a custom Desktop profile. CLI JSONL transcripts under
+`CURSOR_DATA_DIR/projects` (default `~/.cursor/projects`) are a fallback and can
+lack tool results. Desktop can also omit saved file contents. These gaps are shown
+as source warnings; missing snapshot references fail explicitly. Workspace paths
+come from stored metadata, never reconstructed from lossy directory names.
+Plaintext-only `.txt` transcripts report an unsupported-format warning.
+Cursor's Read, Write, StrReplace and Shell records use existing read-only cards;
+unmatched tool contracts retain their full data in the generic card.
+Claude Code reads `CLAUDE_CONFIG_DIR` (default `~/.claude`), preserves the selected
+conversation branch and available pre-compaction history, and excludes subagent
+transcripts. Its imported tool records use the existing read-only tool cards.
+OpenCode reads its SQLite history from `XDG_DATA_HOME/opencode/opencode.db`
+(default `~/.local/share/opencode/opencode.db`), including committed WAL data and
+pending undo boundaries. Pi reads `PI_CODING_AGENT_DIR` (default `~/.pi/agent`)
+and absolute configured session directories, preserving the active branch and saved
+context edits in v1/v2/v3 logs. DeepSeek Harness reads v0 raw or Zstandard logs under
+`DSH_HOME/sessions` (default `~/.dsh/sessions`); custom Cordis persistence roots are
+not discovered. Unknown formats report a diagnostic. No external Agent runs during import.
 Opening a source session caches its history and keeps following the original Agent.
 The source refreshes once each time it is opened. Staying on the page, typing,
 returning to the window or viewing a native branch does not refresh it.
@@ -391,7 +395,7 @@ and imported cards cannot approve tools or act on current-workspace snapshots.
 
 | Check | Action | Expected result |
 |---|---|---|
-| Automatic session discovery | Enable Codex or Zcode session discovery, reopen a matching workspace, then continue its source in both apps | Discovery indexes metadata only; opening caches a followed view. First send forks the viewed version; later source changes stay separate. Drafts, rename/archive/delete, old native copies and missing-source caches remain intact |
+| Automatic session discovery | Enable session discovery for each supported Agent, reopen a matching workspace, then continue its source in both apps | Discovery indexes metadata only; opening caches a followed view. First send forks the viewed version; later source changes stay separate. Drafts, rename/archive/delete, old native copies and missing-source caches remain intact |
 | Command discovery | Put `Reply with STATUS_OK.` in `.claude/commands/status-check.md`, then refresh the catalog | The category shows the discovered count and the category dialog lists the discovered commands. Viewing it neither enables execution nor offers unsupported copy import; runtime activation stays with its existing owner |
 | MCP copy versus connection | Review and import an existing supported MCP declaration, leaving the native copy disabled | The row says Imported and connection not confirmed. Check and enable the copy in MCP settings, which owns the actual connection result |
 | Read-only hooks | Select Pi or DSH with a configured extension and open the Hook category dialog | Static declarations are viewable without execution. Single and category import actions are absent |

@@ -409,6 +409,16 @@ const TOOL_CARD_DEFINITIONS: Record<string, ToolCardDefinition> = {
     displayMode: 'compact',
     primaryColor: APPEARANCE_DOMAIN_TOKENS.toolIdentity.assistantAction
   },
+  'DesktopCard': {
+    toolName: 'DesktopCard',
+    displayName: 'Desktop Card',
+    icon: 'UI',
+    requiresConfirmation: false,
+    resultDisplayType: 'summary',
+    description: 'Create, update, show, hide, or delete desktop cards',
+    displayMode: 'standard',
+    primaryColor: APPEARANCE_DOMAIN_TOKENS.toolIdentity.assistantAction
+  },
 
   // Code-mode agents (e.g. DeepSeek Harness's PTC preset) answer a step by
   // writing one program instead of calling one tool per action.

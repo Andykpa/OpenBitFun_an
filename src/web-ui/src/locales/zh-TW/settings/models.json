@@ -663,8 +663,8 @@
   "editProviderSettingsTitle": "服務連線",
   "sections": {
     "acquisition": "新增或匯入模型",
-    "selectionModes": "模型選用模式",
-    "pool": "模型池",
+    "selectionModes": "智慧模式",
+    "pool": "全部模型",
     "more": "更多設定"
   },
   "acquisition": {
@@ -686,7 +686,7 @@
     "smartHint": "基於 OpenBitFun 自適應路由與多模型協同推理技術，提升經濟效益和任務表現",
     "battery": "電池模式",
     "batteryHint": "基於多源模型池化與故障轉移技術，額度耗盡或連線失效時自動接力",
-    "unavailable": "尚未開放"
+    "configure": "設定智慧模式"
   },
   "pool": {
     "manageConnections": "管理連線",
@@ -762,14 +762,11 @@
     "compactEconomyHigher": "經濟模型較貴 · 估算"
   },
   "router": {
-    "title": "智慧路由設定",
+    "title": "智慧模式設定",
     "service": "Router 服務模型",
     "serviceHint": "先在模型設定中新增支援分類協定的 API 服務，再於此選擇；一般聊天模型和 Coding Plan 不一定支援",
     "tokenizer": "Tokenizer 檔案",
     "tokenizerHint": "填寫執行 OpenBitFun 的主機上的 tokenizer.json 路徑，必須與 Router 服務的 tokenizer 一致",
-    "threshold": "經濟模型閾值",
-    "thresholdHint": "簡單任務機率高於此值時使用經濟模型",
-    "timeout": "請求逾時（毫秒）",
     "summary": "輔助摘要",
     "summaryHint": "開啟後使用經濟模型整理路由歷史，會產生額外模型呼叫",
     "on": "開啟",
@@ -779,10 +776,49 @@
     "connected": "分類協定檢查通過",
     "notReady": "路由未就緒",
     "unsupported": "目前執行端不支援智慧路由",
-    "loadFailed": "讀取路由設定失敗，請關閉後重試",
-    "saveFailed": "儲存路由設定失敗",
+    "checkFailed": "智慧模式設定檢查失敗，請檢查路由服務和分詞器檔案後重試",
+    "loadFailed": "讀取智慧模式設定失敗，請關閉後重試",
+    "saveFailed": "儲存智慧模式設定失敗，請重試",
     "manageModels": "管理服務與模型",
     "test": "儲存並檢查連線",
     "save": "儲存"
+  },
+  "pools": {
+    "empty": "暫無模型池",
+    "title": "模型池",
+    "unsupported": "此主機不支援模型池。",
+    "error": "操作失敗，編輯內容已保留。若版本衝突，請重新整理後重新開啟模型池。",
+    "refresh": "重新整理",
+    "ordered": "順序優先",
+    "orderedHint": "需要分配或切換模型時，依清單順序選擇第一個可用模型。",
+    "balanced": "均衡分配",
+    "balancedHint": "為需要分配的對話輪流選擇可用模型，盡量平均分配。",
+    "delete": "刪除",
+    "confirmDelete": "確認刪除",
+    "deleteTitle": "刪除模型池「{{name}}」？",
+    "deleteHint": "引用已刪除模型池的對話需要重新選擇模型。",
+    "create": "建立模型池",
+    "editTitle": "編輯模型池",
+    "name": "模型池名稱",
+    "strategy": "路由策略",
+    "stickyHint": "健康的對話保持使用目前模型，策略僅影響新分配與故障切換。",
+    "up": "上移",
+    "down": "下移",
+    "remove": "移除",
+    "add": "新增模型",
+    "addHint": "模型池使用成員模型中最小的上下文視窗。建議新增能力和上下文容量相近的模型，以減少切換時的體驗差異。",
+    "save": "儲存",
+    "cancel": "取消",
+    "health": {
+      "unverified": "尚未驗證",
+      "available": "可用",
+      "cooling_down": "冷卻中",
+      "probing": "探測中",
+      "needs_attention": "設定需要處理",
+      "disabled": "已停用",
+      "missing": "模型設定不存在"
+    },
+    "retry": "允許重試",
+    "invalidRecords": "目前版本無法讀取部分模型池記錄，這些記錄已原樣保留。"
   }
 }

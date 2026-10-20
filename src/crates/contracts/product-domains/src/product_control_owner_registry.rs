@@ -372,6 +372,12 @@ pub fn owner_definitions() -> Vec<ProductControlOwnerDefinition> {
             boolean(),
             merge_config("app.ai_experience", &["enable_agent_companion"]),
         ),
+        option(
+            "setting.application.pet",
+            "desktop-cards-enabled",
+            boolean(),
+            merge_config("app.ai_experience", &["enable_desktop_cards"]),
+        ),
         operation(
             "setting.application.pet",
             "list-pets",
