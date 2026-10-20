@@ -296,6 +296,8 @@ export interface PeerDeviceTransportHooks {
   supportsWslWorkspacesV1?: boolean;
   supportsWholeSessionCopyV1?: boolean;
   supportsModelRoutingV1?: boolean;
+  supportsModelPoolSelectionV1?: boolean;
+  supportsBtwModelPoolSelectionV1?: boolean;
   supportsComputerUseSharingV1?: boolean;
   /** Enables the versioned typed ProductControl HostInvoke contract. */
   supportsProductControlV1?: boolean;
@@ -434,6 +436,8 @@ export class PeerDeviceTransportAdapter implements ITransportAdapter {
       | 'supportsWslWorkspacesV1'
       | 'supportsWholeSessionCopyV1'
       | 'supportsModelRoutingV1'
+      | 'supportsModelPoolSelectionV1'
+      | 'supportsBtwModelPoolSelectionV1'
       | 'supportsComputerUseSharingV1'
       | 'supportsProductControlV1'
     >,
@@ -503,6 +507,16 @@ export class PeerDeviceTransportAdapter implements ITransportAdapter {
       throw new PeerProductCommandError('model_routing_v1_unsupported: The connected Peer host does not support smart routing');
     }
 
+    if (['retry_model_pool_member', 'get_model_pools', 'save_model_pool', 'delete_model_pool', 'get_model_pool_status',
+      'get_session_model_target', 'update_session_model_target'].includes(action)
+      && this.hooks.supportsModelPoolSelectionV1 !== true) {
+      throw new Error('This host does not support model_pool_selection_v1');
+    }
+    if (action === 'btw_ask_stream' && params?.request?.initialModelTarget
+      && (this.hooks.supportsModelPoolSelectionV1 !== true
+        || this.hooks.supportsBtwModelPoolSelectionV1 !== true)) {
+      throw new Error('This host does not support btw_model_pool_selection_v1');
+    }
     if (action === 'copy_session' && this.hooks.supportsWholeSessionCopyV1 !== true) {
       throw new PeerProductCommandError(
         'whole_session_copy_v1_unsupported: The connected Peer host does not support whole-session copying',

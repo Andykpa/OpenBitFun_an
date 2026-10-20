@@ -1,13 +1,13 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "8d5b03e3738713ff3014e11160811b1e815804bea57c56a177af47691d8b82c6",
-  "commandCount": 679,
+  "catalogDigest": "9f9e5005574074669afdfb2a2a880ccb15f51108083472178a97ce56a20ace0a",
+  "commandCount": 694,
   "coverage": {
-    "commandCount": 679,
-    "documentedCommandCount": 629,
-    "implementationCommandCount": 50,
-    "implementationDigest": "1dc90be1a699f521e7faee78c128d6332ef0806daccb389b288fbe2fa3fd3c2c"
+    "commandCount": 694,
+    "documentedCommandCount": 643,
+    "implementationCommandCount": 51,
+    "implementationDigest": "b9ffc435b3b60049737b988fa48409ec88e570fcf52eb71a79d75ce13877086f"
   },
   "commands": [
     {
@@ -2044,6 +2044,22 @@
       "remoteWorkspacePolicy": "LegacyUnaudited"
     },
     {
+      "id": "delete_model_pool",
+      "moduleId": "model_pool",
+      "capabilityId": "setting.ai.models",
+      "capabilityIds": [
+        "setting.ai.models"
+      ],
+      "documentedItemIds": [
+        "setting.ai.models:model-pools"
+      ],
+      "visibility": "documented",
+      "rustPath": "api::model_pool_api::delete_model_pool",
+      "sourceFile": "src/apps/desktop/src/api/model_pool_api.rs",
+      "signature": "fn delete_model_pool(request: ModelPoolRequest) -> Result<ModelPoolDocument, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
       "id": "delete_persisted_session",
       "moduleId": "session",
       "capabilityId": "setting.data.archived",
@@ -2107,6 +2123,118 @@
       "sourceFile": "src/apps/desktop/src/api/subagent_api.rs",
       "signature": "fn delete_subagent( state: State<'_, AppState>, request: DeleteSubagentRequest, ) -> Result<(), String>",
       "remoteWorkspacePolicy": "LegacyUnaudited"
+    },
+    {
+      "id": "desktop_card_delete",
+      "moduleId": "commands",
+      "capabilityId": "feature.desktop-cards",
+      "capabilityIds": [
+        "feature.desktop-cards"
+      ],
+      "documentedItemIds": [
+        "feature.desktop-cards:home-management"
+      ],
+      "visibility": "documented",
+      "rustPath": "desktop_cards::commands::desktop_card_delete",
+      "sourceFile": "src/apps/desktop/src/desktop_cards/commands.rs",
+      "signature": "fn desktop_card_delete( cards: State<'_, Arc<DesktopCards>>, request: DesktopCardIdRequest, ) -> Result<(), String>",
+      "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "desktop_card_get",
+      "moduleId": "commands",
+      "capabilityId": "feature.desktop-cards",
+      "capabilityIds": [
+        "feature.desktop-cards"
+      ],
+      "documentedItemIds": [
+        "feature.desktop-cards:card-actions"
+      ],
+      "visibility": "documented",
+      "rustPath": "desktop_cards::commands::desktop_card_get",
+      "sourceFile": "src/apps/desktop/src/desktop_cards/commands.rs",
+      "signature": "fn desktop_card_get( cards: State<'_, Arc<DesktopCards>>, request: DesktopCardIdRequest, ) -> Result<DesktopCardRecord, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "desktop_card_list",
+      "moduleId": "commands",
+      "capabilityId": "feature.desktop-cards",
+      "capabilityIds": [
+        "feature.desktop-cards"
+      ],
+      "documentedItemIds": [
+        "feature.desktop-cards:home-management"
+      ],
+      "visibility": "documented",
+      "rustPath": "desktop_cards::commands::desktop_card_list",
+      "sourceFile": "src/apps/desktop/src/desktop_cards/commands.rs",
+      "signature": "fn desktop_card_list( cards: State<'_, Arc<DesktopCards>>, request: DesktopCardListRequest, ) -> Result<Value, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "desktop_card_refresh",
+      "moduleId": "commands",
+      "capabilityId": "feature.desktop-cards",
+      "capabilityIds": [
+        "feature.desktop-cards"
+      ],
+      "documentedItemIds": [
+        "feature.desktop-cards:card-actions"
+      ],
+      "visibility": "documented",
+      "rustPath": "desktop_cards::commands::desktop_card_refresh",
+      "sourceFile": "src/apps/desktop/src/desktop_cards/commands.rs",
+      "signature": "fn desktop_card_refresh( cards: State<'_, Arc<DesktopCards>>, request: DesktopCardIdRequest, ) -> Result<DesktopCardRecord, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "desktop_card_set_always_on_top",
+      "moduleId": "commands",
+      "capabilityId": "feature.desktop-cards",
+      "capabilityIds": [
+        "feature.desktop-cards"
+      ],
+      "documentedItemIds": [
+        "feature.desktop-cards:card-actions"
+      ],
+      "visibility": "documented",
+      "rustPath": "desktop_cards::commands::desktop_card_set_always_on_top",
+      "sourceFile": "src/apps/desktop/src/desktop_cards/commands.rs",
+      "signature": "fn desktop_card_set_always_on_top( cards: State<'_, Arc<DesktopCards>>, request: DesktopCardAlwaysOnTopRequest, ) -> Result<DesktopCardRecord, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "desktop_card_set_checklist_item",
+      "moduleId": "commands",
+      "capabilityId": "feature.desktop-cards",
+      "capabilityIds": [
+        "feature.desktop-cards"
+      ],
+      "documentedItemIds": [
+        "feature.desktop-cards:card-actions"
+      ],
+      "visibility": "documented",
+      "rustPath": "desktop_cards::commands::desktop_card_set_checklist_item",
+      "sourceFile": "src/apps/desktop/src/desktop_cards/commands.rs",
+      "signature": "fn desktop_card_set_checklist_item( cards: State<'_, Arc<DesktopCards>>, request: DesktopCardChecklistItemRequest, ) -> Result<DesktopCardRecord, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "desktop_card_set_visible",
+      "moduleId": "commands",
+      "capabilityId": "feature.desktop-cards",
+      "capabilityIds": [
+        "feature.desktop-cards"
+      ],
+      "documentedItemIds": [
+        "feature.desktop-cards:home-management"
+      ],
+      "visibility": "documented",
+      "rustPath": "desktop_cards::commands::desktop_card_set_visible",
+      "sourceFile": "src/apps/desktop/src/desktop_cards/commands.rs",
+      "signature": "fn desktop_card_set_visible( cards: State<'_, Arc<DesktopCards>>, request: DesktopCardSetVisibleRequest, ) -> Result<DesktopCardRecord, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
     },
     {
       "id": "dispatch_answer",
@@ -3640,6 +3768,38 @@
       "remoteWorkspacePolicy": "LegacyUnaudited"
     },
     {
+      "id": "get_model_pool_status",
+      "moduleId": "model_pool",
+      "capabilityId": "setting.ai.models",
+      "capabilityIds": [
+        "setting.ai.models"
+      ],
+      "documentedItemIds": [
+        "setting.ai.models:model-pools"
+      ],
+      "visibility": "documented",
+      "rustPath": "api::model_pool_api::get_model_pool_status",
+      "sourceFile": "src/apps/desktop/src/api/model_pool_api.rs",
+      "signature": "fn get_model_pool_status( coordinator: State<'_, Arc<ConversationCoordinator>>, request: ModelPoolRequest, ) -> Result<Vec<ModelPoolMemberStatus>, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
+      "id": "get_model_pools",
+      "moduleId": "model_pool",
+      "capabilityId": "setting.ai.models",
+      "capabilityIds": [
+        "setting.ai.models"
+      ],
+      "documentedItemIds": [
+        "setting.ai.models:model-pools"
+      ],
+      "visibility": "documented",
+      "rustPath": "api::model_pool_api::get_model_pools",
+      "sourceFile": "src/apps/desktop/src/api/model_pool_api.rs",
+      "signature": "fn get_model_pools() -> Result<ModelPoolDocument, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
       "id": "get_model_routing_status",
       "moduleId": "agentic",
       "capabilityId": "setting.ai.models",
@@ -3924,6 +4084,22 @@
       "sourceFile": "src/apps/desktop/src/api/session_api.rs",
       "signature": "fn get_session_lineage( request: GetSessionLineageRequest, runtime: State<'_, DesktopRuntimeContext>, ) -> Result<Option<AgentSessionLineageSnapshot>, String>",
       "remoteWorkspacePolicy": "RemoteRouted"
+    },
+    {
+      "id": "get_session_model_target",
+      "moduleId": "model_pool",
+      "capabilityId": "setting.ai.models",
+      "capabilityIds": [
+        "setting.ai.models"
+      ],
+      "documentedItemIds": [
+        "setting.ai.models:model-pools"
+      ],
+      "visibility": "documented",
+      "rustPath": "api::model_pool_api::get_session_model_target",
+      "sourceFile": "src/apps/desktop/src/api/model_pool_api.rs",
+      "signature": "fn get_session_model_target( runtime: State<'_, DesktopRuntimeContext>, request: SessionModelTargetRequest, ) -> Result<SessionModelTarget, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
       "id": "get_session_operations",
@@ -5454,6 +5630,20 @@
       "sourceFile": "src/apps/desktop/src/api/acp_client_api.rs",
       "signature": "fn load_acp_json_config(state: State<'_, AppState>) -> Result<String, String>",
       "remoteWorkspacePolicy": "LegacyUnaudited"
+    },
+    {
+      "id": "load_agent_companion_pet_spritesheet",
+      "moduleId": "commands",
+      "capabilityId": "feature.projects",
+      "capabilityIds": [
+        "feature.projects"
+      ],
+      "documentedItemIds": [],
+      "visibility": "implementation",
+      "rustPath": "load_agent_companion_pet_spritesheet",
+      "sourceFile": "src/apps/desktop/src/api/commands.rs",
+      "signature": "fn load_agent_companion_pet_spritesheet( state: State<'_, AppState>, request: LoadAgentCompanionPetSpritesheetRequest, ) -> Result<tauri::ipc::Response, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
     },
     {
       "id": "load_canvas_artifact",
@@ -8032,6 +8222,22 @@
       "remoteWorkspacePolicy": "LegacyUnaudited"
     },
     {
+      "id": "retry_model_pool_member",
+      "moduleId": "model_pool",
+      "capabilityId": "setting.ai.models",
+      "capabilityIds": [
+        "setting.ai.models"
+      ],
+      "documentedItemIds": [
+        "setting.ai.models:model-pools"
+      ],
+      "visibility": "documented",
+      "rustPath": "api::model_pool_api::retry_model_pool_member",
+      "sourceFile": "src/apps/desktop/src/api/model_pool_api.rs",
+      "signature": "fn retry_model_pool_member( coordinator: State<'_, Arc<ConversationCoordinator>>, request: RetryModelPoolMemberRequest, ) -> Result<(), String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
       "id": "reveal_external_source_location",
       "moduleId": "external_sources",
       "capabilityId": "feature.ecosystem-compatibility",
@@ -8446,6 +8652,22 @@
       "sourceFile": "src/apps/desktop/src/api/diff_api.rs",
       "signature": "fn save_merged_diff_content(request: SaveMergedContentRequest) -> Result<(), String>",
       "remoteWorkspacePolicy": "LegacyUnaudited"
+    },
+    {
+      "id": "save_model_pool",
+      "moduleId": "model_pool",
+      "capabilityId": "setting.ai.models",
+      "capabilityIds": [
+        "setting.ai.models"
+      ],
+      "documentedItemIds": [
+        "setting.ai.models:model-pools"
+      ],
+      "visibility": "documented",
+      "rustPath": "api::model_pool_api::save_model_pool",
+      "sourceFile": "src/apps/desktop/src/api/model_pool_api.rs",
+      "signature": "fn save_model_pool(request: SaveModelPoolRequest) -> Result<ModelPoolDocument, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
       "id": "save_project_permission_rules",
@@ -10528,6 +10750,22 @@
       "sourceFile": "src/apps/desktop/src/api/agentic_api.rs",
       "signature": "fn update_session_model( runtime: State<'_, DesktopRuntimeContext>, request: UpdateSessionModelRequest, ) -> Result<(), String>",
       "remoteWorkspacePolicy": "LegacyUnaudited"
+    },
+    {
+      "id": "update_session_model_target",
+      "moduleId": "model_pool",
+      "capabilityId": "setting.ai.models",
+      "capabilityIds": [
+        "setting.ai.models"
+      ],
+      "documentedItemIds": [
+        "setting.ai.models:model-pools"
+      ],
+      "visibility": "documented",
+      "rustPath": "api::model_pool_api::update_session_model_target",
+      "sourceFile": "src/apps/desktop/src/api/model_pool_api.rs",
+      "signature": "fn update_session_model_target( runtime: State<'_, DesktopRuntimeContext>, request: SessionModelTargetRequest, ) -> Result<SessionModelTarget, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
       "id": "update_session_permission_mode",

@@ -69,6 +69,24 @@
     "failed": "Could not load Mini Apps from the active host. Check the connection and host support, then retry.",
     "empty": "No Mini Apps yet"
   },
+  "desktopCards": {
+    "title": "Desktop cards",
+    "settings": "Card settings",
+    "listTitle": "My cards",
+    "visibleCount": "{{count}} on desktop",
+    "disabled": "Turned off in settings. Cards are kept and come back when you turn them on.",
+    "loading": "Loading desktop cards…",
+    "failed": "Could not load desktop cards. Try again.",
+    "empty": "No cards yet. Ask the agent, for example \"remind me in 20 minutes\" or \"keep an eye on this PR\".",
+    "shown": "On desktop",
+    "hidden": "Hidden",
+    "show": "Show on desktop",
+    "hide": "Hide from desktop",
+    "delete": "Delete card",
+    "deleteConfirmTitle": "Delete card",
+    "deleteConfirmMessage": "Delete \"{{title}}\"? This cannot be undone.",
+    "actionFailed": "Could not update the card. Try again."
+  },
   "skills": {
     "add": "Add skill",
     "loading": "Loading Skills…",

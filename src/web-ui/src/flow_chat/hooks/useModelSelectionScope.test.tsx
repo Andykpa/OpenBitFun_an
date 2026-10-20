@@ -110,4 +110,35 @@ describe('model selection save scope', () => {
     await render(); expect(result!.pending).toBe(false);
     expect(changed).not.toHaveBeenCalled();
   });
+  it('preserves typed pool defaults when a remembered model choice becomes temporary', async () => {
+    const surface = getActiveSurfaceScope();
+    const baseline = { kind: 'pool', pool_id: 'daily' };
+    let value: unknown = baseline;
+    vi.mocked(configManager.updateConfig).mockImplementation(async (_path, update) => { value = update(value); return value; });
+    await act(async () => root.render(<Harness
+      scopeKey={surface.key('typed-model-scope', 'session-a')} epoch={surface.epoch}
+      sessionId="session-a" allowed open defaultPath="ai.agent_model_selections.mode"
+      defaultModel={JSON.stringify(baseline)} selectedModel={JSON.stringify({ kind: 'model', model_ref: 'fast' })}
+      encodeDefault={JSON.parse} decodeDefault={JSON.stringify} onDefaultChange={changed}
+    />));
+    const selected = { kind: 'model', model_ref: 'fast' };
+    result.markDefaultWrite(JSON.stringify(selected)); value = selected;
+    await act(async () => result.changeScope('session'));
+    expect(value).toEqual(baseline);
+    expect(changed).toHaveBeenCalledWith(JSON.stringify(baseline));
+    vi.mocked(configManager.setConfig).mockImplementation(async (_path, next) => { value = next; });
+    await act(async () => result.changeScope('remember'));
+    expect(configManager.setConfig).toHaveBeenCalledExactlyOnceWith('ai.agent_model_selections.mode', selected);
+    expect(value).toEqual(selected);
+  });
+
+  it('rejects a stale editor callback before writing to a newly activated host', async () => {
+    await render(); await act(async () => result.changeScope('session'));
+    const stale = result.changeScope;
+    activateSurface('peer-host');
+    await act(async () => stale('remember'));
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+    expect(configManager.updateConfig).not.toHaveBeenCalled();
+  });
+
 });

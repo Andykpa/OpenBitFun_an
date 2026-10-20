@@ -1,5 +1,7 @@
+import { modelSelectionsConfigPath } from '@/infrastructure/config/services/modelSelections';
 import '@/app/scenes/settings/pages/ai/ModelSettingsPage.scss';
 import { ModelDiscoveryPicker, type ModelDiscoveryOption } from './ModelDiscoveryPicker';
+import { ModelPoolsSection } from './ModelPoolsSection';
 import { ModelPoolCardActions } from './ModelPoolCardActions';
 import { aiApi, systemAPI } from '@/infrastructure/api';
 import type {
@@ -28,6 +30,7 @@ import {
 import { ModelDiscoveryCoordinator } from '@/infrastructure/config/components/modelDiscoveryCoordinator';
 import {
   getModelEditorRequestSettings,
+  prepareModelEditorRequestSettingsForSave,
   updateModelEditorRequestSettings,
   type ModelEditorRequestSettings,
 } from '@/infrastructure/config/components/modelEditorRequestSettings';
@@ -1995,7 +1998,7 @@ const ModelSettingsPage: React.FC = () => {
             [PROVIDER_INSTANCE_METADATA_KEY]: providerInstanceId,
           },
           reasoning: draft.reasoning,
-          ...draft.requestSettings,
+          ...prepareModelEditorRequestSettingsForSave(draft.requestSettings),
           auth: providerConfig.auth || { type: 'api_key' },
         };
       });
@@ -2095,7 +2098,7 @@ const ModelSettingsPage: React.FC = () => {
     const [defaultModels, taskModels, agentModelDefaults] = await Promise.all([
       configManager.getConfig<unknown>('ai.default_models'),
       configManager.getConfig<unknown>('ai.task_models'),
-      configManager.getConfig<unknown>('ai.agent_model_defaults'),
+      configManager.getConfig<unknown>(modelSelectionsConfigPath()),
     ]);
     const ids = new Set(modelIds);
     return [defaultModels, taskModels, agentModelDefaults]
@@ -2911,7 +2914,7 @@ const ModelSettingsPage: React.FC = () => {
                   if (element) modelCapsuleRefs.current.set(draft.key, element);
                   else modelCapsuleRefs.current.delete(draft.key);
                 }}
-                variant="outline"
+                variant="fill"
                 size="xs"
                 className="openbitfun-model-settings__model-capsule-edit"
                 data-testid="settings-model-capsule-edit"
@@ -4152,10 +4155,10 @@ const ModelSettingsPage: React.FC = () => {
           <ConfigPageRow className="openbitfun-model-settings__mode-row" label={t('selectionModes.smart')} description={t('selectionModes.smartHint')} align="center">
             <StatusPill tone="neutral">{t('selectionModes.unavailable')}</StatusPill>
           </ConfigPageRow>
-          <ConfigPageRow className="openbitfun-model-settings__mode-row" label={t('selectionModes.battery')} description={t('selectionModes.batteryHint')} align="center">
-            <StatusPill tone="neutral">{t('selectionModes.unavailable')}</StatusPill>
-          </ConfigPageRow>
+
         </ConfigPageSection>
+
+        <ModelPoolsSection models={aiModels} />
 
         <div>
           <ConfigPageSection title={t('sections.pool')} bodySurface={false}

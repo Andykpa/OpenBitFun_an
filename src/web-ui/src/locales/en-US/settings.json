@@ -22,7 +22,7 @@
       },
       "pet": {
         "label": "Pet & assistant",
-        "description": "Choose your pet and configure real-time voice calls with the assistant"
+        "description": "Choose your pet, configure real-time voice calls with the assistant, and manage desktop cards"
       },
       "terminal": {
         "label": "Terminal",
@@ -107,7 +107,8 @@
       "quick-actions": "Quick Actions",
       "hooks": "Event Hooks",
       "pet": "Pet",
-      "voice-call": "Real-time voice calls"
+      "voice-call": "Real-time voice calls",
+      "desktop-cards": "Desktop cards"
     }
   },
   "changeGuard": {

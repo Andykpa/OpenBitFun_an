@@ -77,6 +77,8 @@
     "inheritedSettings": "此设备版本的首次侧边提问沿用主会话设置。发送后可调整模型。",
     "actions": "选中文本操作",
     "annotate": "添加批注",
+    "moveEditor": "移动批注输入框",
+    "resizeEditor": "调整批注输入框大小",
     "annotation": "批注",
     "annotationPlaceholder": "写下你的批注…",
     "editAnnotation": "批注选中文本",
@@ -3028,7 +3030,8 @@
         "FinalizeMiniApp": "更新小应用",
         "PublishMiniApp": "提交小应用审核",
         "PublishAppearance": "提交皮肤审核",
-        "Playbook": "读取操作流程"
+        "Playbook": "读取操作流程",
+        "DesktopCard": "小卡片"
       },
       "fields": {
         "results": "结果",
@@ -3131,7 +3134,13 @@
         "checksFailed": "检查失败数",
         "checksPending": "待完成检查数",
         "author": "作者",
-        "lastOutcome": "上次事务结果"
+        "lastOutcome": "上次事务结果",
+        "card": "卡片 ID",
+        "dataSource": "数据来源",
+        "visibility": "显示状态",
+        "refreshError": "最近刷新错误",
+        "presets": "预置卡片",
+        "cards": "卡片"
       },
       "states": {
         "active": "进行中",
@@ -3172,7 +3181,10 @@
         "idle": "空闲",
         "managed": "托管工作树",
         "permanent": "永久工作树",
-        "external": "外部工作树"
+        "external": "外部工作树",
+        "cardCreated": "已创建并显示",
+        "cardShown": "已显示",
+        "cardHidden": "已隐藏"
       },
       "operations": {
         "list": "查看列表",
@@ -3264,7 +3276,36 @@
       "imageUnavailable": "无法预览图像，可打开记录的路径查看源文件。",
       "imageLoading": "正在读取源图像…",
       "hostUnavailable": "这条记录来自被派发任务的主机，请在该主机打开资源；当前无法从本机跳转。",
-      "remoteLoopback": "这个回环地址属于执行主机，请在该主机上打开。"
+      "remoteLoopback": "这个回环地址属于执行主机，请在该主机上打开。",
+      "desktopCard": {
+        "actions": {
+          "presets": "查看预置卡片",
+          "create": "创建小卡片",
+          "update": "更新小卡片",
+          "list": "列出小卡片",
+          "get": "查看小卡片",
+          "show": "显示小卡片",
+          "hide": "隐藏小卡片",
+          "delete": "删除小卡片",
+          "refresh": "刷新小卡片"
+        },
+        "templates": {
+          "countdown": "倒计时",
+          "checklist": "清单",
+          "note": "便签",
+          "progress": "进度",
+          "metrics": "指标",
+          "cronJob": "定时任务",
+          "custom": "自定义"
+        },
+        "sources": {
+          "http": "HTTP · {{target}} · 每 {{interval}} 秒",
+          "command": "本机命令 · {{target}} · 每 {{interval}} 秒"
+        },
+        "visible": "显示在桌面",
+        "hidden": "已隐藏",
+        "disabledNotice": "小卡片功能已在设置中关闭，这些卡片当前不会显示。"
+      }
     }
   },
   "welcome": {
@@ -3338,9 +3379,9 @@
       "contextSaveFailed": "保存失败，请重试",
       "availablePoolModels": "模型池可用模型",
       "mode": "模式",
-      "currentModel": "当前使用模型",
+      "currentModel": "当前模型",
       "poolConnections": "电池接入列表",
-      "modelPool": "模型池列表"
+      "modelList": "模型列表"
     },
     "modes": {
       "selection": "选择模式",
@@ -3400,9 +3441,11 @@
       "targetModelUnavailable": "目标模型不可用"
     },
     "tooltip": {
+      "currentModel": "当前模型",
       "configName": "配置名",
       "modelName": "模型名",
       "contextWindow": "上下文窗口",
+      "poolContextWindow": "池上下文窗口",
       "compressionTrigger": "压缩触发线",
       "longContextWarning": "当前模型配置的上下文窗口超过 400K。超长上下文可能降低模型效果，建议将其调整到 300K 左右。"
     },
@@ -3478,6 +3521,23 @@
         "hint": "应用于新启动的子代理，单独配置保持不变",
         "unsupported": "当前执行端暂不支持此设置，请升级后重试"
       }
+    },
+    "pools": {
+      "title": "模型池",
+      "loadError": "模型池加载失败，请重新打开菜单重试。",
+      "surfaceUnsupported": "此会话入口暂不支持模型池，请选择具体模型。",
+      "actual": "当前模型：{{model}}",
+      "unassigned": "首次请求时分配",
+      "choose": "选择模型池",
+      "configure": "配置模型池",
+      "empty": "尚未配置模型池",
+      "missing": "此模型池已不存在",
+      "unavailable": "暂无可用模型",
+      "ordered": "按顺序",
+      "balanced": "负载均衡",
+      "members": "{{strategy}} · {{total}} 个模型",
+      "orderedDescription": "分配时选择首个可用模型，当前模型可用时保持绑定。",
+      "balancedDescription": "将不同会话分配给各个模型，当前模型可用时保持绑定。"
     }
   },
   "reasoningEffort": {

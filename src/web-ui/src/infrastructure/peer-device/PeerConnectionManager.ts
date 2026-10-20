@@ -44,6 +44,7 @@ export interface PeerHostCapabilities {
   /** Only true after explicit negotiation; older hosts need the upload API. */
   readonly inlineImageAttachmentsV1?: boolean;
   readonly btwInitialModelSelectionV1?: boolean;
+  readonly btwModelPoolSelectionV1?: boolean;
   readonly controlConversationV1?: boolean;
   readonly controlConversationResetV1?: boolean;
   readonly targetedSessionRollback: boolean;
@@ -53,6 +54,7 @@ export interface PeerHostCapabilities {
   readonly wslWorkspacesV1?: boolean;
   readonly wholeSessionCopyV1?: boolean;
   readonly modelRoutingV1?: boolean;
+  readonly modelPoolSelectionV1?: boolean;
   readonly computerUseSharingV1?: boolean;
   /** Typed ProductControl HostInvoke, including shared config read-back. */
   readonly productControlV1?: boolean;
@@ -173,6 +175,7 @@ const NO_CAPABILITIES: PeerHostCapabilities = {
   idempotentDialogSubmit: false,
   inlineImageAttachmentsV1: false,
   btwInitialModelSelectionV1: false,
+  btwModelPoolSelectionV1: false,
   controlConversationV1: false,
   controlConversationResetV1: false,
   targetedSessionRollback: false,
@@ -181,6 +184,7 @@ const NO_CAPABILITIES: PeerHostCapabilities = {
   wslWorkspacesV1: false,
   wholeSessionCopyV1: false,
   modelRoutingV1: false,
+  modelPoolSelectionV1: false,
   computerUseSharingV1: false,
   productControlV1: false,
   productControlNativeV1: false,
@@ -437,6 +441,8 @@ export class PeerConnectionManager {
       supportsWslWorkspacesV1: entry.capabilities.wslWorkspacesV1,
       supportsWholeSessionCopyV1: entry.capabilities.wholeSessionCopyV1,
       supportsModelRoutingV1: entry.capabilities.modelRoutingV1,
+      supportsModelPoolSelectionV1: entry.capabilities.modelPoolSelectionV1,
+      supportsBtwModelPoolSelectionV1: entry.capabilities.btwModelPoolSelectionV1,
       supportsComputerUseSharingV1: entry.capabilities.computerUseSharingV1,
       supportsProductControlV1: entry.capabilities.productControlV1,
     });
@@ -518,6 +524,7 @@ export class PeerConnectionManager {
       backgroundResultDeliveryV1: caps?.background_result_delivery_v1 === true,
       inlineImageAttachmentsV1: caps?.inline_image_attachments_v1 === true,
       btwInitialModelSelectionV1: caps?.btw_initial_model_selection_v1 === true,
+      btwModelPoolSelectionV1: caps?.btw_model_pool_selection_v1 === true,
       controlConversationV1: caps?.control_conversation_v1 === true,
       controlConversationResetV1: caps?.control_conversation_reset_v1 === true,
       targetedSessionRollback: caps?.targeted_session_rollback === true,
@@ -526,6 +533,7 @@ export class PeerConnectionManager {
       wslWorkspacesV1: caps?.wsl_workspaces_v1 === true,
       wholeSessionCopyV1: caps?.whole_session_copy_v1 === true,
       modelRoutingV1: caps?.model_routing_v1 === true,
+      modelPoolSelectionV1: caps?.model_pool_selection_v1 === true,
       computerUseSharingV1: caps?.computer_use_sharing_v1 === true,
       productControlV1: caps?.product_control_v1 === true,
       productControlNativeV1: caps?.product_control_native_v1 === true,
@@ -624,6 +632,8 @@ export class PeerConnectionManager {
         supportsWslWorkspacesV1: capabilities.wslWorkspacesV1,
         supportsWholeSessionCopyV1: capabilities.wholeSessionCopyV1,
         supportsModelRoutingV1: capabilities.modelRoutingV1,
+        supportsModelPoolSelectionV1: capabilities.modelPoolSelectionV1,
+        supportsBtwModelPoolSelectionV1: capabilities.btwModelPoolSelectionV1,
         supportsComputerUseSharingV1: capabilities.computerUseSharingV1,
         supportsProductControlV1: capabilities.productControlV1,
       });
@@ -763,6 +773,7 @@ function capabilitiesEqual(
     a.backgroundResultDeliveryV1 === b.backgroundResultDeliveryV1 &&
     a.inlineImageAttachmentsV1 === b.inlineImageAttachmentsV1 &&
     a.btwInitialModelSelectionV1 === b.btwInitialModelSelectionV1 &&
+    a.btwModelPoolSelectionV1 === b.btwModelPoolSelectionV1 &&
     a.controlConversationV1 === b.controlConversationV1 &&
     a.controlConversationResetV1 === b.controlConversationResetV1 &&
     a.targetedSessionRollback === b.targetedSessionRollback &&
@@ -771,6 +782,7 @@ function capabilitiesEqual(
     a.wslWorkspacesV1 === b.wslWorkspacesV1 &&
     a.wholeSessionCopyV1 === b.wholeSessionCopyV1 &&
     a.modelRoutingV1 === b.modelRoutingV1 &&
+    a.modelPoolSelectionV1 === b.modelPoolSelectionV1 &&
     a.computerUseSharingV1 === b.computerUseSharingV1 &&
     a.cancelTool === b.cancelTool &&
     a.toolCatalog === b.toolCatalog &&

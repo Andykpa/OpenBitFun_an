@@ -67,6 +67,7 @@ Notes:
 | `SessionHistory` | Deferred | None | - |
 | `Cron` | Deferred | None | - |
 | `PortForward` | Deferred | None | - |
+| `DesktopCard` | Direct | None | - |
 | `WebSearch` | Deferred | None | - |
 | `WebFetch` | Deferred | None | - |
 | `ListMCPResources` | Deferred | None | - |

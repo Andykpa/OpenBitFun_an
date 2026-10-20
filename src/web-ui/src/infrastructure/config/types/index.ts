@@ -174,6 +174,8 @@ export interface AIExperienceConfig {
   enable_git_commit_coauthor?: boolean;
   /** Absent on older hosts that do not offer next-input suggestions. */
   enable_prompt_suggestion?: boolean;
+  /** Absent on older hosts that have no desktop cards. */
+  enable_desktop_cards?: boolean;
 }
 
 export interface VoiceInputSettings {
@@ -349,6 +351,17 @@ export interface TaskModelsConfig {
   git_commit: TaskModelSelection;
 }
 
+export type ModelTargetSelection = { kind: 'model'; model_ref: string } | { kind: 'pool'; pool_id: string };
+export type AgentModelTargetSelection = ModelTargetSelection | { kind: 'inherit' };
+export interface AgentModelSelections {
+  mode: ModelTargetSelection;
+  subagents: {
+    default: AgentModelTargetSelection;
+    builtin: Record<string, AgentModelTargetSelection>;
+    fork: AgentModelTargetSelection;
+  };
+}
+
 export interface AgentModelDefaultsConfig {
   mode: string;
   subagents: {
@@ -375,6 +388,7 @@ export interface AIConfig {
   default_models: DefaultModelsConfig;
   model_routing?: ModelRoutingConfig;
   agent_model_defaults: AgentModelDefaultsConfig;
+  agent_model_selections?: AgentModelSelections;
   task_models: TaskModelsConfig;
   agent_profiles: Record<string, StoredAgentProfileConfigItem>;
   proxy: ProxyConfig;

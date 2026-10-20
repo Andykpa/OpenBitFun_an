@@ -69,6 +69,24 @@
     "failed": "无法加载当前主机的小应用，请检查连接与主机支持后重试。",
     "empty": "暂无小应用"
   },
+  "desktopCards": {
+    "title": "小卡片",
+    "settings": "卡片设置",
+    "listTitle": "我的卡片",
+    "visibleCount": "桌面显示 {{count}} 张",
+    "disabled": "已在设置中关闭。卡片会保留，重新开启后恢复显示。",
+    "loading": "正在加载小卡片…",
+    "failed": "无法加载小卡片，请重试。",
+    "empty": "还没有卡片。试试对智能体说“20 分钟后提醒我”或“帮我盯着这个 PR”。",
+    "shown": "桌面显示中",
+    "hidden": "已隐藏",
+    "show": "在桌面显示",
+    "hide": "从桌面隐藏",
+    "delete": "删除卡片",
+    "deleteConfirmTitle": "删除卡片",
+    "deleteConfirmMessage": "删除“{{title}}”？此操作无法撤销。",
+    "actionFailed": "无法更新卡片，请重试。"
+  },
   "skills": {
     "add": "添加技能",
     "loading": "正在加载技能…",

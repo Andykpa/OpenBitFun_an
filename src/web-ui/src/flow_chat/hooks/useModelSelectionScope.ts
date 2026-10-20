@@ -10,7 +10,8 @@ const readScope = (key: string): ModelSelectionScope => {
 };
 
 /** Only the editor's save preference is local. Models/defaults remain host-owned. */
-export function useModelSelectionScope({ scopeKey, epoch, sessionId, allowed, open, defaultModel, selectedModel, onDefaultChange, defaultPath = 'ai.agent_model_defaults.mode', skipUnchangedWrite = false, scopeOverride }: {
+export function useModelSelectionScope({ scopeKey, epoch, sessionId, allowed, open, defaultModel, selectedModel, onDefaultChange, defaultPath = 'ai.agent_model_defaults.mode', skipUnchangedWrite = false, scopeOverride, encodeDefault = value => value, decodeDefault = value => String(value) }: {
+  encodeDefault?: (value: string) => unknown; decodeDefault?: (value: unknown) => string;
   defaultPath?: string; skipUnchangedWrite?: boolean; scopeOverride?: ModelSelectionScope;
   scopeKey: string; epoch: number; sessionId?: string; allowed: boolean; open: boolean;
   defaultModel: string; selectedModel: string; onDefaultChange: (model: string) => void;
@@ -36,21 +37,23 @@ export function useModelSelectionScope({ scopeKey, epoch, sessionId, allowed, op
   const changeScope = async (next: ModelSelectionScope) => {
     if (!allowed || !sessionId || scope === next || pendingIdentity === identity) return;
     const surface = getActiveSurfaceScope();
+    if (surface.epoch !== epoch || identityRef.current !== identity) return;
     setPendingIdentity(identity);
     try {
       let updated: string | undefined;
       if (next === 'remember') {
         if (!skipUnchangedWrite || selectedModel !== defaultModel) {
           markDefaultWrite(selectedModel);
-          await configManager.setConfig(defaultPath, selectedModel);
+          await configManager.setConfig(defaultPath, encodeDefault(selectedModel));
           updated = selectedModel;
         }
       } else if (edit.current?.identity === identity && edit.current.lastWritten) {
         const { baseline, lastWritten } = edit.current;
         // ConfigManager serializes this behind outstanding default saves. Only
         // undo our own edit; do not overwrite a newer choice from another editor.
-        updated = await configManager.updateConfig<string>(defaultPath, current =>
-          current === lastWritten ? baseline : current);
+        const value = await configManager.updateConfig<unknown>(defaultPath, current =>
+          decodeDefault(current) === lastWritten ? encodeDefault(baseline) : current);
+        updated = decodeDefault(value);
       }
       if (!surface.isCurrent() || identityRef.current !== identity) return;
       if (updated) onDefaultChange(updated);

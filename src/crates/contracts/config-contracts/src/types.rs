@@ -641,6 +641,9 @@ pub struct AIExperienceConfig {
     /// Whether a completed interactive turn offers a one-sentence next-input suggestion.
     #[serde(default = "default_true")]
     pub enable_prompt_suggestion: bool,
+    /// Whether desktop cards are shown and the DesktopCard Agent tool is exposed.
+    #[serde(default = "default_true")]
+    pub enable_desktop_cards: bool,
 }
 
 fn default_quick_actions() -> Vec<AiExperienceQuickAction> {
@@ -1130,6 +1133,9 @@ pub struct AIConfig {
     /// All configured models.
     pub models: Vec<AIModelConfig>,
 
+    #[serde(default)]
+    pub model_pools: crate::model_pool::ModelPoolDocument,
+
     /// Model selectors for product-owned AI tasks.
     #[serde(default, skip_serializing_if = "TaskModelsConfig::is_default")]
     pub task_models: TaskModelsConfig,
@@ -1144,6 +1150,16 @@ pub struct AIConfig {
     /// Default selectors for future mode and delegated-subagent sessions.
     #[serde(default)]
     pub agent_model_defaults: AgentModelDefaultsConfig,
+
+    /// Authoritative defaults for Agent model selections.
+    /// Introduced to support typed model/pool selections without changing the legacy agent_model_defaults format.
+    /// Legacy agent_model_defaults is migration input only.
+    #[serde(
+        default,
+        deserialize_with = "crate::model_pool::deserialize_model_selections",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub agent_model_selections: Option<serde_json::Value>,
 
     /// Shared agent-profile configuration.
     /// profile_id -> AgentProfileConfig
@@ -1250,6 +1266,10 @@ fn default_tavily_credential_id() -> String {
     "tavily-search-api".to_string()
 }
 
+fn default_deepseek_credential_id() -> String {
+    "deepseek-search-api".to_string()
+}
+
 fn default_openbitfun_search_http_credential_id() -> String {
     "openbitfun-search-http".to_string()
 }
@@ -1283,6 +1303,7 @@ impl Default for WebSearchConfig {
 pub struct WebSearchProviderConfigs {
     pub exa_search_api: WebSearchCredentialProviderConfig,
     pub tavily: WebSearchCredentialProviderConfig,
+    pub deepseek: WebSearchCredentialProviderConfig,
     pub openbitfun_search_http: OpenBitFunSearchHttpConfig,
     #[serde(flatten)]
     pub unknown: serde_json::Map<String, serde_json::Value>,
@@ -1297,6 +1318,10 @@ impl Default for WebSearchProviderConfigs {
             },
             tavily: WebSearchCredentialProviderConfig {
                 credential_id: default_tavily_credential_id(),
+                unknown: serde_json::Map::new(),
+            },
+            deepseek: WebSearchCredentialProviderConfig {
+                credential_id: default_deepseek_credential_id(),
                 unknown: serde_json::Map::new(),
             },
             openbitfun_search_http: OpenBitFunSearchHttpConfig::default(),
@@ -2011,6 +2036,7 @@ impl Default for AIExperienceConfig {
             quick_actions: default_quick_actions(),
             enable_git_commit_coauthor: true,
             enable_prompt_suggestion: true,
+            enable_desktop_cards: true,
         }
     }
 }
@@ -2091,11 +2117,13 @@ impl Default for WorkspaceConfig {
 impl Default for AIConfig {
     fn default() -> Self {
         Self {
+            model_pools: crate::model_pool::ModelPoolDocument::default(),
             models: vec![],
             task_models: TaskModelsConfig::default(),
             default_models: DefaultModelsConfig::default(),
             model_routing: ModelRoutingConfig::default(),
             agent_model_defaults: AgentModelDefaultsConfig::default(),
+            agent_model_selections: None,
             agent_profiles: std::collections::HashMap::new(),
             skill_settings: SkillSettingsConfig::default(),
             review_teams: default_review_team_configs(),
@@ -2355,6 +2383,25 @@ mod tests {
         let opted_out: super::AIExperienceConfig =
             serde_json::from_value(persisted.clone()).unwrap();
         assert!(!opted_out.enable_prompt_suggestion);
+        assert_eq!(serde_json::to_value(opted_out).unwrap(), persisted);
+    }
+
+    #[test]
+    fn desktop_cards_default_on_for_legacy_settings_and_preserve_opt_out() {
+        let legacy = serde_json::json!({
+            "enable_agent_companion": false,
+            "enable_prompt_suggestion": false
+        });
+        let settings: super::AIExperienceConfig = serde_json::from_value(legacy).unwrap();
+        assert!(settings.enable_desktop_cards);
+        assert!(!settings.enable_agent_companion);
+
+        let mut persisted = serde_json::to_value(settings).unwrap();
+        assert_eq!(persisted["enable_desktop_cards"], serde_json::json!(true));
+        persisted["enable_desktop_cards"] = serde_json::json!(false);
+        let opted_out: super::AIExperienceConfig =
+            serde_json::from_value(persisted.clone()).unwrap();
+        assert!(!opted_out.enable_desktop_cards);
         assert_eq!(serde_json::to_value(opted_out).unwrap(), persisted);
     }
 
@@ -4092,9 +4139,45 @@ mod tests {
 
         assert_eq!(config.web_search.provider, "exa_mcp_free");
         assert_eq!(
+            config.web_search.providers.deepseek.credential_id,
+            "deepseek-search-api"
+        );
+        assert_eq!(
             config.web_search.providers.exa_search_api.credential_id,
             "exa-search-api"
         );
+    }
+
+    #[test]
+    fn web_search_deepseek_config_preserves_legacy_payload_and_unknown_options() {
+        let legacy = serde_json::json!({
+            "provider": "tavily",
+            "providers": {"tavily": {"credentialId": "existing-tavily"}},
+            "selectionRevision": 7
+        });
+        let mut config: WebSearchConfig = serde_json::from_value(legacy.clone()).unwrap();
+        assert_eq!(
+            config.providers.deepseek.credential_id,
+            "deepseek-search-api"
+        );
+        let round_trip = serde_json::to_value(&config).unwrap();
+        assert_eq!(round_trip["provider"], legacy["provider"]);
+        assert_eq!(
+            round_trip["providers"]["tavily"],
+            legacy["providers"]["tavily"]
+        );
+        assert_eq!(round_trip["selectionRevision"], legacy["selectionRevision"]);
+
+        config.provider = "deepseek".to_string();
+        config.providers.deepseek.credential_id = "custom-deepseek-ref".to_string();
+        config
+            .providers
+            .deepseek
+            .unknown
+            .insert("futureOption".to_string(), serde_json::json!(true));
+        let restored: WebSearchConfig =
+            serde_json::from_value(serde_json::to_value(&config).unwrap()).unwrap();
+        assert_eq!(restored, config);
     }
 
     #[test]

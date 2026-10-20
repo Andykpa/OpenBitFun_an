@@ -212,7 +212,10 @@ pub async fn session_status(
 }
 
 pub fn session_eligible(session: &crate::agentic::core::Session) -> bool {
-    session.kind != crate::agentic::core::SessionKind::Subagent
+    session.config.model_pool_id.is_none()
+        && session.config.model_binding_policy
+            != crate::agentic::core::SessionModelBindingPolicy::Pool
+        && session.kind != crate::agentic::core::SessionKind::Subagent
         && session.config.model_binding_policy
             != crate::agentic::core::SessionModelBindingPolicy::ApprovedImmutable
         && matches!(
@@ -297,6 +300,11 @@ mod tests {
         assert!(!session_eligible(&session));
         session.kind = SessionKind::Standard;
         session.config.model_binding_policy = SessionModelBindingPolicy::ApprovedImmutable;
+        assert!(!session_eligible(&session));
+        session.config.model_binding_policy = SessionModelBindingPolicy::Pool;
+        assert!(!session_eligible(&session));
+        session.config.model_binding_policy = SessionModelBindingPolicy::Mutable;
+        session.config.model_pool_id = Some("daily".into());
         assert!(!session_eligible(&session));
     }
 

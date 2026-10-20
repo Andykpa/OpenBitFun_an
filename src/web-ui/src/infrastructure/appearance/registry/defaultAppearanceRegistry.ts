@@ -37,6 +37,7 @@ import { mcpToolDisplayAppearanceDescriptor } from '@/flow_chat/tool-cards/MCPTo
 import { skillsConfigAppearanceDescriptor } from '@/infrastructure/config/components/SkillsConfig.appearance';
 import { diffEditorAppearanceDescriptor } from '@/tools/editor/components/DiffEditor.appearance';
 import { agentCompanionDesktopPetAppearanceDescriptor } from '@/app/components/AgentCompanionDesktopPet/AgentCompanionDesktopPet.appearance';
+import { desktopCardAppearanceDescriptor } from '@/app/components/DesktopCard/DesktopCardWindow.appearance';
 import { toolGroupPickerAppearanceDescriptor } from '@/app/scenes/agents/components/ToolGroupPicker.appearance';
 import { inlineDiffPreviewAppearanceDescriptor } from '@/flow_chat/components/InlineDiffPreview.appearance';
 import { exportImageAppearanceDescriptor } from '@/flow_chat/components/modern/ExportImageButton.appearance';
@@ -299,6 +300,7 @@ export function createDefaultAppearanceRegistry(): AppearanceRegistry {
     .registerComponent(diffEditorAppearanceDescriptor)
     .registerComponent(computerUseControlAppearanceDescriptor)
     .registerComponent(agentCompanionDesktopPetAppearanceDescriptor)
+    .registerComponent(desktopCardAppearanceDescriptor)
     .registerComponent(toolGroupPickerAppearanceDescriptor)
     .registerComponent(inlineDiffPreviewAppearanceDescriptor)
     .registerComponent(exportImageAppearanceDescriptor)

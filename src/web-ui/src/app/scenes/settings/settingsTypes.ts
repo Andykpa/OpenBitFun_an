@@ -36,6 +36,7 @@ export type SettingsSectionId =
   | 'message-sending'
   | 'text-selection'
   | 'pet'
+  | 'desktop-cards'
   | 'voice-call'
   | 'voice'
   | 'shortcuts'

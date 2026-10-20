@@ -209,20 +209,12 @@ impl TokenAnchorStore {
 
         let mut skipped = Vec::new();
         for anchor in anchors.iter().rev() {
-            if let Some(expected_model_id) = model_id {
-                if anchor.model_id != expected_model_id {
-                    skipped.push(TokenAnchorSkip {
-                        anchor_id: anchor.anchor_id.clone(),
-                        prefix_message_count: anchor.prefix_message_count,
-                        reason: format!(
-                            "model_id_mismatch(expected={}, actual={})",
-                            expected_model_id, anchor.model_id
-                        ),
-                    });
-                    continue;
-                }
-            }
-            if let Some(reason) = anchor.prefix_mismatch_reason(messages) {
+            let mismatch = if model_id.is_some_and(|id| id != anchor.model_id) {
+                Some("model_id_mismatch".to_string())
+            } else {
+                anchor.prefix_mismatch_reason(messages)
+            };
+            if let Some(reason) = mismatch {
                 skipped.push(TokenAnchorSkip {
                     anchor_id: anchor.anchor_id.clone(),
                     prefix_message_count: anchor.prefix_message_count,
@@ -379,6 +371,43 @@ mod tests {
             },
             &messages,
         )
+    }
+
+    #[test]
+    fn model_pool_switch_does_not_reuse_other_models_token_counts() {
+        let store = TokenAnchorStore::new();
+        let messages = vec![Message::user("hello".into())];
+        let mut anchor = TokenAnchor::from_request_prefix(
+            TokenAnchorInput {
+                session_id: "session".into(),
+                turn_id: "turn".into(),
+                round_id: "round".into(),
+                model_id: "a".into(),
+                input_tokens: 123,
+                system_tokens_at_anchor: 0,
+                tool_tokens_at_anchor: 0,
+                prepended_reminder_tokens_at_anchor: 0,
+            },
+            &messages,
+        );
+        store.append(anchor.clone());
+        anchor.model_id = "b".into();
+        anchor.input_tokens = 456;
+        store.append(anchor);
+        assert_eq!(
+            store
+                .select_latest_matching_for_model("session", &messages, Some("a"))
+                .selected
+                .unwrap()
+                .input_tokens,
+            123
+        );
+        let selection = store.select_latest_matching_for_model("session", &messages, Some("c"));
+        assert!(selection.selected.is_none());
+        assert!(selection
+            .skipped
+            .iter()
+            .all(|skip| skip.reason == "model_id_mismatch"));
     }
 
     #[test]

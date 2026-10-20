@@ -323,6 +323,7 @@ mod tests {
 
         let mut expected = shared_tools;
         expected.push("ComputerUse".to_string());
+        expected.push("DesktopCard".to_string());
         assert_eq!(StandardHarness::new().default_tools(), expected);
     }
 
