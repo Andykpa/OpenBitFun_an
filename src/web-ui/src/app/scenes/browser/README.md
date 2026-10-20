@@ -9,6 +9,16 @@ overlays and their relevant ancestors rather than rescanning the document for
 unrelated class/style mutations. Hidden tabs do not subscribe; document hiding
 pauses observation. Relevant popup mutations still reconcile before the next paint.
 
+`isLoading` follows native `browser-webview-page-load` events rather than IPC
+completion, because creating or navigating the child view resolves before the
+document finishes loading. Subscribe before creating the view so fast pages cannot
+finish before the listener is ready. Both surfaces show that state on the address-field
+leading icon, swapping the browser glyph for a spinner, and a 30-second watchdog
+ends the state if no native event ever arrives. The same state turns the refresh
+action into a stop action that runs `window.stop()` in the child view, so a stuck
+document can be interrupted without closing the panel. Failed stop requests retain
+the stop action and display the error so users can retry.
+
 `BrowserPreviewCache` retains one decoded JPEG in memory beneath the native view.
 It samples only while the native page and document are visible, waits at least five
 seconds between completed captures, and allows at most one request in flight.

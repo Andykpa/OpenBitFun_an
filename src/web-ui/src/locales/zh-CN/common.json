@@ -748,7 +748,8 @@
   "browserView": {
     "addressPlaceholder": "输入网址，例如 {{exampleUrl}}",
     "startElementSelection": "选取元素",
-    "stopElementSelection": "退出元素选取"
+    "stopElementSelection": "退出元素选取",
+    "stopLoading": "停止加载"
   },
   "newProject": {
     "title": "创建项目",
