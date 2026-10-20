@@ -4,7 +4,7 @@
 #![cfg(target_os = "windows")]
 
 use std::ffi::c_void;
-use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, PeekMessageW, TranslateMessage, MSG, PM_REMOVE,
@@ -421,42 +421,44 @@ impl Mailbox {
         next
     }
 }
-type FeedbackMailbox = Arc<(Mutex<Mailbox>, Condvar)>;
-static MAILBOX: OnceLock<Option<FeedbackMailbox>> = OnceLock::new();
+type FeedbackMailbox = (Mutex<Mailbox>, Condvar);
+// Publish requests before starting the worker. Stop must be able to clear the
+// first request even while thread creation or bitmap initialization is pending.
+static MAILBOX: FeedbackMailbox = (
+    Mutex::new(Mailbox {
+        version: 0,
+        epoch: 0,
+        request: None,
+    }),
+    Condvar::new(),
+);
+static POINTER_WORKER: OnceLock<()> = OnceLock::new();
 
 pub(super) fn hide_pointer() {
-    if let Some(Some(mailbox)) = MAILBOX.get() {
-        let mut state = mailbox.0.lock().unwrap_or_else(|error| error.into_inner());
-        state.hide();
-        mailbox.1.notify_one();
-    }
+    let mut state = MAILBOX.0.lock().unwrap_or_else(|error| error.into_inner());
+    state.hide();
+    MAILBOX.1.notify_one();
 }
 
 /// Coalesce presentation updates on one window-owning thread. No input is
 /// queued here, and Stop wakes the renderer immediately, even while idle.
 pub(super) fn show_pointer(target: usize, x: i32, y: i32, clicked: bool) {
-    let Some(mailbox) = MAILBOX.get_or_init(|| {
-        let mailbox = Arc::new((Mutex::new(Mailbox::default()), Condvar::new()));
-        let worker = Arc::clone(&mailbox);
-        match std::thread::Builder::new()
+    {
+        let mut state = MAILBOX.0.lock().unwrap_or_else(|error| error.into_inner());
+        state.show(target, x, y, clicked);
+        MAILBOX.1.notify_one();
+    }
+    POINTER_WORKER.get_or_init(|| {
+        if let Err(error) = std::thread::Builder::new()
             .name("computer-use-pointer".into())
-            .spawn(move || run_pointer(worker))
+            .spawn(|| run_pointer(&MAILBOX))
         {
-            Ok(_) => Some(mailbox),
-            Err(error) => {
-                log::warn!("Failed to start computer use pointer renderer: {error}");
-                None
-            }
+            log::warn!("Failed to start computer use pointer renderer: {error}");
         }
-    }) else {
-        return;
-    };
-    let mut state = mailbox.0.lock().unwrap_or_else(|error| error.into_inner());
-    state.show(target, x, y, clicked);
-    mailbox.1.notify_one();
+    });
 }
 
-fn run_pointer(mailbox: FeedbackMailbox) {
+fn run_pointer(mailbox: &FeedbackMailbox) {
     // SAFETY: every HWND/GDI object is owned and used on this thread. The
     // mailbox carries only integer target identities and presentation data.
     unsafe {
