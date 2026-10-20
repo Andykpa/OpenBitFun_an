@@ -226,6 +226,9 @@ pub struct SessionConfig {
     /// Keep unknown values on disk so newer sessions remain readable by older hosts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_routing: Option<String>,
+    /// Inherited strategy for this subagent's descendants, without routing its own rounds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delegation_model_routing: Option<String>,
     /// Explicit reasoning preset selected for this session. `None` means the
     /// model's default preset (Auto).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -311,6 +314,7 @@ impl Default for SessionConfig {
             remote_ssh_host: None,
             model_id: None,
             model_routing: None,
+            delegation_model_routing: None,
             reasoning_preset: None,
             permission_mode: None,
             continuation_policy: SessionContinuationPolicy::default(),
@@ -408,8 +412,10 @@ mod tests {
         old.as_object_mut().unwrap().remove("model_routing");
         let config: super::SessionConfig = serde_json::from_value(old.clone()).unwrap();
         assert!(config.model_routing.is_none());
+        assert!(config.delegation_model_routing.is_none());
         assert_eq!(serde_json::to_value(config).unwrap(), old);
         old["model_routing"] = serde_json::json!("future-mode");
+        old["delegation_model_routing"] = serde_json::json!("future-delegation-mode");
         let config: super::SessionConfig = serde_json::from_value(old.clone()).unwrap();
         assert_eq!(serde_json::to_value(config).unwrap(), old);
     }

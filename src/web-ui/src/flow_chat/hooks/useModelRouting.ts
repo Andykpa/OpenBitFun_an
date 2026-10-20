@@ -74,5 +74,28 @@ export function useModelRouting({ identity, epoch, scopeKey, scope, request, all
       setPendingIdentity(current => current === identity ? null : current);
     }
   };
-  return { status, mode, pending: pendingIdentity === identity || preference.pending, select, refresh, changeScope: preference.changeScope };
+  const selectSubagentModel = async (next: 'primary' | 'economy') => {
+    if (!allowed || typeof status?.subagentModel !== 'string' || busy.current || preference.pending) return false;
+    const surface = getActiveSurfaceScope();
+    if (surface.epoch !== epoch || live.current !== identity) return false;
+    busy.current = true; setPendingIdentity(identity);
+    try {
+      // Negotiate before writing: older hosts accept unknown config keys but
+      // cannot apply this policy. Never report that as a successful selection.
+      const current = await agentAPI.getModelRoutingStatus(JSON.parse(requestKey));
+      if (!surface.isCurrent() || live.current !== identity) return false;
+      if (current.apiVersion !== 1 || typeof current.subagentModel !== 'string') {
+        setSnapshot({ identity, status: current.apiVersion === 1 ? current : null });
+        return false;
+      }
+      if (current.subagentModel !== next) await configManager.setConfig('ai.model_routing.subagent_model', next);
+      if (!surface.isCurrent() || live.current !== identity) return false;
+      await refresh();
+      return surface.isCurrent() && live.current === identity;
+    } finally {
+      busy.current = false;
+      setPendingIdentity(current => current === identity ? null : current);
+    }
+  };
+  return { status, mode, pending: pendingIdentity === identity || preference.pending, select, selectSubagentModel, refresh, changeScope: preference.changeScope };
 }

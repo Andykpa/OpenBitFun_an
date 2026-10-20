@@ -52,9 +52,10 @@ pub fn economy_model_id(config: &AIConfig, legacy: bool) -> OpenBitFunResult<Str
 
 fn product_config(config: &AIConfig) -> OpenBitFunResult<HttpRoundModelRouterConfig> {
     let setup = &config.model_routing;
-    if setup.summary_enabled {
-        super::context::configured_summary_model(config)?;
-    }
+    let summary_model_id = setup
+        .summary_enabled
+        .then(|| economy_model_id(config, false))
+        .transpose()?;
     let model = setup
         .router_model_id
         .as_deref()
@@ -117,6 +118,7 @@ fn product_config(config: &AIConfig) -> OpenBitFunResult<HttpRoundModelRouterCon
         trace_path: None,
         context: RouterContextConfig {
             summary_enabled: setup.summary_enabled,
+            summary_model_id,
             ..Default::default()
         },
         tokenizer_path: PathBuf::from(&setup.tokenizer_path),
@@ -191,6 +193,8 @@ pub struct ModelRoutingStatus {
     /// Only an explicit protocol probe establishes a connection, not a config read.
     pub connected: Option<bool>,
     pub summary_enabled: bool,
+    /// Presence advertises support for the smart-session subagent default setting.
+    pub subagent_model: String,
 }
 
 pub async fn session_status(
@@ -246,6 +250,7 @@ pub async fn status(
         issue: None,
         connected: None,
         summary_enabled: config.model_routing.summary_enabled,
+        subagent_model: config.model_routing.subagent_model.clone(),
     };
     let check = async {
         if !eligible { return Err(OpenBitFunError::Configuration("Smart mode is unavailable for external agents, subagents and immutable dispatched sessions".into())); }
@@ -319,7 +324,19 @@ mod tests {
         assert!(product_config(&config)
             .unwrap_err()
             .to_string()
-            .contains("fast model"));
+            .contains("economy model"));
+        config.models.push(AIModelConfig {
+            id: "economy-fixture".into(),
+            enabled: true,
+            ..Default::default()
+        });
+        config.default_models.economy = Some("economy-fixture".into());
+        let router = product_config(&config).unwrap();
+        assert_eq!(
+            router.context.summary_model_id.as_deref(),
+            Some("economy-fixture")
+        );
+        assert!(config.default_models.fast.is_none());
         config.model_routing.summary_enabled = false;
         config.models[0].custom_request_body = Some("{}".into());
         assert!(product_config(&config).is_err());

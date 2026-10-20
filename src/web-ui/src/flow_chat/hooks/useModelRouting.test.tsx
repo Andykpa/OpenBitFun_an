@@ -29,10 +29,13 @@ describe('host-owned model routing', () => {
     activateSurface('local'); vi.clearAllMocks();
     const storage = new Map<string, string>();
     vi.stubGlobal('localStorage', { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) });
-    host = { apiVersion: 1, mode: 'manual', defaultMode: 'manual', ready: true, issue: null, connected: null, summaryEnabled: false };
+    host = { apiVersion: 1, mode: 'manual', defaultMode: 'manual', ready: true, issue: null, connected: null, summaryEnabled: false, subagentModel: 'primary' };
     vi.mocked(agentAPI.getModelRoutingStatus).mockImplementation(async () => ({ ...host }));
     vi.mocked(agentAPI.updateSessionModel).mockImplementation(async request => { host.mode = request.routingMode!; });
-    vi.mocked(configManager.setConfig).mockImplementation(async (_path, value) => { host.defaultMode = value as string; });
+    vi.mocked(configManager.setConfig).mockImplementation(async (path, value) => {
+      if (path === 'ai.model_routing.subagent_model') host.subagentModel = value as string;
+      else host.defaultMode = value as string;
+    });
     vi.mocked(configManager.updateConfig).mockImplementation(async (_path, update) => { host.defaultMode = update(host.defaultMode) as string; return host.defaultMode; });
     container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   });
@@ -95,6 +98,51 @@ describe('host-owned model routing', () => {
     await render(); vi.mocked(agentAPI.updateSessionModel).mockRejectedValueOnce(new Error('offline'));
     await act(async () => { await expect(result!.select('smart')).rejects.toThrow('offline'); });
     expect(configManager.setConfig).not.toHaveBeenCalled(); expect(result!.mode).toBe('manual'); expect(result!.pending).toBe(false);
+  });
+
+  it('saves the shared subagent role without enabling routing or modifying session and manual defaults', async () => {
+    host.ready = false;
+    await render(); await act(async () => result!.changeScope('session'));
+    expect(result.status?.subagentModel).toBe('primary');
+    await act(async () => { expect(await result.selectSubagentModel('economy')).toBe(true); });
+    expect(configManager.setConfig).toHaveBeenCalledExactlyOnceWith('ai.model_routing.subagent_model', 'economy');
+    expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
+    expect(host.defaultMode).toBe('manual'); expect(result.mode).toBe('manual');
+    expect(result.status?.subagentModel).toBe('economy');
+    await act(async () => { expect(await result.selectSubagentModel('primary')).toBe(true); });
+    expect(result.status?.subagentModel).toBe('primary');
+  });
+
+  it('does not write unsupported settings when a host omits the capability on recheck', async () => {
+    await render(); delete host.subagentModel;
+    await act(async () => { expect(await result.selectSubagentModel('economy')).toBe(false); });
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+    expect(result.status?.subagentModel).toBeUndefined();
+  });
+
+  it('preserves the confirmed subagent role when saving fails', async () => {
+    await render(); vi.mocked(configManager.setConfig).mockRejectedValueOnce(new Error('offline'));
+    await act(async () => { await expect(result.selectSubagentModel('economy')).rejects.toThrow('offline'); });
+    expect(result.status?.subagentModel).toBe('primary'); expect(result.pending).toBe(false);
+  });
+
+  it('discards a subagent setting write when the executing device changes during negotiation', async () => {
+    await render(); let finish!: (value: ModelRoutingStatus) => void;
+    vi.mocked(agentAPI.getModelRoutingStatus).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    let pending!: Promise<boolean>;
+    await act(async () => { pending = result.selectSubagentModel('economy'); });
+    activateSurface('peer'); await render();
+    await act(async () => { finish({ ...host }); expect(await pending).toBe(false); });
+    expect(configManager.setConfig).not.toHaveBeenCalled(); expect(result.pending).toBe(false);
+  });
+
+  it('rejects a stale subagent control before sending a request to another device', async () => {
+    await render(); const staleSelect = result.selectSubagentModel;
+    vi.mocked(agentAPI.getModelRoutingStatus).mockClear();
+    activateSurface('peer');
+    await act(async () => { expect(await staleSelect('economy')).toBe(false); });
+    expect(agentAPI.getModelRoutingStatus).not.toHaveBeenCalled();
+    expect(configManager.setConfig).not.toHaveBeenCalled();
   });
 
   it('discards a late mutation after changing sessions', async () => {

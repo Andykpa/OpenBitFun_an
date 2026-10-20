@@ -3464,7 +3464,16 @@
       "costHint": "路由和辅助摘要可能产生额外费用，计费提示不包含这部分开销",
       "saveFailed": "保存模型策略失败，请重试",
       "latency": "路由耗时 {{ms}} 毫秒",
-      "fallback": "路由失败，已回退主力"
+      "fallback": "路由失败，已回退主力",
+      "subagents": {
+        "title": "子代理默认模型",
+        "primary": "跟随主力模型",
+        "economy": "跟随经济模型",
+        "primarySummary": "子代理 · 跟随主力模型",
+        "economySummary": "子代理 · 跟随经济模型",
+        "hint": "应用于新启动的子代理，单独配置保持不变",
+        "unsupported": "当前执行端暂不支持此设置，请升级后重试"
+      }
     }
   },
   "reasoningEffort": {

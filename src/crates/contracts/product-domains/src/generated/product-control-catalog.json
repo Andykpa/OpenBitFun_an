@@ -4,7 +4,7 @@
   "title": "OpenBitFun Playbook",
   "origin": "https://playbook.openbitfun.com",
   "source": "src/shared/interactive-capabilities/catalog.json",
-  "digest": "bd4d8fd5e8b2aff9722aefd6b6b927884eb983ad86c826be24a85856b7bd83e5",
+  "digest": "8d5b03e3738713ff3014e11160811b1e815804bea57c56a177af47691d8b82c6",
   "ownerDigest": "0d90452aea46f54ca82cfe25b6d96f1f374e83b1962e2066d378c14c1cab35db",
   "searchAcceptance": [
     {
@@ -27208,13 +27208,13 @@
         },
         {
           "id": "smart-routing",
-          "titleZh": "配置智能模式的 Router 服务、主力与经济模型并测试连接",
-          "titleEn": "Configure smart routing, primary and economy models, and test the Router service",
+          "titleZh": "配置智能模式的 Router 服务、主力与经济模型及子代理默认模型",
+          "titleEn": "Configure smart routing, primary and economy models, and subagent defaults",
           "control": {
             "kind": "open",
             "reasonCode": "unstructuredInteraction",
-            "reasonZh": "配置智能模式的 Router 服务、主力与经济模型并测试连接需要在模型设置中完成，状态检查不代替配置或连接测试",
-            "reasonEn": "Configure smart routing, primary and economy models, and test the Router service in model settings; a status read does not configure or test the connection"
+            "reasonZh": "在模型设置中配置并测试 Router 服务，在模型选择的高级选项中设置子代理默认跟随主力或经济模型；单独配置保持不变，状态检查不代替配置或连接测试",
+            "reasonEn": "Configure and test the Router in model settings; use advanced model selection to set the subagent default to primary or economy while preserving individual overrides. A status read does not configure or test the connection"
           }
         },
         {
@@ -27336,8 +27336,8 @@
         "Inspect models.dev catalog status, refresh it manually, and reveal its local cache",
         "为供应商添加自定义 Header、请求体字段与 SSL 行为",
         "Add custom headers, request-body fields, and SSL behavior per provider",
-        "配置智能模式的 Router 服务、主力与经济模型并测试连接",
-        "Configure smart routing, primary and economy models, and test the Router service",
+        "配置智能模式的 Router 服务、主力与经济模型及子代理默认模型",
+        "Configure smart routing, primary and economy models, and subagent defaults",
         "保存前测试供应商或模型连接并刷新运行时客户端",
         "Test provider or model connectivity before saving and refresh the runtime client",
         "打开模型设置",

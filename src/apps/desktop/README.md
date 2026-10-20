@@ -11,6 +11,12 @@ the primary model for the main conversation and the fast model for ordinary
 subagents; explicit subagent overrides still apply. Smart mode chooses between
 the primary model and an independently configured economy model for each main
 conversation step. Role assignments are shared across conversations.
+In smart mode, new subagents default to the primary model. Under **Advanced →
+Default subagent model**, choose **Follow primary model** or **Follow economy
+model**. This host-wide setting also applies to nested subagents; individual
+agent settings and explicit model/inherit requests take precedence. Existing
+subagents keep their chosen model when resumed. Subagents use a fixed model
+throughout execution, not per-step routing, and do not require a fast model.
 Choices made in a new conversation draft are applied on its execution host
 before the first message is sent, including temporary session-only strategies.
 
@@ -22,14 +28,15 @@ Save and test the connection, configure an economy model, and enable smart mode
 in the composer. Saving configuration alone does not prove connectivity. Router
 request failures fall back to the primary model; each response records its
 actual model and fallback status. Optional Router context summaries use the
-fast model and add requests. Billing hints do not establish actual charges.
+economy model and add requests. Billing hints do not establish actual charges.
 
 Peer Device Mode applies configuration on the execution host and requires a host
 advertising smart-routing support. SSH/Docker workspaces also use their owning
 OpenBitFun runtime's Router configuration, not a tokenizer path on the
 controller. Mobile and bot model editors explicitly reject changes to smart
-sessions; use the GUI to change the strategy. External agents, subagents and
-approved immutable dispatch jobs retain their existing model behavior.
+sessions; use the GUI to change the strategy. External agents and approved
+immutable dispatch jobs retain their existing model bindings. Older Peer hosts
+that do not advertise subagent-default support show this setting as unavailable.
 
 ## Remote Connect
 

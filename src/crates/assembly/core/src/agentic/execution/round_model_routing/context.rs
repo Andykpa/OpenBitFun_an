@@ -35,11 +35,13 @@ pub struct RouterContextConfig {
     pub max_input_tokens: usize,
     pub context_window: usize,
     pub summary_enabled: bool,
+    /// Product routing freezes the economy model; None retains legacy fast-model selection.
+    pub summary_model_id: Option<String>,
     pub summary_trigger_tokens: usize,
     pub summary_max_tokens: usize,
     /// Desired final text length, separate from the reasoning + text generation limit.
     pub summary_target_tokens: usize,
-    /// Optional fast-model preset for this auxiliary request only. None preserves Auto.
+    /// Optional model preset for this auxiliary request only. None preserves Auto.
     pub summary_reasoning_preset: Option<String>,
     pub summary_timeout: Duration,
 }
@@ -50,6 +52,7 @@ impl Default for RouterContextConfig {
             max_input_tokens: 65_536,
             context_window: 65_536,
             summary_enabled: true,
+            summary_model_id: None,
             summary_trigger_tokens: 8_192,
             summary_max_tokens: 16_384,
             summary_target_tokens: 4_096,
@@ -64,6 +67,7 @@ impl RouterContextConfig {
         let summary_max_tokens =
             parse_env_usize("OPENBITFUN_ROUND_ROUTER_SUMMARY_MAX_TOKENS", 16_384)?;
         let config = Self {
+            summary_model_id: None,
             max_input_tokens: parse_env_usize("OPENBITFUN_ROUND_ROUTER_MAX_INPUT_TOKENS", 65_536)?,
             context_window: parse_env_usize("OPENBITFUN_ROUND_ROUTER_CONTEXT_WINDOW", 65_536)?,
             summary_enabled: match std::env::var("OPENBITFUN_ROUND_ROUTER_SUMMARY_ENABLED")
@@ -277,7 +281,7 @@ trait SummaryProvider: Send + Sync {
     ) -> OpenBitFunResult<SummaryResult>;
 }
 
-struct FastSummaryProvider;
+struct ConfiguredSummaryProvider;
 
 pub(super) fn configured_summary_model(config: &AIConfig) -> OpenBitFunResult<String> {
     // The general `fast` selector deliberately falls back to primary. Auxiliary
@@ -295,19 +299,24 @@ pub(super) fn configured_summary_model(config: &AIConfig) -> OpenBitFunResult<St
 }
 
 #[async_trait::async_trait]
-impl SummaryProvider for FastSummaryProvider {
+impl SummaryProvider for ConfiguredSummaryProvider {
     async fn summarize(
         &self,
         prompt: String,
         summary_config: &RouterContextConfig,
     ) -> OpenBitFunResult<SummaryResult> {
         let factory = get_global_ai_client_factory().await?;
-        // Strict fast selector: never fall back to primary or the main compression model.
+        // Never fall back to primary or borrow the main compaction model.
         let config = get_global_config_service()
             .await?
             .get_effective_ai_config()
             .await?;
-        let model_id = configured_summary_model(&config)?;
+        let model_id = match summary_config.summary_model_id.as_deref() {
+            Some(id) => config.resolve_model_reference(id).ok_or_else(|| {
+                OpenBitFunError::Configuration("Router summary economy model is unavailable".into())
+            })?,
+            None => configured_summary_model(&config)?,
+        };
         let shared_client = factory
             .get_client_resolved_with_reasoning_preset(
                 &model_id,
@@ -399,7 +408,7 @@ impl RouterContextFactory {
             recent_rounds,
             input_budget_tokens,
             counter,
-            summary_provider: Arc::new(FastSummaryProvider),
+            summary_provider: Arc::new(ConfiguredSummaryProvider),
             summary_slots: SUMMARY_SLOTS
                 .get_or_init(|| Arc::new(Semaphore::new(2)))
                 .clone(),

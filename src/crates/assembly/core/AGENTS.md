@@ -190,6 +190,18 @@ Narrower local guides already exist for some subtrees:
 
 ## Verification
 
+For smart routing, subagent defaults and resumed subagent model choices:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib smart_subagent
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib round_model_routing
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib coordinator::tests::reused_subagent
+```
+
+These fixtures cover host-owned configuration, nested delegation and Router protocol
+behavior with mocks. They do not establish connectivity to a deployed Router or a
+live SSH, relay, Peer or detached-dispatch host.
+
 For config-backed product-control option defaults, typed binding, and persisted readback:
 
 ```bash

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "bd4d8fd5e8b2aff9722aefd6b6b927884eb983ad86c826be24a85856b7bd83e5",
+  "catalogDigest": "8d5b03e3738713ff3014e11160811b1e815804bea57c56a177af47691d8b82c6",
   "count": 215,
   "reasonCounts": {
     "externalAuth": 4,
@@ -2842,18 +2842,19 @@
     {
       "capabilityId": "setting.ai.models",
       "itemId": "smart-routing",
-      "titleZh": "配置智能模式的 Router 服务、主力与经济模型并测试连接",
-      "titleEn": "Configure smart routing, primary and economy models, and test the Router service",
+      "titleZh": "配置智能模式的 Router 服务、主力与经济模型及子代理默认模型",
+      "titleEn": "Configure smart routing, primary and economy models, and subagent defaults",
       "reasonCode": "unstructuredInteraction",
-      "reasonZh": "配置智能模式的 Router 服务、主力与经济模型并测试连接需要在模型设置中完成，状态检查不代替配置或连接测试",
-      "reasonEn": "Configure smart routing, primary and economy models, and test the Router service in model settings; a status read does not configure or test the connection",
+      "reasonZh": "在模型设置中配置并测试 Router 服务，在模型选择的高级选项中设置子代理默认跟随主力或经济模型；单独配置保持不变，状态检查不代替配置或连接测试",
+      "reasonEn": "Configure and test the Router in model settings; use advanced model selection to set the subagent default to primary or economy while preserving individual overrides. A status read does not configure or test the connection",
       "presentationTarget": {
         "kind": "settings",
         "pageId": "ai.models"
       },
       "evidence": [
         "command:get_model_routing_status",
-        "source:src/web-ui/src/infrastructure/config/components/ModelRouterSettings.tsx#ModelRouterSettings"
+        "source:src/web-ui/src/infrastructure/config/components/ModelRouterSettings.tsx#ModelRouterSettings",
+        "source:src/web-ui/src/flow_chat/components/NativeModelSelectionPanel.tsx#onSubagentModelChange"
       ]
     },
     {

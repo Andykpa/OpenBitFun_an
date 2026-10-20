@@ -866,7 +866,7 @@ pub struct DefaultModelsConfig {
     pub primary: Option<String>,
     /// Fast model ID (for simple tasks). When unset, selection falls back to primary.
     pub fast: Option<String>,
-    /// Economy model for smart main-conversation routing; never a subagent default.
+    /// Economy model for smart routing and optional delegated work.
     pub economy: Option<String>,
     /// Search model.
     pub search: Option<String>,
@@ -1102,7 +1102,10 @@ pub struct ModelRoutingConfig {
     pub tokenizer_path: String,
     pub simple_threshold: f64,
     pub timeout_ms: u64,
-    /// Optional auxiliary summaries use the existing fast model, with separate usage.
+    /// Default role for unconfigured subagents of smart sessions: primary or economy.
+    /// Retain unknown future values on disk; the runtime rejects unsupported choices.
+    pub subagent_model: String,
+    /// Optional auxiliary summaries use the economy model, with separate usage.
     pub summary_enabled: bool,
 }
 
@@ -1114,6 +1117,7 @@ impl Default for ModelRoutingConfig {
             tokenizer_path: String::new(),
             simple_threshold: 0.75,
             timeout_ms: 10_000,
+            subagent_model: "primary".into(),
             summary_enabled: false,
         }
     }
@@ -2296,16 +2300,16 @@ mod tests {
         )
         .unwrap();
         assert!(legacy.model_routing.default_mode.is_none());
+        assert_eq!(legacy.model_routing.subagent_model, "primary");
         assert!(legacy.default_models.economy.is_none());
         assert_eq!(legacy.default_models.fast.as_deref(), Some("worker"));
         let config: super::ModelRoutingConfig = serde_json::from_value(
-            serde_json::json!({"default_mode":"future-policy", "future_field":true}),
+            serde_json::json!({"default_mode":"future-policy", "subagent_model":"future-role", "future_field":true}),
         )
         .unwrap();
-        assert_eq!(
-            serde_json::to_value(config).unwrap()["default_mode"],
-            "future-policy"
-        );
+        let saved = serde_json::to_value(config).unwrap();
+        assert_eq!(saved["default_mode"], "future-policy");
+        assert_eq!(saved["subagent_model"], "future-role");
     }
 
     #[test]

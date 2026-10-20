@@ -771,7 +771,7 @@
     "thresholdHint": "Use the economy model when the simple-task probability exceeds this value",
     "timeout": "Request timeout (ms)",
     "summary": "Auxiliary summaries",
-    "summaryHint": "Uses the fast model to summarize routing history and incurs additional model calls; subagent roles stay independent",
+    "summaryHint": "Uses the economy model to summarize routing history and incurs additional model calls",
     "on": "On",
     "off": "Off",
     "unconfigured": "Not configured",

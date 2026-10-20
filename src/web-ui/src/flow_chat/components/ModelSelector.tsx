@@ -1194,6 +1194,17 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       return false;
     }
   };
+  const handleSmartSubagentModel = async (model: 'primary' | 'economy') => {
+    try { return await routing.selectSubagentModel(model); }
+    catch (error) {
+      if (deviceSurfaceScope.isCurrent()) {
+        notificationService.error(t('modelSelector.routing.saveFailed'));
+        log.warn('Failed to update smart subagent model', { error });
+        void routing.refresh();
+      }
+      return false;
+    }
+  };
   const modelInformationLoading = availability.status === 'loading'
     || (isNativeModelSelection && configLoadState === 'ready' && catalogLoadState === 'loading')
     || (isAcpSession && !externalSelection && acpOptionsLoadState === 'loading');
@@ -2564,8 +2575,9 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                 fast={resolveModelReference(allModels, 'fast', defaultModels) ?? undefined}
                 economy={allModels.find(model => model.id === defaultModels.economy && isSelectableTextChatModel(model))}
                 routing={{ mode: routing.mode, supported: Boolean(routing.status), ready: routing.status?.ready ?? false,
-                  issue: routing.status?.issue, summaryEnabled: routing.status?.summaryEnabled }}
+                  issue: routing.status?.issue, summaryEnabled: routing.status?.summaryEnabled, subagentModel: routing.status?.subagentModel }}
                 onModeChange={handleRoutingMode}
+                onSubagentModelChange={handleSmartSubagentModel}
                 onRoutingSettings={() => { setRouterSettingsScope(routingIdentity); }}
                 selected={allModels.find(model => model.id === concreteModelId)}
                 selectedId={currentNativeModelId}

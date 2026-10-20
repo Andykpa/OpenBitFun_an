@@ -12,8 +12,9 @@ import './NativeModelSelectionPanel.scss';
 interface Props {
   models: AIModelConfig[];
   primary?: AIModelConfig; fast?: AIModelConfig; economy?: AIModelConfig; selected?: AIModelConfig;
-  routing?: { mode: 'manual' | 'smart'; ready: boolean; supported: boolean; issue?: string | null; summaryEnabled?: boolean };
+  routing?: { mode: 'manual' | 'smart'; ready: boolean; supported: boolean; issue?: string | null; summaryEnabled?: boolean; subagentModel?: string };
   onModeChange?: (mode: 'manual' | 'smart') => Promise<boolean>;
+  onSubagentModelChange?: (model: 'primary' | 'economy') => Promise<boolean>;
   onRoutingSettings?: () => void;
   modelLabel: string; selectedId: string; scope: ModelSelectionScope;
   canRemember: boolean; hasSession: boolean; disabled: boolean;
@@ -198,6 +199,37 @@ export function NativeModelSelectionPanel(props: Props) {
         {modelRow('primary', props.primary)}
         {modelRow('economy', props.economy)}
       </MenuList>
+      <div className="native-model-selection__advanced">
+        <MenuList><MenuItem data-testid="model-selection-smart-advanced" aria-expanded={props.advancedOpen}
+          aria-controls={advancedId} disabled={props.disabled} labelBehavior="static"
+          metadata={<Icon name={props.advancedOpen ? 'chevron-down' : 'chevron-right'} size="sm" />}
+          onClick={() => props.onAdvancedOpenChange(!props.advancedOpen)}>
+          <span className="native-model-selection__advanced-summary">
+            <span className="native-model-selection__advanced-label">{t('modelSelector.roles.advanced')}</span>
+            <OverflowText className="native-model-selection__support">
+              {t(props.routing?.subagentModel === 'primary' ? 'modelSelector.routing.subagents.primarySummary'
+                : props.routing?.subagentModel === 'economy' ? 'modelSelector.routing.subagents.economySummary'
+                  : 'modelSelector.routing.subagents.title')}
+            </OverflowText>
+          </span>
+        </MenuItem></MenuList>
+        {props.advancedOpen && <div id={advancedId} className="native-model-selection__session">
+          <div className="native-model-selection__section-heading">
+            <span>{t('modelSelector.routing.subagents.title')}</span><small>{t('modelSelector.roles.shared')}</small>
+          </div>
+          <MenuList aria-label={t('modelSelector.routing.subagents.title')}>
+            {(['primary', 'economy'] as const).map(role => <MenuItem key={role} role="menuitemradio"
+              data-testid={`model-selection-subagent-${role}`} checked={props.routing?.subagentModel === role}
+              disabled={props.disabled || !props.canConfigureDefaults || typeof props.routing?.subagentModel !== 'string' || (role === 'economy' && !props.economy)}
+              metadata={props.routing?.subagentModel === role ? <Icon glyph={Check} size="sm" /> : undefined}
+              onClick={() => { void props.onSubagentModelChange?.(role); }}>
+              {t(role === 'primary' ? 'modelSelector.routing.subagents.primary' : 'modelSelector.routing.subagents.economy')}
+            </MenuItem>)}
+          </MenuList>
+          <p className="native-model-selection__support">{t(typeof props.routing?.subagentModel === 'string'
+            ? 'modelSelector.routing.subagents.hint' : 'modelSelector.routing.subagents.unsupported')}</p>
+        </div>}
+      </div>
     </> : <>
       {props.canConfigureDefaults && <div className="native-model-selection__roles">
         <div className="native-model-selection__section-heading"><span>{t('modelSelector.roles.title')}</span><small>{t('modelSelector.roles.shared')}</small></div>

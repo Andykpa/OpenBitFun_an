@@ -361,6 +361,8 @@ export interface AgentModelDefaultsConfig {
 export type ModelRoutingMode = 'manual' | 'smart';
 export interface ModelRoutingConfig {
   default_mode?: ModelRoutingMode | null;
+  /** Smart subagent default role; keep unknown future values intact. */
+  subagent_model?: string;
   router_model_id?: string | null;
   tokenizer_path: string;
   simple_threshold: number;
