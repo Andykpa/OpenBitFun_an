@@ -82,6 +82,8 @@ pub mod util { pub mod errors {
 mod computer_use {
   ${['control_session', 'process_identity', 'grants', 'permissions', 'windows_list_apps', 'windows_window_target', 'windows_ax_ui', 'windows_ax_shortcuts', 'provider_worker', 'windows_msaa', 'windows_capture', 'windows_wgc_capture', 'windows_pointer_feedback', 'ui_locate_common', 'ax_snapshot_digest'].map(name => `#[path = ${source(`src/apps/desktop/src/computer_use/${name}.rs`)}] mod ${name};`).join('\n  ')}
   mod desktop_host {
+    struct DesktopComputerUseHost;
+    #[path = ${source('src/apps/desktop/src/computer_use/desktop_host/foreground.rs')}] mod foreground;
     use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
     #[path = ${source('src/apps/desktop/src/computer_use/desktop_host/background_guard.rs')}] mod background_guard;
     #[path = ${source('src/apps/desktop/src/computer_use/desktop_host/windows_launch.rs')}] mod windows_launch;

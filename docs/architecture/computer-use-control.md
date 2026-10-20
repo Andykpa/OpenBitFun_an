@@ -19,9 +19,12 @@ never the covering application's content or an unsolicited desktop capture.
 
 Background mode must not raise a window, change the human's keyboard focus, switch
 Spaces/desktops, or silently use global seat input. A backend's inability to meet
-that contract must be visible. Foreground takeover requires explicit user
-permission; approval of a message's content and recipient does not authorize it.
-A generated agent plan cannot widen the original user's authorization.
+that contract must be visible. A user's GUI task authorizes a foreground
+transition when its required background route is unsupported or verified
+ineffective, unless the user requested background-only/no-disruption. The Agent
+announces that mode change and selects it through `start_control`; native input
+never silently escalates or retries. A generated agent plan cannot override the
+original user's constraints, Stop, cancellation or OS permission denial.
 
 The operating system owns privacy/sharing indicators. OpenBitFun neither imitates
 macOS's Sharing menu on other systems nor suppresses native capture borders.
@@ -221,6 +224,25 @@ that every third-party app honors activation policy; subsequent observations
 establish actual state. Linux currently reports unavailable background launch
 instead of silently using an activating launcher. Existing AT-SPI targets remain
 usable. GUI-less hosts and remote workspaces do not fall back to the local GUI.
+In foreground mode Linux starts an executable without waiting for the GUI process
+to exit, or uses `gtk-launch` for a desktop ID / `gio launch` for a desktop-file
+path. Launcher waits are bounded and their PID is never reported as the app PID.
+The launch receipt still requires application/window discovery and verification.
+
+Successful launch with an unresolved PID/window is not an actionable observation.
+Its receipt recommends native window discovery (or AT-SPI application discovery
+on Linux), rather than an unbound screenshot of the current foreground app.
+Capture failure after input retains valid accessibility facts and also reports
+`observation_error`; missing pixels never establish failed input.
+
+macOS and Windows advertise `activate-app-v1`. In foreground mode, `activate_app`
+activates the prepared exact window, checks actual foreground ownership, and
+returns a new observation before the next input. Global input checks that its
+foreground destination matches the observed binding. Windows may deny activation;
+macOS AXRaise/focus may be unavailable. Those failures send no task input and do
+not invoke Alt-Tab or click a guessed location. Linux uses its consented portal
+surface instead of native-window activation; an AT-SPI PID cannot identify that
+surface. App-directed actions retain their semantic/directed route in either mode.
 
 Manual preview input joins the same exclusive action lease as the Agent. Pointer
 gestures retain their screenshot until release; resizing or revocation cancels
@@ -331,6 +353,12 @@ resurrection. The Agent may restart after recoverable target/capture loss, but
 must respect a user stop or denial. Optional manual sharing retains its separate
 `awaiting_share → active(observe) → active(granted mode)` lifecycle; revoking its
 grant preserves observation and invalidates stale input workers immediately.
+
+A same-owner mode change preserves an Agent session's exact target, while
+advancing generation and invalidating its native resources and references.
+Restarting a stopped task or leaving manual sharing does not inherit that target.
+Tool-issued Stop reports `agent_stopped`; native user Stop remains `user_stopped`.
+Neither reason authorizes automatic restart during the same task.
 
 Stop revokes admission and advances generation before cancelling native work,
 releasing owned pressed keys/buttons, stopping capture and hiding feedback.
@@ -583,9 +611,21 @@ capture errors. No unlock, wake or automatic activation is a recovery action.
 
 Observation, semantic actions, locate, hit-testing and shortcut discovery share
 a retained MTA UIA worker/cache. Validate
-PID, HWND, generation, target revision, enabled state and geometry before supported Invoke,
+root PID, HWND, generation, target revision, enabled state and geometry before supported Invoke,
 Toggle, SelectionItem or Scroll operations. Release retained COM references with
 the cache; do not rebuild indices during input.
+
+Hosted UIA controls can have a different process from their root HWND. A bounded
+RawView ancestry walk proves membership in the bound root; equality with the root
+PID is not a substitute. Recheck root ownership after the walk and reject detached
+controls, unrelated same-process windows and disabled elements.
+
+WGC retains the last valid pixels for the current native stream. An empty frame
+queue on a static window reuses those pixels with `capture_frame.age_ms` and
+`capture_frame.reused`, rather than claiming the target closed. Stop, target,
+generation and size changes invalidate reuse. Frame recency is not evidence of
+input delivery; the Agent checks AX/application state or observes again. A stream
+without its first frame reports `CAPTURE_FRAME_PENDING`.
 
 Use `CUIAutomation8` / `IUIAutomation2` with automatic focus disabled, a two-second
 connection timeout and a five-second transaction timeout. A separate ten-second

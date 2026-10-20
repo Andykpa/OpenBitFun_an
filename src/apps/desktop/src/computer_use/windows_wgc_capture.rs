@@ -37,6 +37,37 @@ pub(super) struct WgcCaptureSession {
     stopped: bool,
     closed: std::sync::Arc<std::sync::atomic::AtomicBool>,
     closed_token: i64,
+    last_frame: Option<RetainedFrame>,
+}
+
+struct RetainedFrame {
+    pixels: Vec<u8>,
+    width: u32,
+    height: u32,
+    received: Instant,
+}
+
+impl RetainedFrame {
+    fn reuse(
+        &self,
+        width: i32,
+        height: i32,
+    ) -> Option<(
+        Vec<u8>,
+        u32,
+        u32,
+        openbitfun_core::agentic::tools::computer_use_host::CaptureFrameInfo,
+    )> {
+        (i64::from(width) == i64::from(self.width) && i64::from(height) == i64::from(self.height))
+            .then(|| {
+                (
+                    self.pixels.clone(),
+                    self.width,
+                    self.height,
+                    frame_info(true, self.received.elapsed()),
+                )
+            })
+    }
 }
 
 impl WgcCaptureSession {
@@ -128,6 +159,7 @@ impl WgcCaptureSession {
                 stopped: false,
                 closed,
                 closed_token,
+                last_frame: None,
             })
         }
     }
@@ -135,6 +167,7 @@ impl WgcCaptureSession {
     pub(super) fn stop(&mut self) {
         if !self.stopped {
             self.stopped = true;
+            self.last_frame = None;
             let _ = self.item.RemoveClosed(self.closed_token);
             let _ = self.session.Close();
             let _ = self.pool.Close();
@@ -157,12 +190,11 @@ impl WgcCaptureSession {
         Ok(())
     }
 
-    pub(super) fn capture(&mut self) -> OpenBitFunResult<(Vec<u8>, u32, u32)> {
-        if self.stopped || self.closed.load(std::sync::atomic::Ordering::Acquire) {
-            return Err(OpenBitFunError::service("WGC capture session stopped"));
-        }
+    pub(super) fn capture(&mut self) -> CaptureResult {
+        self.ensure_live()?;
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
+            self.ensure_live()?;
             if let Ok(mut frame) = self.pool.TryGetNextFrame() {
                 // A long-lived pool may still contain observations queued
                 // before the latest input. Consume all immediately available
@@ -177,6 +209,7 @@ impl WgcCaptureSession {
                     .ContentSize()
                     .map_err(|e| OpenBitFunError::service(format!("WGC content size: {e}")))?;
                 if content.Width != self.size.Width || content.Height != self.size.Height {
+                    self.last_frame = None;
                     let _ = frame.Close();
                     if content.Width <= 0 || content.Height <= 0 {
                         return Err(OpenBitFunError::service(
@@ -196,11 +229,35 @@ impl WgcCaptureSession {
                 }
                 let result = unsafe { copy_frame_to_bgra(&frame, &self.device, &self.context) };
                 let _ = frame.Close();
-                return result;
+                let (pixels, width, height) = result?;
+                self.ensure_live()?;
+                self.last_frame = Some(RetainedFrame {
+                    pixels: pixels.clone(),
+                    width,
+                    height,
+                    received: Instant::now(),
+                });
+                return Ok((pixels, width, height, frame_info(false, Duration::ZERO)));
+            }
+            // WGC is change-driven. An empty queue in a live, unchanged stream
+            // is not a closed target. Never reuse across size/scope changes.
+            let size = self
+                .item
+                .Size()
+                .map_err(|e| OpenBitFunError::service(format!("WGC target unavailable: {e}")))?;
+            if size.Width != self.size.Width || size.Height != self.size.Height {
+                self.last_frame = None;
+            }
+            if let Some(frame) = self
+                .last_frame
+                .as_ref()
+                .and_then(|frame| frame.reuse(size.Width, size.Height))
+            {
+                return Ok(frame);
             }
             if Instant::now() >= deadline {
                 return Err(OpenBitFunError::service(
-                    "WGC frame unavailable: target may be closed, minimized or capture revoked",
+                    "[CAPTURE_FRAME_PENDING] The live window stream has not produced a frame yet. Observe again or use include_image=false for accessibility; no desktop pixels were substituted",
                 ));
             }
             std::thread::sleep(Duration::from_millis(16));
@@ -214,7 +271,47 @@ impl Drop for WgcCaptureSession {
     }
 }
 
-type CaptureResult = OpenBitFunResult<(Vec<u8>, u32, u32)>;
+fn frame_info(
+    reused: bool,
+    age: Duration,
+) -> openbitfun_core::agentic::tools::computer_use_host::CaptureFrameInfo {
+    openbitfun_core::agentic::tools::computer_use_host::CaptureFrameInfo {
+        reused,
+        age_ms: age.as_millis().min(u64::MAX as u128) as u64,
+    }
+}
+
+#[cfg(test)]
+mod retained_frame_tests {
+    use super::*;
+
+    #[test]
+    fn unchanged_stream_reuses_pixels_with_truthful_recency_but_resize_rejects_them() {
+        let frame = RetainedFrame {
+            pixels: vec![1, 2, 3, 255],
+            width: 1,
+            height: 1,
+            received: Instant::now() - Duration::from_secs(1),
+        };
+        for _ in 0..3 {
+            let (pixels, width, height, info) = frame.reuse(1, 1).unwrap();
+            assert_eq!((pixels, width, height), (vec![1, 2, 3, 255], 1, 1));
+            assert!(info.reused);
+            assert!(info.age_ms >= 1_000);
+        }
+        for size in [(2, 1), (1, 2), (0, 0), (-1, 1)] {
+            assert!(frame.reuse(size.0, size.1).is_none());
+        }
+        assert!(!frame_info(false, Duration::ZERO).reused);
+    }
+}
+
+type CaptureResult = OpenBitFunResult<(
+    Vec<u8>,
+    u32,
+    u32,
+    openbitfun_core::agentic::tools::computer_use_host::CaptureFrameInfo,
+)>;
 enum CaptureCommand {
     Ensure(
         usize,

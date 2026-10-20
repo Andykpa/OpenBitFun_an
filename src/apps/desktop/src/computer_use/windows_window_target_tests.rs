@@ -128,9 +128,16 @@ fn default_window_captures_main_beside_topmost_companion() {
     let mut lease = control_session::acquire(OWNER, "get_app_state").unwrap();
     let target_id = format!("pid:{pid}/window:{}", fixture.main);
     control_session::bind_target(target_id.clone()).unwrap();
-    let (pixels, width, height) = windows_wgc_capture::capture_window_bgra(target).unwrap();
+    let (pixels, width, height, _) = windows_wgc_capture::capture_window_bgra(target).unwrap();
     assert!(width > 288 && height > 114, "must capture the main window");
     assert_eq!(pixels.len(), width as usize * height as usize * 4);
+    // A static HWND need not enqueue another WGC frame after each read.
+    for _ in 0..3 {
+        let (next, next_width, next_height, _) =
+            windows_wgc_capture::capture_window_bgra(target).unwrap();
+        assert_eq!((next_width, next_height), (width, height));
+        assert_eq!(next.len(), pixels.len());
+    }
     assert_eq!(
         control_session::snapshot().target.as_deref(),
         Some(target_id.as_str())

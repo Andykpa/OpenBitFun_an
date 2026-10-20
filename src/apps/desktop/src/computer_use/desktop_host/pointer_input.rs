@@ -25,8 +25,7 @@ use std::time::Duration;
 
 impl DesktopComputerUseHost {
     pub(super) fn ensure_input_automation_allowed() -> OpenBitFunResult<()> {
-        crate::computer_use::control_session::foreground_allowed()
-            .map_err(OpenBitFunError::tool)?;
+        Self::ensure_foreground_target()?;
         #[cfg(target_os = "macos")]
         {
             if macos::ax_trusted() {
@@ -113,6 +112,7 @@ impl DesktopComputerUseHost {
     /// Move the pointer along a short visible path instead of warping in one event.
     #[cfg(target_os = "macos")]
     fn smooth_mouse_move_cg_global(x1: f64, y1: f64) -> OpenBitFunResult<()> {
+        Self::ensure_foreground_target()?;
         const MIN_DIST: f64 = 2.5;
         const MIN_STEPS: usize = 8;
         const MAX_STEPS: usize = 85;
@@ -814,6 +814,7 @@ impl DesktopComputerUseHost {
         button: &str,
         duration_ms: u64,
     ) -> OpenBitFunResult<()> {
+        Self::ensure_foreground_target()?;
         debug!(
             "computer_use: drag from=({:.1},{:.1}) to=({:.1},{:.1}) button={} dur={}ms",
             from.0, from.1, to.0, to.1, button, duration_ms
@@ -1080,6 +1081,7 @@ impl DesktopComputerUseHost {
     }
 
     pub(super) async fn type_text_impl(&self, text: &str) -> OpenBitFunResult<()> {
+        Self::ensure_foreground_target()?;
         if text.is_empty() {
             return Ok(());
         }
