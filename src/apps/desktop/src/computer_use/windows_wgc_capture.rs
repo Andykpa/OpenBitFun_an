@@ -6,8 +6,10 @@
 
 use openbitfun_core::util::errors::{OpenBitFunError, OpenBitFunResult};
 use std::time::{Duration, Instant};
-use windows::core::Interface;
-use windows::Graphics::Capture::{Direct3D11CaptureFramePool, GraphicsCaptureItem};
+use windows::core::{Interface, HRESULT};
+use windows::Graphics::Capture::{
+    Direct3D11CaptureFrame, Direct3D11CaptureFramePool, GraphicsCaptureItem,
+};
 use windows::Graphics::DirectX::Direct3D11::IDirect3DDevice;
 use windows::Graphics::DirectX::DirectXPixelFormat;
 use windows::Win32::Foundation::{HMODULE, HWND};
@@ -190,20 +192,45 @@ impl WgcCaptureSession {
         Ok(())
     }
 
+    fn next_frame(&mut self) -> OpenBitFunResult<Option<Direct3D11CaptureFrame>> {
+        // The WinRT method returns S_OK + null when its queue is empty. The
+        // generated non-optional wrapper converts null into an error, losing
+        // the distinction from a real provider/device failure.
+        let mut raw = std::ptr::null_mut();
+        let status = unsafe {
+            (Interface::vtable(&self.pool).TryGetNextFrame)(Interface::as_raw(&self.pool), &mut raw)
+        };
+        let frame = (!raw.is_null()).then(|| unsafe { Direct3D11CaptureFrame::from_raw(raw) });
+        let result = checked_frame_result(status, frame);
+        if result.is_err() {
+            self.last_frame = None;
+        }
+        result
+    }
+
     pub(super) fn capture(&mut self) -> CaptureResult {
         self.ensure_live()?;
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
             self.ensure_live()?;
-            if let Ok(mut frame) = self.pool.TryGetNextFrame() {
+            if let Some(mut frame) = self.next_frame()? {
                 // A long-lived pool may still contain observations queued
                 // before the latest input. Consume all immediately available
                 // frames and copy only the newest. Keep this frame when the
                 // queue is empty: static windows need not emit another frame.
                 // This improves recency, but is not proof of input processing.
-                while let Ok(newer) = self.pool.TryGetNextFrame() {
-                    let _ = frame.Close();
-                    frame = newer;
+                loop {
+                    match self.next_frame() {
+                        Ok(Some(newer)) => {
+                            let _ = frame.Close();
+                            frame = newer;
+                        }
+                        Ok(None) => break,
+                        Err(error) => {
+                            let _ = frame.Close();
+                            return Err(error);
+                        }
+                    }
                 }
                 let content = frame
                     .ContentSize()
@@ -271,6 +298,18 @@ impl Drop for WgcCaptureSession {
     }
 }
 
+fn checked_frame_result(
+    status: HRESULT,
+    frame: Option<Direct3D11CaptureFrame>,
+) -> OpenBitFunResult<Option<Direct3D11CaptureFrame>> {
+    status.ok().map_err(|error| {
+        OpenBitFunError::service(format!(
+            "[CAPTURE_UNAVAILABLE] WGC frame acquisition failed: {error}"
+        ))
+    })?;
+    Ok(frame)
+}
+
 fn frame_info(
     reused: bool,
     age: Duration,
@@ -284,6 +323,15 @@ fn frame_info(
 #[cfg(test)]
 mod retained_frame_tests {
     use super::*;
+
+    #[test]
+    fn an_empty_queue_is_distinct_from_native_capture_failure() {
+        assert!(checked_frame_result(HRESULT(0), None).unwrap().is_none());
+        for status in [0x80004003_u32, 0x80070005, 0x887A0005] {
+            let error = checked_frame_result(HRESULT(status as i32), None).unwrap_err();
+            assert!(error.to_string().contains("CAPTURE_UNAVAILABLE"));
+        }
+    }
 
     #[test]
     fn unchanged_stream_reuses_pixels_with_truthful_recency_but_resize_rejects_them() {

@@ -625,7 +625,9 @@ queue on a static window reuses those pixels with `capture_frame.age_ms` and
 `capture_frame.reused`, rather than claiming the target closed. Stop, target,
 generation and size changes invalidate reuse. Frame recency is not evidence of
 input delivery; the Agent checks AX/application state or observes again. A stream
-without its first frame reports `CAPTURE_FRAME_PENDING`.
+without its first frame reports `CAPTURE_FRAME_PENDING`. A native frame-pool
+failure invalidates retained pixels and returns an error; only a successful
+empty queue permits frame reuse.
 
 Use `CUIAutomation8` / `IUIAutomation2` with automatic focus disabled, a two-second
 connection timeout and a five-second transaction timeout. A separate ten-second
