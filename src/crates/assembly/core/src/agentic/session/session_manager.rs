@@ -3280,6 +3280,21 @@ impl SessionManager {
         Some(snapshot)
     }
 
+    /// The snapshot that the request-head listing reminders are rendered from:
+    /// a fork's baseline override when present, otherwise the turn-0 snapshot.
+    pub async fn skill_agent_listing_baseline_snapshot(
+        &self,
+        session_id: &str,
+    ) -> Option<TurnSkillAgentSnapshot> {
+        match self
+            .skill_agent_baseline_override_snapshot(session_id)
+            .await
+        {
+            Some(snapshot) => Some(snapshot),
+            None => self.turn_skill_agent_snapshot(session_id, 0).await,
+        }
+    }
+
     pub async fn seed_forked_skill_agent_listing_baselines(
         &self,
         parent_session_id: &str,
@@ -17597,6 +17612,7 @@ mod tests {
                         description: "desc-a".to_string(),
                         default_tools: vec!["Read".to_string()],
                     }],
+                    deferred_tools: None,
                 },
             )
             .await;
@@ -17615,6 +17631,7 @@ mod tests {
                         description: "desc-b".to_string(),
                         default_tools: vec!["Read".to_string(), "Grep".to_string()],
                     }],
+                    deferred_tools: None,
                 },
             )
             .await;
@@ -17639,6 +17656,7 @@ mod tests {
                     description: "desc-a".to_string(),
                     default_tools: vec!["Read".to_string()],
                 }],
+                deferred_tools: None,
             },
         );
 
@@ -17762,6 +17780,97 @@ mod tests {
         assert_eq!(
             SessionManager::listing_baseline_rebuild_turn_index_from_metadata(Some(&metadata)),
             Some(1)
+        );
+    }
+
+    #[tokio::test]
+    async fn listing_baseline_prefers_override_and_rebuild_carries_deferred_tools() {
+        use crate::agentic::skill_agent_snapshot::{
+            DeferredToolSnapshotEntry, TurnSkillAgentSnapshot,
+        };
+
+        let deferred = |names: &[&str]| TurnSkillAgentSnapshot {
+            deferred_tools: Some(
+                names
+                    .iter()
+                    .map(|name| DeferredToolSnapshotEntry {
+                        name: (*name).to_string(),
+                        short_description: None,
+                    })
+                    .collect(),
+            ),
+            ..Default::default()
+        };
+        let workspace = TestWorkspace::new();
+        let persistence_manager = Arc::new(
+            PersistenceManager::new(workspace.path_manager()).expect("persistence manager"),
+        );
+        let manager = test_manager(persistence_manager.clone());
+        let session = manager
+            .create_session(
+                "Deferred listing baseline".to_string(),
+                "Standard".to_string(),
+                SessionConfig {
+                    workspace_path: Some(workspace.path().to_string_lossy().to_string()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("session should create");
+        let session_id = session.session_id.as_str();
+        {
+            let mut active = manager
+                .sessions
+                .get_mut(session_id)
+                .expect("session should be active");
+            active.dialog_turn_ids = vec!["turn-0".to_string(), "turn-1".to_string()];
+        }
+
+        manager
+            .remember_turn_skill_agent_snapshot(session_id, 0, deferred(&["WebFetch"]))
+            .await;
+        let latest = deferred(&["WebFetch", "mcp__docs__search"]);
+        manager
+            .remember_turn_skill_agent_snapshot(session_id, 1, latest.clone())
+            .await;
+        assert_eq!(
+            manager
+                .skill_agent_listing_baseline_snapshot(session_id)
+                .await,
+            Some(deferred(&["WebFetch"]))
+        );
+        assert_eq!(
+            persistence_manager
+                .load_turn_skill_agent_snapshot(workspace.path(), session_id, 1)
+                .await
+                .expect("snapshot lookup should succeed"),
+            Some(latest.clone())
+        );
+
+        manager
+            .remember_skill_agent_baseline_override_snapshot(session_id, deferred(&["Cron"]))
+            .await;
+        assert_eq!(
+            manager
+                .skill_agent_listing_baseline_snapshot(session_id)
+                .await,
+            Some(deferred(&["Cron"]))
+        );
+
+        assert!(
+            manager
+                .rebuild_skill_agent_listing_baseline_to_latest(session_id)
+                .await
+        );
+        assert_eq!(
+            manager
+                .skill_agent_listing_baseline_snapshot(session_id)
+                .await,
+            Some(latest.clone())
+        );
+        assert_eq!(
+            manager.turn_skill_agent_snapshot(session_id, 0).await,
+            Some(latest)
         );
     }
 

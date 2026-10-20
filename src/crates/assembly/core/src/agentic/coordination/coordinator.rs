@@ -567,6 +567,9 @@ enum SkillAgentSnapshotPersistence {
     None,
     SaveCurrentTurn,
     RecoverFirstTurnBaseline,
+    /// Save the current snapshot and make it the listing baseline, because
+    /// the earlier listing diffs cannot be reconciled with it.
+    RebuildListingBaseline,
 }
 
 impl SubagentResult {
@@ -4035,21 +4038,20 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
             .latest_turn_skill_agent_snapshot_at_or_before(session_id, turn_index - 1)
             .await
         {
-            let diff = diff_skill_agent_snapshot(&previous_snapshot, &surface_resolution.snapshot);
-            append_skill_agent_listing_diff_reminders(
+            let head_lists_deferred_tools = self
+                .session_manager
+                .skill_agent_listing_baseline_snapshot(session_id)
+                .await
+                .is_some_and(|baseline| baseline.lists_deferred_tools());
+            plan_skill_agent_listing_update(
                 &mut prepended_messages,
-                diff.render_skill_listing_update(),
-                diff.render_agent_listing_update(),
-            );
-            if diff.is_empty() {
-                SkillAgentSnapshotPersistence::None
-            } else {
-                debug!(
-                    "Skill-agent snapshot changed; persisting sparse snapshot: session_id={}, turn_index={}, baseline_turn_index={}",
-                    session_id, turn_index, baseline_turn_index
-                );
-                SkillAgentSnapshotPersistence::SaveCurrentTurn
-            }
+                session_id,
+                turn_index,
+                baseline_turn_index,
+                &previous_snapshot,
+                &surface_resolution.snapshot,
+                head_lists_deferred_tools,
+            )
         } else {
             warn!(
                 "No prior skill-agent snapshot available for diff; skipping skill-agent diff: session_id={}, turn_index={}",
@@ -6979,6 +6981,18 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
                     .await;
                 self.session_manager
                     .remove_listing_diff_internal_reminders(&session_id)
+                    .await;
+            }
+            SkillAgentSnapshotPersistence::RebuildListingBaseline => {
+                self.session_manager
+                    .remember_turn_skill_agent_snapshot(
+                        &session_id,
+                        turn_index,
+                        wrapped_user_input_payload.skill_agent_snapshot.clone(),
+                    )
+                    .await;
+                self.session_manager
+                    .rebuild_skill_agent_listing_baseline_to_latest(&session_id)
                     .await;
             }
         }
@@ -16075,10 +16089,56 @@ pub fn get_global_coordinator() -> Option<Arc<ConversationCoordinator>> {
     GLOBAL_COORDINATOR.get().cloned()
 }
 
+fn plan_skill_agent_listing_update(
+    prepended_messages: &mut Vec<Message>,
+    session_id: &str,
+    turn_index: usize,
+    baseline_turn_index: usize,
+    previous_snapshot: &TurnSkillAgentSnapshot,
+    current_snapshot: &TurnSkillAgentSnapshot,
+    head_lists_deferred_tools: bool,
+) -> SkillAgentSnapshotPersistence {
+    if head_lists_deferred_tools
+        && previous_snapshot.deferred_tools.is_none()
+        && current_snapshot.deferred_tools.is_some()
+    {
+        // A build without deferred-tool tracking wrote the previous snapshot
+        // after the baseline, so deferred changes since the baseline are unknown.
+        warn!(
+            "Previous skill-agent snapshot lacks deferred tools; rebuilding listing baseline: session_id={}, turn_index={}, previous_turn_index={}",
+            session_id, turn_index, baseline_turn_index
+        );
+        return SkillAgentSnapshotPersistence::RebuildListingBaseline;
+    }
+
+    let diff = diff_skill_agent_snapshot(previous_snapshot, current_snapshot);
+    append_skill_agent_listing_diff_reminders(
+        prepended_messages,
+        diff.render_skill_listing_update(),
+        diff.render_agent_listing_update(),
+        diff.render_deferred_tool_listing_update()
+            .filter(|_| head_lists_deferred_tools),
+    );
+    // Starting deferred-tool tracking is persisted too, so a later baseline
+    // rebuild (for example after compression) begins with a tracked catalog.
+    let tracking_started =
+        previous_snapshot.deferred_tools.is_none() && current_snapshot.deferred_tools.is_some();
+    if diff.is_empty() && !tracking_started {
+        SkillAgentSnapshotPersistence::None
+    } else {
+        debug!(
+            "Skill-agent snapshot changed; persisting sparse snapshot: session_id={}, turn_index={}, baseline_turn_index={}",
+            session_id, turn_index, baseline_turn_index
+        );
+        SkillAgentSnapshotPersistence::SaveCurrentTurn
+    }
+}
+
 fn append_skill_agent_listing_diff_reminders(
     prepended_messages: &mut Vec<Message>,
     skill_update: Option<String>,
     agent_update: Option<String>,
+    deferred_tool_update: Option<String>,
 ) {
     if let Some(skill_update) = skill_update {
         prepended_messages.push(Message::internal_reminder(
@@ -16090,6 +16150,15 @@ fn append_skill_agent_listing_diff_reminders(
         prepended_messages.push(Message::internal_reminder(
             InternalReminderKind::AgentListingDiff,
             agent_update,
+        ));
+    }
+    // Reminder kinds are persisted and older builds reject unknown variants,
+    // so deferred-tool updates reuse a listing-diff kind with the same
+    // compaction and baseline-rebuild handling.
+    if let Some(deferred_tool_update) = deferred_tool_update {
+        prepended_messages.push(Message::internal_reminder(
+            InternalReminderKind::SkillListingDiff,
+            deferred_tool_update,
         ));
     }
 }
@@ -16138,19 +16207,23 @@ pub(crate) mod tests {
         lineage_session_is_settling_without_active_state, logical_subagent_type_or_runtime,
         merge_prepended_messages_for_turn, normalize_model_selection,
         normalize_subagent_max_concurrency, permission_mode_from_metadata,
-        resolve_agent_session_create_created_by, resolve_agent_submission_turn_id,
-        resolve_subagent_model_selection, resolve_submission_permission_mode,
-        revoke_interrupted_turn_intent_or_observe_commit, runtime_port_error_preserving_message,
-        runtime_session_summary, runtime_tool_restrictions_for_session_lifetime,
-        runtime_transcript_messages_from_turns, session_storage_workspace_locator,
-        snapshot_normal_session_model, turn_review_manifest_for_agent,
-        validate_required_lineage_turns_settled, ActiveSubagentExecution,
-        BackgroundSubagentWaitMode, ContextCompactionOutcome, ConversationCoordinator,
-        DialogSubmissionPolicy, DialogTriggerSource, InterruptedTurnIntentState,
-        ManualCompactionCommitGate, SessionMemoryMode, SessionReferenceLocator,
-        SessionRelationshipKind, SubagentExecutionRequest, TEST_AGENT_MODEL_DEFAULTS,
+        plan_skill_agent_listing_update, resolve_agent_session_create_created_by,
+        resolve_agent_submission_turn_id, resolve_subagent_model_selection,
+        resolve_submission_permission_mode, revoke_interrupted_turn_intent_or_observe_commit,
+        runtime_port_error_preserving_message, runtime_session_summary,
+        runtime_tool_restrictions_for_session_lifetime, runtime_transcript_messages_from_turns,
+        session_storage_workspace_locator, snapshot_normal_session_model,
+        turn_review_manifest_for_agent, validate_required_lineage_turns_settled,
+        ActiveSubagentExecution, BackgroundSubagentWaitMode, ContextCompactionOutcome,
+        ConversationCoordinator, DialogSubmissionPolicy, DialogTriggerSource,
+        InterruptedTurnIntentState, ManualCompactionCommitGate, SessionMemoryMode,
+        SessionReferenceLocator, SessionRelationshipKind, SubagentExecutionRequest,
+        TEST_AGENT_MODEL_DEFAULTS,
     };
-    use super::{BackgroundSubagentCancelTarget, SubagentResult, SubagentResultStatus};
+    use super::{
+        BackgroundSubagentCancelTarget, SkillAgentSnapshotPersistence, SubagentResult,
+        SubagentResultStatus,
+    };
     use crate::agentic::agents::ExternalSubagentModelBinding;
     use crate::agentic::coordination::coordination_store::{
         BackgroundTaskRegistration, RegisteredBackgroundTask,
@@ -23243,6 +23316,7 @@ pub(crate) mod tests {
                 location: "C:/Users/wsp/.codex/skills/interactive-debug".to_string(),
             }],
             subagents: Vec::new(),
+            deferred_tools: None,
         };
         session_manager
             .remember_turn_skill_agent_snapshot(
@@ -23360,13 +23434,17 @@ pub(crate) mod tests {
             &mut messages,
             Some("skills changed".to_string()),
             Some("agents changed".to_string()),
+            Some("deferred tools changed".to_string()),
         );
 
-        assert_eq!(messages.len(), 3);
+        assert_eq!(messages.len(), 4);
         assert_eq!(
             messages[0].internal_reminder_kind(),
             Some(InternalReminderKind::AgentMode)
         );
+        assert!(messages[1..].iter().all(|message| message
+            .internal_reminder_kind()
+            .is_some_and(InternalReminderKind::is_listing_diff)));
     }
 
     #[test]
@@ -23377,6 +23455,7 @@ pub(crate) mod tests {
             &mut messages,
             None,
             Some("agents changed".to_string()),
+            None,
         );
 
         let kinds = messages
@@ -23384,6 +23463,99 @@ pub(crate) mod tests {
             .map(Message::internal_reminder_kind)
             .collect::<Vec<_>>();
         assert_eq!(kinds, vec![Some(InternalReminderKind::AgentListingDiff)]);
+    }
+
+    fn deferred_listing_snapshot(names: &[&str]) -> TurnSkillAgentSnapshot {
+        TurnSkillAgentSnapshot {
+            deferred_tools: Some(
+                names
+                    .iter()
+                    .map(
+                        |name| crate::agentic::skill_agent_snapshot::DeferredToolSnapshotEntry {
+                            name: (*name).to_string(),
+                            short_description: None,
+                        },
+                    )
+                    .collect(),
+            ),
+            ..Default::default()
+        }
+    }
+
+    fn plan_listing_update(
+        previous: &TurnSkillAgentSnapshot,
+        current: &TurnSkillAgentSnapshot,
+        head_lists_deferred_tools: bool,
+    ) -> (SkillAgentSnapshotPersistence, Vec<Message>) {
+        let mut messages = Vec::new();
+        let persistence = plan_skill_agent_listing_update(
+            &mut messages,
+            "session",
+            3,
+            1,
+            previous,
+            current,
+            head_lists_deferred_tools,
+        );
+        (persistence, messages)
+    }
+
+    #[test]
+    fn deferred_tool_changes_append_a_listing_diff_when_the_head_lists_the_baseline() {
+        let (persistence, messages) = plan_listing_update(
+            &deferred_listing_snapshot(&["WebFetch"]),
+            &deferred_listing_snapshot(&["WebFetch", "mcp__docs__search"]),
+            true,
+        );
+
+        assert_eq!(persistence, SkillAgentSnapshotPersistence::SaveCurrentTurn);
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0]
+            .internal_reminder_kind()
+            .is_some_and(InternalReminderKind::is_listing_diff));
+        let MessageContent::Text(text) = &messages[0].content else {
+            panic!("listing diff reminders are text messages");
+        };
+        assert!(text.contains("# Deferred Tool Listing Update"));
+        assert!(text.contains("- mcp__docs__search"));
+    }
+
+    #[test]
+    fn deferred_tool_changes_are_persisted_without_reminders_when_the_head_renders_current() {
+        let (persistence, messages) = plan_listing_update(
+            &deferred_listing_snapshot(&["WebFetch"]),
+            &deferred_listing_snapshot(&["Cron"]),
+            false,
+        );
+
+        assert_eq!(persistence, SkillAgentSnapshotPersistence::SaveCurrentTurn);
+        assert!(messages.is_empty());
+    }
+
+    #[test]
+    fn untracked_previous_snapshot_starts_tracking_or_rebuilds_a_tracked_head() {
+        let legacy = TurnSkillAgentSnapshot::default();
+        let current = deferred_listing_snapshot(&["WebFetch"]);
+
+        let (persistence, messages) = plan_listing_update(&legacy, &current, false);
+        assert_eq!(persistence, SkillAgentSnapshotPersistence::SaveCurrentTurn);
+        assert!(messages.is_empty());
+
+        let (persistence, messages) = plan_listing_update(&legacy, &current, true);
+        assert_eq!(
+            persistence,
+            SkillAgentSnapshotPersistence::RebuildListingBaseline
+        );
+        assert!(messages.is_empty());
+    }
+
+    #[test]
+    fn unchanged_tracked_snapshot_needs_no_persistence_or_reminder() {
+        let snapshot = deferred_listing_snapshot(&["WebFetch", "Cron"]);
+        let (persistence, messages) = plan_listing_update(&snapshot, &snapshot, true);
+
+        assert_eq!(persistence, SkillAgentSnapshotPersistence::None);
+        assert!(messages.is_empty());
     }
 
     #[test]
