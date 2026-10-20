@@ -4,12 +4,15 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useEmbeddedBrowserWebview } from './useEmbeddedBrowserWebview';
 
+type PageLoadPayload = { label: string; event: 'started' | 'finished'; url: string };
+
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => {}),
   view: { label: 'test-browser', show: vi.fn(async () => {}), hide: vi.fn(async () => {}),
     close: vi.fn(async () => {}), setFocus: vi.fn(async () => {}) },
   hostVisible: true,
   hostListeners: new Set<(visible: boolean) => void>(),
+  pageLoadListeners: new Set<(event: { payload: PageLoadPayload }) => void>(),
 }));
 vi.mock('@/infrastructure/runtime/windowVisibility', () => ({
   observeCurrentWindowVisibility: (changed: (visible: boolean) => void) => {
@@ -20,7 +23,13 @@ vi.mock('@/infrastructure/runtime/windowVisibility', () => ({
 }));
 vi.mock('@/infrastructure/api/service-api/ApiClient', () => ({ api: { invoke: mocks.invoke } }));
 vi.mock('@tauri-apps/api/webview', () => ({ Webview: { getByLabel: async () => mocks.view } }));
-vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: async (name: string, handler: (event: { payload: PageLoadPayload }) => void) => {
+    if (name !== 'browser-webview-page-load') return () => {};
+    mocks.pageLoadListeners.add(handler);
+    return () => mocks.pageLoadListeners.delete(handler);
+  },
+}));
 
 const log = { warn: vi.fn(), error: vi.fn() };
 let browser: ReturnType<typeof useEmbeddedBrowserWebview>;
@@ -36,6 +45,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.hostVisible = true;
   mocks.hostListeners.clear();
+  mocks.pageLoadListeners.clear();
   mocks.invoke.mockImplementation(async () => {});
   vi.stubGlobal('__TAURI__', {});
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -203,6 +213,65 @@ it('keeps the old native rectangle occluded until the delayed bounds update comp
   expect(mocks.view.show).not.toHaveBeenCalled();
   await act(async () => finishBounds());
   expect(mocks.view.show).toHaveBeenCalledOnce();
+});
+
+it('keeps the loading state until the native page load settles, not until the command resolves', async () => {
+  await render();
+  const emitPageLoad = (event: PageLoadPayload['event'], label = browser.webviewLabel) => {
+    for (const listener of mocks.pageLoadListeners) {
+      listener({ payload: { label, event, url: 'https://example.com/slow' } });
+    }
+  };
+  expect(mocks.pageLoadListeners.size).toBe(1);
+
+  // Mounting starts the first navigation; let that page settle.
+  await mutate(() => emitPageLoad('finished'));
+  expect(browser.isLoading).toBe(false);
+
+  await act(async () => browser.loadUrl('https://example.com/slow'));
+  // Creating or navigating the native view resolves before the document loads.
+  expect(browser.isLoading).toBe(true);
+
+  await mutate(() => emitPageLoad('finished'));
+  expect(browser.isLoading).toBe(false);
+
+  await mutate(() => emitPageLoad('started', 'some-other-view'));
+  expect(browser.isLoading).toBe(false);
+
+  await mutate(() => emitPageLoad('started'));
+  expect(browser.isLoading).toBe(true);
+  await mutate(() => emitPageLoad('finished'));
+  expect(browser.isLoading).toBe(false);
+});
+
+it('drops the loading state when no native page load event ever arrives', async () => {
+  vi.useFakeTimers();
+  await render();
+  await act(async () => browser.loadUrl('https://example.com/stuck'));
+  expect(browser.isLoading).toBe(true);
+  await act(async () => vi.advanceTimersByTimeAsync(30_000));
+  expect(browser.isLoading).toBe(false);
+});
+
+it('stops an in-flight page load through the page loader and ends the loading state', async () => {
+  await render();
+  const label = browser.webviewLabel;
+  const emitPageLoad = (event: PageLoadPayload['event']) => {
+    for (const listener of mocks.pageLoadListeners) {
+      listener({ payload: { label, event, url: 'https://example.com/slow' } });
+    }
+  };
+  await mutate(() => emitPageLoad('finished'));
+
+  await act(async () => browser.loadUrl('https://example.com/slow'));
+  expect(browser.isLoading).toBe(true);
+
+  mocks.invoke.mockClear();
+  await act(async () => { browser.stopLoading(); });
+  expect(browser.isLoading).toBe(false);
+  expect(mocks.invoke).toHaveBeenCalledWith('browser_webview_eval', {
+    request: { label, script: 'window.stop()' },
+  });
 });
 
 it('does not invoke native APIs in the web surface', async () => {
