@@ -52,6 +52,8 @@ pub mod review_read_receipt;
 #[cfg(feature = "agent-runtime")]
 pub mod router_context;
 #[cfg(feature = "agent-runtime")]
+pub mod router_summary_queue;
+#[cfg(feature = "agent-runtime")]
 pub mod runtime;
 #[cfg(feature = "agent-runtime")]
 pub mod scheduled_job;

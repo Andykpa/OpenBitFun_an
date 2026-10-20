@@ -3,21 +3,26 @@
 //! It exposes a narrow execution-engine hook plus an opt-in HTTP implementation while
 //! keeping the existing agent loop, retry lifecycle, and tool pipeline authoritative.
 
+mod admission;
 pub mod configuration;
 pub mod context;
+pub(super) mod session_checkpoint;
+
+pub use admission::RouterAdmissionLimits;
 
 use crate::agentic::core::{Message, MessageContent};
 use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
+use admission::RouterAdmission;
 use context::{RoundRouterContext, RouterContextConfig, RouterContextFactory};
 use log::{debug, info, warn};
 use openbitfun_agent_runtime::router_context::PreparedRouterContext;
-use openbitfun_ai_adapters::round_router::{RouterClientError, RouterHttpClient};
+use openbitfun_ai_adapters::round_router::{RouterClientError, RouterHttpClient, RouterPrediction};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 /// The configured execution-model slot to use for one logical model round.
@@ -96,6 +101,7 @@ pub struct HttpRoundModelRouterConfig {
     pub system_prompt: String,
     pub api_key: Option<String>,
     pub timeout: Duration,
+    pub admission: RouterAdmissionLimits,
     pub recent_rounds: usize,
     pub simple_threshold: f64,
     pub trace_path: Option<PathBuf>,
@@ -164,6 +170,7 @@ impl HttpRoundModelRouterConfig {
                 .ok()
                 .filter(|value| !value.trim().is_empty()),
             timeout: Duration::from_millis(timeout_ms as u64),
+            admission: RouterAdmissionLimits::from_env()?,
             recent_rounds,
             simple_threshold,
             trace_path: std::env::var("OPENBITFUN_ROUND_ROUTER_TRACE")
@@ -213,6 +220,7 @@ pub struct HttpRoundModelRouter {
     config: HttpRoundModelRouterConfig,
     client: RouterHttpClient,
     context_factory: RouterContextFactory,
+    admission: Arc<RouterAdmission>,
 }
 
 impl HttpRoundModelRouter {
@@ -228,6 +236,7 @@ impl HttpRoundModelRouter {
             config.skip_ssl_verify,
         )
         .map_err(map_router_error)?;
+        let admission = RouterAdmission::shared(client.service_identity(), config.admission)?;
         let context_factory = RouterContextFactory::new(
             config.context.clone(),
             config.recent_rounds,
@@ -239,7 +248,41 @@ impl HttpRoundModelRouter {
             config,
             client,
             context_factory,
+            admission,
         })
+    }
+
+    /// A single deadline covers both FIFO waiting and the classifier HTTP call.
+    /// The execution engine can cancel either phase by dropping this future.
+    async fn predict(
+        &self,
+        input: &str,
+        mut trace: Option<&mut RouterTraceGuard>,
+    ) -> OpenBitFunResult<RouterPrediction> {
+        let started = Instant::now();
+        let deadline = tokio::time::Instant::now()
+            .checked_add(self.config.timeout)
+            .ok_or_else(|| {
+                OpenBitFunError::Configuration(
+                    "Router timeout exceeds the runtime clock range".into(),
+                )
+            })?;
+        if let Some(trace) = trace.as_deref_mut() {
+            trace.begin_queue();
+        }
+        let admission = self.admission.acquire(deadline).await;
+        if let Some(trace) = trace.as_deref_mut() {
+            trace.record_queue_wait(started.elapsed(), admission.is_ok());
+        }
+        let _permit = admission?;
+        tokio::time::timeout_at(deadline, self.client.predict(input))
+            .await
+            .map_err(|_| {
+                OpenBitFunError::Http(
+                    "Router deadline expired during classification after queue admission".into(),
+                )
+            })?
+            .map_err(map_router_error)
     }
 }
 
@@ -292,10 +335,8 @@ impl RoundModelRouter for HttpRoundModelRouter {
             }),
         );
         let route_result = self
-            .client
-            .predict(user_prompt)
+            .predict(user_prompt, Some(&mut trace_guard))
             .await
-            .map_err(map_router_error)
             .and_then(|prediction| {
                 let generated_route = if prediction.generated_simple {
                     RoundModelRoute::Economy
@@ -340,6 +381,7 @@ impl RoundModelRouter for HttpRoundModelRouter {
                             "error": error.to_string(),
                             "fallback_route": RoundModelRoute::Primary,
                             "latency_ms": started_at.elapsed().as_millis(),
+                            "queue_wait_ms": trace_guard.queue_wait_ms(),
                         }),
                     );
                     trace_guard.finish();
@@ -367,11 +409,12 @@ impl RoundModelRouter for HttpRoundModelRouter {
                 "route": route,
                 "recovered": recovered,
                 "latency_ms": started_at.elapsed().as_millis(),
+                "queue_wait_ms": trace_guard.queue_wait_ms(),
             }),
         );
         trace_guard.finish();
         info!(
-            "Router decision completed: session_id={}, turn_id={}, round_index={}, generated_route={:?}, simple_probability={:?}, threshold={}, route={:?}, recovered={}, latency_ms={}",
+            "Router decision completed: session_id={}, turn_id={}, round_index={}, generated_route={:?}, simple_probability={:?}, threshold={}, route={:?}, recovered={}, latency_ms={}, queue_wait_ms={:?}",
             request.session_id,
             request.dialog_turn_id,
             request.round_index,
@@ -380,7 +423,8 @@ impl RoundModelRouter for HttpRoundModelRouter {
             self.config.simple_threshold,
             route,
             recovered,
-            started_at.elapsed().as_millis()
+            started_at.elapsed().as_millis(),
+            trace_guard.queue_wait_ms()
         );
         debug!(
             "Router response protocol status: turn_id={}, round_index={}, output_chars={}",
@@ -434,6 +478,7 @@ struct RouterTraceGuard {
     started: Instant,
     cancellation: Value,
     finished: bool,
+    queue_started: Option<Instant>,
 }
 
 impl RouterTraceGuard {
@@ -456,6 +501,7 @@ impl RouterTraceGuard {
             started,
             cancellation: record,
             finished: false,
+            queue_started: None,
         }
     }
 
@@ -466,11 +512,39 @@ impl RouterTraceGuard {
     fn finish(&mut self) {
         self.finished = true;
     }
+
+    fn begin_queue(&mut self) {
+        self.queue_started = Some(Instant::now());
+        self.cancellation["phase"] = json!("queued");
+    }
+
+    fn record_queue_wait(&mut self, wait: Duration, admitted: bool) {
+        self.queue_started = None;
+        self.cancellation["queue_wait_ms"] = json!(wait.as_millis() as u64);
+        if admitted {
+            self.cancellation["phase"] = json!("classifying");
+            let mut record = self.cancellation.clone();
+            record["event"] = json!("router_request_admitted");
+            if let Some(object) = record.as_object_mut() {
+                object.remove("error");
+            }
+            append_trace_record(self.path.as_ref(), &record);
+        }
+    }
+
+    fn queue_wait_ms(&self) -> Option<u64> {
+        self.queue_started
+            .map(|started| started.elapsed().as_millis() as u64)
+            .or_else(|| self.cancellation["queue_wait_ms"].as_u64())
+    }
 }
 
 impl Drop for RouterTraceGuard {
     fn drop(&mut self) {
         if !self.finished {
+            if let Some(wait) = self.queue_wait_ms() {
+                self.cancellation["queue_wait_ms"] = json!(wait);
+            }
             self.cancellation["latency_ms"] = json!(self.started.elapsed().as_millis());
             append_trace_record(self.path.as_ref(), &self.cancellation);
         }
@@ -626,6 +700,7 @@ mod tests {
             system_prompt: "EXACT_FIXED_SYSTEM".into(),
             api_key: None,
             timeout: Duration::from_secs(3),
+            admission: Default::default(),
             recent_rounds: 3,
             simple_threshold: 0.7,
             trace_path: None,

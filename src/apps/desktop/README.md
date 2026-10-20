@@ -29,6 +29,20 @@ in the composer. Saving configuration alone does not prove connectivity. Router
 request failures fall back to the primary model; each response records its
 actual model and fallback status. Optional Router context summaries use the
 economy model and add requests. Billing hints do not establish actual charges.
+Persisted conversations carry their independent Router summary into the next
+smart turn. Recovery validates the visible conversation history; reverting or
+forking never imports an abandoned or another conversation's summary. Legacy
+checkpoints without history proof, a preceding manual turn, or unavailable
+storage start from the remaining original messages instead of the main context
+compression summary.
+
+The execution host bounds Router requests per service (two running and up to
+32 waiting by default). Requests wait for capacity, not another conversation's
+whole task, and queue time counts toward the routing timeout. Cancellation removes
+the waiter; overload and timeout retain the primary-model fallback. Optional
+background summaries use a separate fair queue, merge pending observations per
+conversation, and do not block model selection. Host startup overrides and
+persistence details are in the deployment guide linked above.
 
 Peer Device Mode applies configuration on the execution host and requires a host
 advertising smart-routing support. SSH/Docker workspaces also use their owning

@@ -113,6 +113,7 @@ fn product_config(config: &AIConfig) -> OpenBitFunResult<HttpRoundModelRouterCon
         system_prompt: SYSTEM_PROMPT.into(),
         api_key: (!model.api_key.is_empty()).then(|| model.api_key.clone()),
         timeout: Duration::from_millis(setup.timeout_ms),
+        admission: RouterAdmissionLimits::from_env()?,
         recent_rounds: 3,
         simple_threshold: setup.simple_threshold,
         trace_path: None,
@@ -260,7 +261,7 @@ pub async fn status(
         }
         let router = configured_router(&config).await?;
         if probe {
-            let prediction = router.client.predict("Task: inspect a file and explain its purpose").await.map_err(map_router_error)?;
+            let prediction = router.predict("Task: inspect a file and explain its purpose", None).await?;
             if prediction.simple_probability.is_none() {
                 return Err(OpenBitFunError::Configuration("Router protocol mismatch: classifier token IDs and logprobs are required".into()));
             }

@@ -24,8 +24,12 @@ cargo test --locked -p openbitfun-core --no-default-features --features agent-ru
 ```
 
 Router context state/budgets live in `openbitfun-agent-runtime::router_context`;
-Core only observes messages, invokes the auxiliary fast model and stores its
-separate sidecar. Never feed Router summaries back into the main transcript or
+Core only observes messages, invokes the configured auxiliary model and stores its
+separate sidecar. Portable summary admission lives in
+`openbitfun-agent-runtime::router_summary_queue`; Core supplies snapshots and
+provider futures. Session continuity must validate the complete visible turn
+lineage and fence recovered execution generations before writing. Legacy per-turn
+sidecars without lineage proof are retained but cannot establish continuity. Never feed Router summaries back into the main transcript or
 use the main compactor's summary/model/config as Router state.
 
 Router HTTP transport and classifier wire parsing live in

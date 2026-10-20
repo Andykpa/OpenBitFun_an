@@ -165,15 +165,17 @@ struct FakeSummary {
     calls: AtomicUsize,
     release: Notify,
     fail: bool,
+    prompts: std::sync::Mutex<Vec<String>>,
 }
 
 #[async_trait::async_trait]
 impl SummaryProvider for FakeSummary {
     async fn summarize(
         &self,
-        _: String,
+        prompt: String,
         _: &RouterContextConfig,
     ) -> OpenBitFunResult<SummaryResult> {
+        self.prompts.lock().unwrap().push(prompt);
         self.calls.fetch_add(1, Ordering::SeqCst);
         if self.fail {
             return Err(OpenBitFunError::AIClient("synthetic failure".into()));
@@ -195,6 +197,7 @@ fn fixture(fail: bool) -> (RoundRouterContext, Arc<FakeSummary>) {
         calls: AtomicUsize::new(0),
         release: Notify::new(),
         fail,
+        prompts: Default::default(),
     });
     let mut factory = RouterContextFactory::new_with_counter(
         RouterContextConfig {
@@ -208,7 +211,7 @@ fn fixture(fail: bool) -> (RoundRouterContext, Arc<FakeSummary>) {
     )
     .unwrap();
     factory.summary_provider = provider.clone();
-    factory.summary_slots = Arc::new(Semaphore::new(1));
+    factory.summary_queue = RouterSummaryQueue::new(1, 128);
     (factory.create("session", "turn", "fix parser"), provider)
 }
 
@@ -251,7 +254,7 @@ async fn slow_summary_never_blocks_routing_and_is_applied_to_only_its_prefix() {
     );
     assert!(first.entry_tokens.iter().all(|entry| entry.token_count > 0));
     assert_eq!(first.compression_records.len(), 1);
-    assert_eq!(first.compression_records[0].status, "in_flight");
+    assert_eq!(first.compression_records[0].status, "queued");
     assert_eq!(serde_json::to_value(&messages).unwrap(), snapshot);
     tokio::task::yield_now().await;
     assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
@@ -312,12 +315,12 @@ async fn summary_timeout_and_generation_drop_release_concurrency_slot() {
     context.prepare(&rounds(8)).await;
     settle(&mut context).await;
     assert_eq!(context.state.summarized_through, 0);
-    assert_eq!(context.factory.summary_slots.available_permits(), 1);
+    assert_eq!(context.factory.summary_queue.available_permits(), 1);
     context.factory.config.summary_timeout = Duration::from_secs(30);
     context.prepare(&rounds(4)).await;
     tokio::task::yield_now().await;
     assert_eq!(provider.calls.load(Ordering::SeqCst), 2);
-    let slots = context.factory.summary_slots.clone();
+    let slots = context.factory.summary_queue.clone();
     drop(context);
     tokio::time::timeout(Duration::from_secs(1), async {
         while slots.available_permits() != 1 {
@@ -492,23 +495,74 @@ async fn sidecar_recovery_deduplicates_and_preserves_incompatible_files() {
 }
 
 #[tokio::test]
-async fn exhausted_summary_capacity_does_not_queue_or_block_and_disabled_is_noop() {
+async fn queued_summary_coalesces_without_blocking_or_overtaking_other_sessions() {
     let (mut context, provider) = fixture(false);
-    let permit = context
+    let work = RouterSummaryWork {
+        base_through: 0,
+        through: 1,
+        pending_tokens: 1,
+        prompt: String::new(),
+    };
+    let (_, blocker) = context
         .factory
-        .summary_slots
-        .clone()
-        .acquire_owned()
+        .summary_queue
+        .submit("blocker", work)
+        .unwrap();
+    let (_, permit) = blocker.start().await.unwrap();
+    let mut messages = rounds(8);
+    let prepared = tokio::time::timeout(Duration::from_millis(100), context.prepare(&messages))
         .await
         .unwrap();
-    let messages = rounds(8);
-    let prepared = context.prepare(&messages).await;
     assert!(prepared.user_prompt.contains("step-7"));
-    assert!(context.pending_summary.is_none());
+    assert_eq!(prepared.compression_records[0].status, "queued");
+    let mut other = context
+        .factory
+        .create("other-session", "other-turn", "other task");
+    other.prepare(&rounds(8)).await;
+    messages.extend(rounds(6));
+    context.prepare(&messages).await;
+    assert_eq!(provider.calls.load(Ordering::SeqCst), 0);
     drop(permit);
+    tokio::task::yield_now().await;
+    assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+    provider.release.notify_one();
+    settle(&mut context).await;
+    // The queued request covers the newest eligible prefix, not the first snapshot.
+    assert_eq!(context.state.summarized_through, 11);
+    tokio::task::yield_now().await;
+    assert_eq!(provider.calls.load(Ordering::SeqCst), 2);
+    assert!(provider.prompts.lock().unwrap()[0].contains("fix parser"));
+    assert!(provider.prompts.lock().unwrap()[1].contains("other task"));
+    provider.release.notify_one();
+    settle(&mut other).await;
+    assert_eq!(other.state.summarized_through, 5);
+}
+
+#[tokio::test]
+async fn finishing_queued_summary_cancels_it_and_disabled_context_does_not_submit() {
+    let (mut context, provider) = fixture(false);
+    let work = RouterSummaryWork {
+        base_through: 0,
+        through: 1,
+        pending_tokens: 1,
+        prompt: String::new(),
+    };
+    let (_, blocker) = context
+        .factory
+        .summary_queue
+        .submit("blocker", work)
+        .unwrap();
+    let (_, permit) = blocker.start().await.unwrap();
+    let messages = rounds(8);
+    context.prepare(&messages).await;
+    context.finish(&messages).await;
+    tokio::task::yield_now().await;
+    drop(permit);
+    tokio::task::yield_now().await;
     context.factory.config.summary_enabled = false;
     context.prepare(&messages).await;
     assert_eq!(provider.calls.load(Ordering::SeqCst), 0);
+    assert_eq!(context.factory.summary_queue.available_permits(), 1);
 }
 
 #[tokio::test]
@@ -742,4 +796,55 @@ async fn incomplete_summary_keeps_old_state_but_records_reported_usage() {
     assert_eq!(event["response"]["incomplete_reason"], "output_limit");
     assert_eq!(event["max_output_tokens"], 16_384);
     assert_eq!(events[0]["summary_target_tokens"], 4_096);
+}
+
+#[tokio::test]
+async fn session_continuity_survives_compacted_history_without_cross_session_leakage() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut first, provider) = fixture(false);
+    first
+        .restore_session(Some(dir.path().to_path_buf()), &["turn".into()], &[])
+        .await;
+    let messages = rounds(8);
+    first.prepare(&messages).await;
+    tokio::task::yield_now().await;
+    provider.release.notify_one();
+    settle(&mut first).await;
+    first.finish(&messages).await;
+    let mut second = first
+        .factory
+        .create("session", "next-turn", "validate the fix");
+    second.factory.config.summary_enabled = false;
+    let next = vec![
+        Message::user("PRIVATE_MAIN_COMPACTION".into())
+            .with_semantic_kind(MessageSemanticKind::CompressionSummary),
+        messages.last().unwrap().clone(),
+        Message::user("validate the fix".into()),
+    ];
+    second
+        .restore_session(
+            Some(dir.path().to_path_buf()),
+            &["turn".into(), "next-turn".into()],
+            &next,
+        )
+        .await;
+    let prepared = second.prepare(&next).await;
+    assert!(prepared.user_prompt.contains("parser regression"));
+    assert!(prepared.user_prompt.contains("validate the fix"));
+    assert!(!prepared.user_prompt.contains("PRIVATE_MAIN_COMPACTION"));
+    assert_eq!(second.state.observed_rounds, 8); // retained message is deduplicated
+    assert_eq!(second.state.summarized_through, 5);
+    second.finish(&next).await;
+    let mut unrelated = first
+        .factory
+        .create("different-session", "next-turn", "unrelated task");
+    unrelated
+        .restore_session(
+            Some(dir.path().to_path_buf()),
+            &["turn".into(), "next-turn".into()],
+            &[],
+        )
+        .await;
+    assert!(!unrelated.render().user_prompt.contains("parser regression"));
+    assert_eq!(unrelated.state.summarized_through, 0);
 }

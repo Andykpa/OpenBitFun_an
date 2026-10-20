@@ -39,6 +39,7 @@ pub struct RouterPrediction {
 pub struct RouterHttpClient {
     client: reqwest::Client,
     endpoint: String,
+    service_identity: String,
     model: String,
     system_prompt: String,
     api_key: Option<String>,
@@ -75,7 +76,7 @@ impl RouterHttpClient {
         custom_headers: std::collections::HashMap<String, String>,
         skip_ssl_verify: bool,
     ) -> Result<Self, RouterClientError> {
-        let url = reqwest::Url::parse(&endpoint)
+        let mut url = reqwest::Url::parse(&endpoint)
             .map_err(|_| RouterClientError::Http("Invalid Router URL".into()))?;
         if !matches!(url.scheme(), "http" | "https")
             || !url.username().is_empty()
@@ -88,14 +89,26 @@ impl RouterHttpClient {
         let client =
             crate::client::http::create_router_http_client(timeout, proxy, skip_ssl_verify)
                 .map_err(|error| RouterClientError::Http(error.to_string()))?;
+        // Query authentication, fragments, model names and credential revisions must
+        // not create independent capacity pools for the same service endpoint.
+        url.set_query(None);
+        url.set_fragment(None);
+        let service_identity = url.as_str().trim_end_matches('/').to_string();
         Ok(Self {
             client,
             endpoint,
+            service_identity,
             model,
             system_prompt,
             api_key,
             custom_headers,
         })
+    }
+
+    /// Opaque canonical endpoint identity for host-owned request admission.
+    /// This value is not telemetry and must not be logged.
+    pub fn service_identity(&self) -> &str {
+        &self.service_identity
     }
 
     /// Make one bounded request. The runtime owns retries and fallback.
@@ -345,6 +358,34 @@ fn parse_router_route(raw_output: &str) -> Result<(bool, bool), RouterClientErro
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn service_identity_is_canonical_and_ignores_auth_query_and_model() {
+        use super::RouterHttpClient;
+        use std::time::Duration;
+        let first = RouterHttpClient::new(
+            "https://ROUTER.example:443/v1/chat/completions/?api_key=secret#fragment".into(),
+            "first-model".into(),
+            "prompt".into(),
+            Some("first-key".into()),
+            Duration::from_secs(1),
+        )
+        .unwrap();
+        let second = RouterHttpClient::new(
+            "https://router.example/v1/chat/completions?api_key=changed".into(),
+            "other-model".into(),
+            "different prompt".into(),
+            Some("rotated-key".into()),
+            Duration::from_secs(1),
+        )
+        .unwrap();
+        assert_eq!(first.service_identity(), second.service_identity());
+        assert_eq!(
+            first.service_identity(),
+            "https://router.example/v1/chat/completions"
+        );
+        assert!(!first.service_identity().contains("secret"));
+    }
+
     use super::*;
 
     #[tokio::test]

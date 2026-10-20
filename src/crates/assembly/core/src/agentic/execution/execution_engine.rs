@@ -3380,14 +3380,21 @@ impl ExecutionEngine {
             )
         });
         if let Some(router_context) = router_context.as_mut() {
+            // The host's complete visible turn order survives context compression
+            // and changes when undo/rollback branches history. Controller state is
+            // never used as Router recovery authority.
+            let visible_turn_ids = self
+                .session_manager
+                .get_session(&context.session_id)
+                .map(|session| session.dialog_turn_ids)
+                .unwrap_or_default();
             router_context
-                .restore_with_legacy(
+                .restore_session(
                     self.session_manager
                         .persistent_context_snapshot_dir(&context.session_id)
                         .await,
-                    self.session_manager
-                        .persistent_model_exchange_trace_dir(&context.session_id)
-                        .await,
+                    &visible_turn_ids,
+                    &messages,
                 )
                 .await;
             router_context.observe(&messages);
