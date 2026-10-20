@@ -168,6 +168,7 @@ fn projected(r: &Resource) -> ControlSnapshot {
         [
             "window-capture",
             "window-target-v1",
+            "activate-app-v1",
             "background-ax-semantic-input",
             "background-directed-keyboard",
             "background-directed-scroll",
@@ -181,6 +182,7 @@ fn projected(r: &Resource) -> ControlSnapshot {
         [
             "window-capture",
             "window-target-v1",
+            "activate-app-v1",
             "background-uia-semantic-input",
             "background-window-messages",
             "foreground-seat-input",

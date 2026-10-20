@@ -107,6 +107,7 @@ impl DesktopComputerUseHost {
         let iw = rgb.width();
         let ih = rgb.height();
         Ok(ComputerScreenshot {
+            capture_frame: None,
             screenshot_id: Some(Self::next_screenshot_id()),
             bytes: jpeg_bytes,
             mime_type: "image/jpeg".to_string(),
@@ -295,8 +296,9 @@ impl DesktopComputerUseHost {
         let native_w = rgb.width();
         let native_h = rgb.height();
 
-        let shot =
+        let mut shot =
             Self::raw_shot_from_rgb_crop(rgb, cap.origin_x, cap.origin_y, native_w, native_h)?;
+        shot.capture_frame = Some(cap.frame_info);
 
         // Image pixels map 1:1 to the captured window rectangle (no downscale),
         // so content == image == native and the screen origin is the window's

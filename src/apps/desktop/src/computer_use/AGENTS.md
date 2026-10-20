@@ -56,6 +56,8 @@ remaining native acceptance scenarios separately.
 - `permissions.rs`, `process_identity.rs`, `grants.rs`, `share_grants.rs` — explicit OS requests and executable-bound remembered preferences
 - `desktop_host/shared_preview.rs` — scoped manual preview input through the same native host/lease as the Agent
 - `desktop_host/background_guard.rs` — before/after desktop witnesses; no focus restoration or replay
+- `desktop_host/foreground.rs` — explicit exact-window activation and global input destination checks
+- `desktop_host/linux_launch.rs` — literal executable/desktop-entry launch with bounded helper waits
 - `desktop_host/observation.rs`, `observation_cache.rs` — observation identity and bounded screenshot geometry; never input authority
 - `desktop_host/state.rs` — derived host feedback and view caches
 - `macos_*` / `windows_*` — platform AX, capture, list-apps, shortcuts
@@ -74,6 +76,13 @@ The implementation contract is [Computer Use control-session SPEC](../../../../.
 macOS and Windows retain a real native single-window capture session. Never fall
 back to desktop pixels when window capture fails or the target is obscured.
 Background input must not activate a window or use the global input seat.
+For an ordinary user-requested GUI task, the Agent may explicitly change to
+foreground mode when background delivery is unsupported or verified ineffective,
+unless the user required background-only/no-disruption. This is a new tool
+decision, never a native retry or implicit escalation. macOS/Windows
+`activate-app-v1` activates the exact bound window and returns a fresh observation;
+global input must validate the foreground destination. Linux retains its separate
+portal consent/surface identity. Preserve user Stop, cancellation and OS denial.
 
 ## Target-local macOS focus acceptance
 
@@ -141,6 +150,9 @@ node scripts/test-macos-input-controls.mjs --orchestration
 # Real AX messaging timeout in a stopped disposable process, then one directed
 # click after resumption; retains exact delivery and foreground/cursor checks.
 node scripts/test-macos-input-controls.mjs --busy-ax
+# Explicit foreground transition on disposable windows; wrong-focus rejection,
+# exact activation and native Unicode/shortcut delivery.
+node scripts/test-macos-input-controls.mjs --foreground
 # Identical five-input sequence: five tool calls vs one batch, with default
 # images and AX-only observations. Fresh isolated app/host per case.
 node scripts/test-macos-input-controls.mjs --latency
