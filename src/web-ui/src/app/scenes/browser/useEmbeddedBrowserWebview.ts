@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BLANK_TARGET_INTERCEPT_SCRIPT } from './browserInspectorScript';
 import { STREAM_RENDER_OPTIMIZATION_SCRIPT } from './browserStreamPerformanceScript';
+import { BROWSER_WEBVIEW_DOCUMENT_READY_EVENT, createBrowserPageLifecycleScript, type BrowserDocumentReadyPayload } from './browserPageLifecycleScript';
 import { validateUrl } from './browserUrlCheck';
 import { BrowserPreviewCache, prepareBrowserPreview, type BrowserPreviewResponse } from './browserPreviewCache';
 import { alignBrowserViewport, type BrowserViewportBounds } from './browserViewportGeometry';
@@ -14,8 +15,7 @@ const WEBVIEW_RESIZE_DEBOUNCE_MS = 160;
 const WEBVIEW_BOUNDS_WAIT_TIMEOUT_MS = 2000;
 const BROWSER_WEBVIEW_PAGE_LOAD_EVENT = 'browser-webview-page-load';
 const WEBVIEW_CREATE_RETRY_DELAYS_MS = [0, 250, 750];
-// Native page-load events are the only reliable end signal; keep a bounded
-// fallback so a dropped event cannot spin the loading indicator forever.
+// Last-resort fallback if neither the native nor document lifecycle signal arrives.
 const WEBVIEW_PAGE_LOAD_WATCHDOG_MS = 30_000;
 
 // Webview labels are window-global in Tauri, while this hook can be mounted
@@ -239,7 +239,7 @@ export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOpti
   }, []);
 
   // Command completion says nothing about the document still loading, so the
-  // loading state follows native page-load events instead of IPC round trips.
+  // loading state follows native and document lifecycle events instead of IPC round trips.
   const markPageLoadStarted = useCallback(() => {
     clearPageLoadWatchdog();
     pageLoadSequenceRef.current += 1;
@@ -346,7 +346,7 @@ export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOpti
     pageLoadUnlistenRef.current = null;
 
     const { listen } = await import('@tauri-apps/api/event');
-    const unlisten = await listen<BrowserWebviewPageLoadPayload>(
+    const unlistenLoad = await listen<BrowserWebviewPageLoadPayload>(
       BROWSER_WEBVIEW_PAGE_LOAD_EVENT,
       ({ payload }) => {
         if (!mountedRef.current || webviewLabelRef.current !== label || !payload || payload.label !== label) return;
@@ -361,15 +361,40 @@ export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOpti
           setInputValue(payload.url);
           setCurrentUrl(payload.url);
           setError(null);
-          injectBrowserPageScripts(label).catch(() => {});
+          void injectBrowserPageScripts(label).catch(() => {});
         }
+        // Run even when the URL did not change (reload/same-URL history). A
+        // cached document can be ready without a matching native Finished.
+        // Probe only after a native commit/completion, never while a navigation
+        // command may still be showing the previous, already-complete document.
+        void evalWebview(label, createBrowserPageLifecycleScript(label, pageLoadSequenceRef.current)).catch(() => {});
       },
     );
-    if (!mountedRef.current || webviewLabelRef.current !== label) {
-      unlisten();
-      throw new Error('Browser surface disposed during page-load subscription');
+    try {
+      const unlistenReady = await listen<BrowserDocumentReadyPayload>(
+        BROWSER_WEBVIEW_DOCUMENT_READY_EVENT,
+        ({ payload }) => {
+          if (!mountedRef.current || webviewLabelRef.current !== label
+            || !payload || payload.label !== label || payload.sequence !== pageLoadSequenceRef.current) return;
+          markPageLoadSettled();
+          if (payload.url && payload.url !== currentUrlRef.current) {
+            preview.invalidate();
+            currentUrlRef.current = payload.url;
+            setInputValue(payload.url);
+            setCurrentUrl(payload.url);
+            setError(null);
+          }
+        },
+      );
+      if (!mountedRef.current || webviewLabelRef.current !== label) {
+        unlistenReady();
+        throw new Error('Browser surface disposed during page-load subscription');
+      }
+      pageLoadUnlistenRef.current = () => { unlistenLoad(); unlistenReady(); };
+    } catch (listenError) {
+      unlistenLoad();
+      throw listenError;
     }
-    pageLoadUnlistenRef.current = unlisten;
   }, [markPageLoadSettled, markPageLoadStarted, preview]);
 
   const createWebview = useCallback(async (url: string) => {
