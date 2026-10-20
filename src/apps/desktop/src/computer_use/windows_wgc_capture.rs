@@ -46,15 +46,25 @@ impl WgcCaptureSession {
         }
         let scope = crate::computer_use::control_session::observation_scope()
             .map_err(OpenBitFunError::service)?;
+        let target = super::windows_window_target::inspect_window(hwnd);
+        if let Some(reason) = target.capture_unavailable_reason() {
+            return Err(OpenBitFunError::service(format!(
+                "[CAPTURE_TARGET_UNAVAILABLE] {reason}; {target:?}"
+            )));
+        }
         unsafe {
             let (device, context) = create_d3d11_device()?;
             let direct_device = create_winrt_d3d_device(&device)?;
             let interop =
                 windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
                     .map_err(|e| OpenBitFunError::service(format!("WGC factory: {e}")))?;
-            let item: GraphicsCaptureItem = interop
-                .CreateForWindow(hwnd)
-                .map_err(|e| OpenBitFunError::service(format!("WGC CreateForWindow: {e}")))?;
+            let item: GraphicsCaptureItem = interop.CreateForWindow(hwnd).map_err(|e| {
+                OpenBitFunError::service(format!(
+                    "[CAPTURE_TARGET_UNAVAILABLE] WGC CreateForWindow: {e}; {target:?}. \
+                         Use list_windows and an explicit app: {{pid, window_id}} to select the \
+                         intended window. No other window or desktop pixels were captured."
+                ))
+            })?;
             let size = item
                 .Size()
                 .map_err(|e| OpenBitFunError::service(format!("WGC size: {e}")))?;

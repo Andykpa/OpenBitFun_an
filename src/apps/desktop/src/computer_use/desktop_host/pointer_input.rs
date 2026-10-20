@@ -484,8 +484,10 @@ impl DesktopComputerUseHost {
                 "[SHARED_TARGET_ONLY] Application was not shared by the user",
             ));
         }
-        let hwnd = crate::computer_use::windows_list_apps::find_top_window_for_pid(pid as u32)
-            .ok_or_else(|| OpenBitFunError::tool("[TARGET_UNAVAILABLE] Target has no window"))?;
+        let hwnd = crate::computer_use::windows_list_apps::find_default_window_for_pid(pid as u32)
+            .ok_or_else(|| OpenBitFunError::tool(
+                "[TARGET_UNAVAILABLE] Target has no eligible visible window; inspect list_windows and select an explicit window_id",
+            ))?;
         Ok((pid, hwnd.0 as isize))
     }
 

@@ -834,14 +834,15 @@ impl DesktopComputerUseHost {
         #[cfg(target_os = "windows")]
         {
             let pid = resolve_pid(self, &app).await? as u32;
-            let hwnd_isize = crate::computer_use::windows_list_apps::find_top_window_for_pid(pid)
-                .map(|h| h.0 as isize)
-                .ok_or_else(|| {
-                    OpenBitFunError::tool(format!(
-                        "APP_NOT_FOUND: no visible top-level window for pid={} (app={:?})",
-                        pid, app
-                    ))
-                })?;
+            let hwnd_isize =
+                crate::computer_use::windows_list_apps::find_default_window_for_pid(pid)
+                    .map(|h| h.0 as isize)
+                    .ok_or_else(|| {
+                        OpenBitFunError::tool(format!(
+                            "APP_NOT_FOUND: no visible top-level window for pid={} (app={:?})",
+                            pid, app
+                        ))
+                    })?;
 
             let (shortcuts, menu_items_without_shortcut) =
                 crate::computer_use::control_session::spawn_blocking(move || {
