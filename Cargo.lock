@@ -6363,6 +6363,7 @@ dependencies = [
  "futures",
  "gstreamer",
  "gstreamer-app",
+ "gtk",
  "ignore",
  "image 0.25.10",
  "keepawake",
