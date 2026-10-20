@@ -6109,6 +6109,7 @@ dependencies = [
 name = "openbitfun-claude-code-adapter"
 version = "1.0.6"
 dependencies = [
+ "chrono",
  "dirs 6.0.0",
  "dunce",
  "hex",
@@ -6253,6 +6254,7 @@ dependencies = [
  "openbitfun-codex-adapter",
  "openbitfun-config-contracts",
  "openbitfun-core-types",
+ "openbitfun-cursor-adapter",
  "openbitfun-dsh-adapter",
  "openbitfun-events",
  "openbitfun-external-sources",
@@ -6298,6 +6300,22 @@ dependencies = [
  "serde",
  "serde_json",
  "ts-rs",
+]
+
+[[package]]
+name = "openbitfun-cursor-adapter"
+version = "1.0.6"
+dependencies = [
+ "chrono",
+ "dirs 6.0.0",
+ "hex",
+ "openbitfun-product-domains",
+ "openbitfun-services-core",
+ "rusqlite",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "url",
 ]
 
 [[package]]
@@ -6420,6 +6438,7 @@ dependencies = [
  "openbitfun-plugin-runtime-client",
  "openbitfun-product-domains",
  "openbitfun-runtime-ports",
+ "openbitfun-services-core",
  "openbitfun-static-hook-support",
  "serde",
  "serde_json",
@@ -6429,6 +6448,7 @@ dependencies = [
  "tokio",
  "url",
  "urlencoding",
+ "zstd",
 ]
 
 [[package]]
@@ -6598,6 +6618,7 @@ dependencies = [
  "openbitfun-static-hook-support",
  "oxc",
  "regex",
+ "rusqlite",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -6642,11 +6663,15 @@ dependencies = [
 name = "openbitfun-pi-adapter"
 version = "1.0.6"
 dependencies = [
+ "chrono",
  "dirs 6.0.0",
+ "hex",
  "openbitfun-product-domains",
+ "openbitfun-services-core",
  "openbitfun-static-hook-support",
  "oxc",
  "serde_json",
+ "sha2",
  "tempfile",
 ]
 
@@ -7060,11 +7085,10 @@ name = "openbitfun-zcode-adapter"
 version = "1.0.6"
 dependencies = [
  "dirs 6.0.0",
- "hex",
+ "openbitfun-opencode-adapter",
  "openbitfun-product-domains",
  "rusqlite",
  "serde_json",
- "sha2",
  "tempfile",
 ]
 

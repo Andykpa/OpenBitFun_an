@@ -400,6 +400,12 @@ cargo test -p openbitfun-core --no-default-features --features external-sources,
 cargo test -p openbitfun-core --no-default-features --features external-sources,git,product-search --lib agentic::session::session_manager::tests::restore_session_
 ```
 
+For installed-source acceptance, set `OPENBITFUN_TEST_SESSION_ECOSYSTEM` and
+`OPENBITFUN_TEST_SESSION_ID` to a real source session, then run the same target
+with filter `inspect_installed_external_session_follow_and_fork -- --ignored --nocapture`.
+The source is read-only; native records are written only to a temporary user root.
+Set `TEMP` / `TMP` to the validation drive when testing a large local history.
+
 Optional read-only Zcode-to-temporary-native-store verification uses the same
 target with `inspect_installed_zcode_native_import -- --ignored --nocapture`.
 It reads the installed source and writes only inside a temporary test directory.
