@@ -183,6 +183,7 @@ export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOpti
   const webviewLabelRef = useRef<string>('');
   const pageLoadUnlistenRef = useRef<(() => void) | null>(null);
   const pageLoadWatchdogRef = useRef<number | null>(null);
+  const pageLoadSequenceRef = useRef(0);
   const activeRef = useRef(isVisible);
   activeRef.current = isVisible;
   const mountedRef = useRef(true);
@@ -241,6 +242,7 @@ export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOpti
   // loading state follows native page-load events instead of IPC round trips.
   const markPageLoadStarted = useCallback(() => {
     clearPageLoadWatchdog();
+    pageLoadSequenceRef.current += 1;
     setIsLoading(true);
     pageLoadWatchdogRef.current = window.setTimeout(() => {
       pageLoadWatchdogRef.current = null;
@@ -344,10 +346,10 @@ export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOpti
     pageLoadUnlistenRef.current = null;
 
     const { listen } = await import('@tauri-apps/api/event');
-    pageLoadUnlistenRef.current = await listen<BrowserWebviewPageLoadPayload>(
+    const unlisten = await listen<BrowserWebviewPageLoadPayload>(
       BROWSER_WEBVIEW_PAGE_LOAD_EVENT,
       ({ payload }) => {
-        if (!payload || payload.label !== label) return;
+        if (!mountedRef.current || webviewLabelRef.current !== label || !payload || payload.label !== label) return;
         preview.invalidate();
         if (payload.event === 'started') {
           markPageLoadStarted();
@@ -363,6 +365,11 @@ export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOpti
         }
       },
     );
+    if (!mountedRef.current || webviewLabelRef.current !== label) {
+      unlisten();
+      throw new Error('Browser surface disposed during page-load subscription');
+    }
+    pageLoadUnlistenRef.current = unlisten;
   }, [markPageLoadSettled, markPageLoadStarted, preview]);
 
   const createWebview = useCallback(async (url: string) => {
@@ -383,6 +390,8 @@ export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOpti
       webviewLabelRef.current = label;
       setWebviewLabel(label);
       try {
+        // Fast or cached pages can finish before the creation command returns.
+        await startPageLoadListener(label);
         const handle = await createBrowserWebview(label, url, initialBounds, openRequestId);
         if (!mountedRef.current) {
           await handle.close();
@@ -392,10 +401,11 @@ export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOpti
         preview.setTarget(label);
         lastBoundsRef.current = initialBounds;
         await injectBrowserPageScripts(label);
-        await startPageLoadListener(label);
         return handle;
       } catch (creationError) {
         lastError = creationError;
+        pageLoadUnlistenRef.current?.();
+        pageLoadUnlistenRef.current = null;
         const staleHandle = await Webview.getByLabel(label).catch(() => null);
         await staleHandle?.close().catch(() => {});
         if (!isTransientWebviewCreationError(creationError)
@@ -612,17 +622,24 @@ export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOpti
     const label = webviewLabelRef.current;
     if (!isTauri || !label) return;
     markPageLoadStarted();
+    const sequence = pageLoadSequenceRef.current;
     void reloadWebview(label).catch(() => {
-      markPageLoadSettled();
+      if (mountedRef.current && sequence === pageLoadSequenceRef.current) markPageLoadSettled();
     });
   }, [isTauri, markPageLoadSettled, markPageLoadStarted]);
 
-  // `window.stop()` is the page-level equivalent of the native stop button: the
-  // loader cancels in-flight subresources and an uncommitted navigation.
+  // Ask the page loader to stop through the existing controller-local command.
   const stopLoading = useCallback(() => {
-    markPageLoadSettled();
-    void evalInWebview('window.stop()').catch(stopError => {
+    const sequence = pageLoadSequenceRef.current;
+    void evalInWebview('window.stop()').then(() => {
+      if (!mountedRef.current || sequence !== pageLoadSequenceRef.current) return;
+      setError(null);
+      markPageLoadSettled();
+    }).catch(stopError => {
       log.warn('Stop browser page load failed', stopError);
+      if (mountedRef.current && sequence === pageLoadSequenceRef.current) {
+        setError(formatUnknownError(stopError));
+      }
     });
   }, [evalInWebview, log, markPageLoadSettled]);
 
