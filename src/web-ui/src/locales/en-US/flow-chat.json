@@ -3454,6 +3454,10 @@
     },
     "economyModel": "Economy Model",
     "routing": {
+      "configure": "Configure",
+      "serviceReady": "Ready",
+      "serviceNotReady": "Setup needed",
+      "serviceUnsupported": "Unavailable",
       "settings": "Router service",
       "enable": "Enable smart mode",
       "active": "Smart routing enabled; failures use the primary model",

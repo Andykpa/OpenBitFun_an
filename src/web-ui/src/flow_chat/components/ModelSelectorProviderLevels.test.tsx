@@ -57,10 +57,13 @@ vi.mock('@/infrastructure/api/service-api/AIApi', () => ({
   aiApi: aiApiMocks,
 }));
 
-vi.mock('react-i18next', () => ({
-  initReactI18next: { type: '3rdParty', init: vi.fn() },
-  useTranslation: () => ({ t: (key: string) => key }),
-}));
+vi.mock('react-i18next', () => {
+  const t = (key: string) => key;
+  return {
+    initReactI18next: { type: '3rdParty', init: vi.fn() },
+    useTranslation: () => ({ t }),
+  };
+});
 
 vi.mock('@openbitfun/ui', async importOriginal => ({
   ...await importOriginal<typeof import('@openbitfun/ui')>(),
@@ -75,6 +78,7 @@ vi.mock('@openbitfun/ui', async importOriginal => ({
 
 vi.mock('@/infrastructure/config/services/ConfigManager', () => ({
   configManager: {
+    getConfig: vi.fn(),
     getConfigs: vi.fn(),
     onConfigChange: vi.fn((listener: (path: string) => void) => {
       flowChatStoreMocks.configChangeListeners.add(listener);
@@ -239,6 +243,10 @@ describe('ModelSelector provider levels', () => {
 
   beforeEach(() => {
     activateSurface('local');
+    vi.mocked(configManager.getConfig).mockReset().mockResolvedValue({
+      default_mode: 'manual', router_model_id: null, tokenizer_path: '',
+      simple_threshold: 0.75, timeout_ms: 10000, summary_enabled: false,
+    });
     vi.mocked(configManager.getConfigs).mockReset();
     vi.mocked(configManager.setConfig).mockReset().mockResolvedValue(undefined);
     vi.mocked(configManager.updateConfig).mockReset().mockImplementation(async (path, update) => {
@@ -1032,6 +1040,14 @@ describe('ModelSelector provider levels', () => {
     expect(agentAPI.updateSessionModel).toHaveBeenCalledWith(expect.objectContaining({ routingMode: 'manual' }));
   });
 
+  const smartAdvancedToggle = () => document.body.querySelector<HTMLButtonElement>('[data-testid="model-selection-smart-advanced"]')!;
+  const smartSubagentField = () => document.body.querySelector<HTMLElement>('[data-testid="model-selection-subagent-field"]');
+  const smartSubagentTrigger = () => smartSubagentField()!.querySelector<HTMLButtonElement>('button[role="combobox"]')!;
+  const smartSubagentValue = () => smartSubagentField()!.querySelector<HTMLSelectElement>('select')!.value;
+  const smartSubagentOption = (role: 'primary' | 'economy') => document.body.querySelector<HTMLButtonElement>(
+    `button[role="option"][data-testid="model-selection-subagent-${role}"]`,
+  )!;
+
   it('configures smart subagent defaults under advanced options without changing manual roles', async () => {
     const host = { apiVersion: 1, mode: 'manual', defaultMode: 'manual', ready: false, connected: null, issue: 'Configure Router', summaryEnabled: false, subagentModel: 'primary' };
     vi.mocked(agentAPI.getModelRoutingStatus).mockImplementation(async () => ({ ...host }));
@@ -1040,21 +1056,64 @@ describe('ModelSelector provider levels', () => {
     });
     await renderSelector(); await openSettingsMenu();
     await act(async () => modeOption('smart')!.click());
-    expect(document.body.querySelector('[data-testid="model-selection-subagent-primary"]')).toBeNull();
-    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-testid="model-selection-smart-advanced"]')!.click());
-    const primary = () => document.body.querySelector<HTMLButtonElement>('[data-testid="model-selection-subagent-primary"]')!;
-    const economy = () => document.body.querySelector<HTMLButtonElement>('[data-testid="model-selection-subagent-economy"]')!;
-    expect(primary().getAttribute('aria-checked')).toBe('true');
-    expect(economy().getAttribute('aria-checked')).toBe('false');
+    expect(smartSubagentField()).toBeNull();
+    await act(async () => smartAdvancedToggle().click());
+    expect(smartSubagentValue()).toBe('primary');
     expect(document.body.textContent).toContain('modelSelector.routing.subagents.hint');
-    await act(async () => economy().click());
+    await act(async () => smartSubagentTrigger().click());
+    expect(smartSubagentOption('primary').getAttribute('aria-selected')).toBe('true');
+    expect(smartSubagentOption('economy').getAttribute('aria-selected')).toBe('false');
+    await act(async () => smartSubagentOption('economy').click());
     expect(configManager.setConfig).toHaveBeenCalledExactlyOnceWith('ai.model_routing.subagent_model', 'economy');
     expect(configManager.updateConfig).not.toHaveBeenCalled();
     expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
-    expect(economy().getAttribute('aria-checked')).toBe('true');
+    expect(smartSubagentValue()).toBe('economy');
+    expect(smartSubagentTrigger().textContent).toContain('modelSelector.routing.subagents.economy');
     await act(async () => modeOption('manual')!.click());
     expect(document.body.querySelector('[data-testid="model-selection-config-fast"]')).not.toBeNull();
     expect(document.body.querySelector('[data-testid="model-selection-subagent-policy"]')?.textContent).toContain('modelSelector.roles.subagentDefault');
+  });
+
+  it('keeps the current subagent choice while saving and after a rejected change', async () => {
+    let rejectWrite!: (error: Error) => void;
+    vi.mocked(configManager.setConfig).mockReturnValueOnce(new Promise<void>((_resolve, reject) => { rejectWrite = reject; }));
+    await renderSelector(); await openSettingsMenu();
+    await act(async () => modeOption('smart')!.click());
+    await act(async () => smartAdvancedToggle().click());
+    await act(async () => smartSubagentTrigger().click());
+    await act(async () => smartSubagentOption('economy').click());
+    expect(configManager.setConfig).toHaveBeenCalledExactlyOnceWith('ai.model_routing.subagent_model', 'economy');
+    expect(smartSubagentValue()).toBe('primary');
+    expect(smartSubagentTrigger().textContent).toContain('modelSelector.routing.subagents.primary');
+    expect(smartSubagentTrigger().disabled).toBe(true);
+
+    await act(async () => rejectWrite(new Error('Host rejected the model change')));
+    expect(smartSubagentValue()).toBe('primary');
+    expect(smartSubagentTrigger().disabled).toBe(false);
+    await act(async () => smartSubagentTrigger().click());
+    expect(smartSubagentOption('primary').getAttribute('aria-selected')).toBe('true');
+    expect(smartSubagentOption('economy').getAttribute('aria-selected')).toBe('false');
+    expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
+  });
+
+  it('collapses smart advanced options without repeating the selected subagent summary while expanded', async () => {
+    await renderSelector(); await openSettingsMenu();
+    await act(async () => modeOption('smart')!.click());
+    expect(smartAdvancedToggle().getAttribute('aria-expanded')).toBe('false');
+    expect(smartAdvancedToggle().parentElement?.textContent).toContain('modelSelector.routing.subagents.primarySummary');
+    await act(async () => smartAdvancedToggle().click());
+    expect(smartAdvancedToggle().getAttribute('aria-expanded')).toBe('true');
+    expect(smartSubagentField()?.textContent).toContain('modelSelector.roles.shared');
+    expect(smartAdvancedToggle().parentElement?.textContent).not.toContain('modelSelector.routing.subagents.primarySummary');
+    expect(document.getElementById(smartAdvancedToggle().getAttribute('aria-controls')!)?.contains(smartSubagentField())).toBe(true);
+    const hintId = smartSubagentTrigger().getAttribute('aria-describedby')!;
+    expect(document.getElementById(hintId)?.textContent).toBe('modelSelector.routing.subagents.hint');
+
+    await act(async () => smartAdvancedToggle().click());
+    expect(smartAdvancedToggle().getAttribute('aria-expanded')).toBe('false');
+    expect(smartSubagentField()).toBeNull();
+    expect(smartAdvancedToggle().parentElement?.textContent).toContain('modelSelector.routing.subagents.primarySummary');
+    expect(configManager.setConfig).not.toHaveBeenCalled();
   });
 
   it.each(['old-host', 'missing-economy'] as const)('gates smart subagent choices for %s', async reason => {
@@ -1063,13 +1122,35 @@ describe('ModelSelector provider levels', () => {
     });
     await renderSelector(CATALOG_MODELS, 'primary', undefined, { primary: 'acme-fast', fast: 'umbra-main', economy: reason === 'missing-economy' ? undefined : 'umbra-main' });
     await openSettingsMenu(); await act(async () => modeOption('smart')!.click());
-    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-testid="model-selection-smart-advanced"]')!.click());
-    expect(document.body.querySelector<HTMLButtonElement>('[data-testid="model-selection-subagent-economy"]')?.disabled).toBe(true);
+    await act(async () => smartAdvancedToggle().click());
     if (reason === 'old-host') {
-      expect(document.body.querySelector<HTMLButtonElement>('[data-testid="model-selection-subagent-primary"]')?.disabled).toBe(true);
+      expect(smartSubagentTrigger().disabled).toBe(true);
+      expect(smartSubagentValue()).toBe('');
+      expect(smartSubagentTrigger().textContent).toContain('modelSelector.modelNotConfigured');
       expect(document.body.textContent).toContain('modelSelector.routing.subagents.unsupported');
+    } else {
+      expect(smartSubagentTrigger().disabled).toBe(false);
+      await act(async () => smartSubagentTrigger().click());
+      expect(smartSubagentOption('economy').disabled).toBe(true);
+      await act(async () => smartSubagentOption('economy').click());
+      expect(smartSubagentValue()).toBe('primary');
     }
     expect(configManager.setConfig).not.toHaveBeenCalled();
+  });
+
+  it('opens Router setup while unready instead of showing an unusable enable action', async () => {
+    await renderSelector(); await openSettingsMenu();
+    await act(async () => modeOption('smart')!.click());
+    const setup = document.body.querySelector<HTMLButtonElement>('[data-testid="model-routing-settings"]')!;
+    expect(setup.disabled).toBe(false);
+    expect(document.body.querySelector('[data-testid="model-routing-section"]')?.textContent).toContain('modelSelector.routing.serviceNotReady');
+    expect(document.body.querySelector('[data-testid="model-routing-enable"]')).toBeNull();
+    await act(async () => setup.click());
+    expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('router.title');
+    expect(configManager.getConfig).toHaveBeenCalledWith('ai.model_routing');
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+    expect(configManager.updateConfig).not.toHaveBeenCalled();
+    expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
   });
 
   it('shows unready smart configuration without enabling routing or changing defaults', async () => {

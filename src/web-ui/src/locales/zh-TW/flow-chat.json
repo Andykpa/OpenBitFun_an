@@ -3454,6 +3454,10 @@
     },
     "economyModel": "經濟模型",
     "routing": {
+      "configure": "設定路由",
+      "serviceReady": "已就緒",
+      "serviceNotReady": "待設定",
+      "serviceUnsupported": "暫不支援",
       "settings": "路由服務",
       "enable": "啟用智慧模式",
       "active": "智慧路由已啟用，失敗時回退主力",
