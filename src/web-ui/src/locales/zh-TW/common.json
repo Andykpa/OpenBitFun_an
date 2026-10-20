@@ -1374,6 +1374,10 @@
       "name": "文字選擇菜單",
       "description": "提供文字選擇相關的操作"
     },
+    "textInputMenu": {
+      "name": "輸入框菜單",
+      "description": "為輸入框提供複製、粘貼、剪切和全選操作"
+    },
     "terminalMenu": {
       "name": "終端菜單",
       "description": "提供終端相關的操作",
