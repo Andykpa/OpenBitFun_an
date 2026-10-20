@@ -226,7 +226,7 @@ pub struct SessionConfig {
     /// Keep unknown values on disk so newer sessions remain readable by older hosts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_routing: Option<String>,
-    /// Inherited strategy for this subagent's descendants, without routing its own rounds.
+    /// Legacy delegation hint retained for session compatibility; ignored by subagent model selection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delegation_model_routing: Option<String>,
     /// Authoritative pool selection; model_id is not a pool identifier.

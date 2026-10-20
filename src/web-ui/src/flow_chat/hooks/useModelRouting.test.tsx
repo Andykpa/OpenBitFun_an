@@ -21,7 +21,7 @@ describe('host-owned model routing', () => {
   const render = async (sessionId: string | undefined = 'session-a', allowed = true) => {
     const surface = getActiveSurfaceScope();
     const scopeKey = surface.key('routing-test', sessionId);
-    await act(async () => root.render(<Harness identity={`${surface.epoch}:${scopeKey}`} epoch={surface.epoch} scopeKey={scopeKey}
+    await act(async () => root.render(<Harness identity={`${surface.epoch}:${scopeKey}`} epoch={surface.epoch}
       request={{ sessionId, workspacePath: '/remote/workspace' }} allowed={allowed} open modelName="custom-main"
       reasoningPreset="high" onModelChange={changed} />));
   };
@@ -41,47 +41,41 @@ describe('host-owned model routing', () => {
   });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
 
-  it('sends the session strategy to its host and remembers it for new conversations', async () => {
+  it('changes only the selected session strategy without remembering a new default', async () => {
     await render();
     await act(async () => { expect(await result!.select('smart')).toBe(true); });
     expect(agentAPI.updateSessionModel).toHaveBeenCalledWith({ sessionId: 'session-a', workspacePath: '/remote/workspace', modelName: 'primary', reasoningPreset: 'high', routingMode: 'smart' });
-    expect(configManager.setConfig).toHaveBeenCalledWith('ai.model_routing.default_mode', 'smart');
+    expect(configManager.setConfig).not.toHaveBeenCalled();
     expect(result!.mode).toBe('smart'); expect(changed).toHaveBeenCalledWith('primary');
   });
 
-  it('allows a temporary strategy without changing the host default', async () => {
-    await render(); await act(async () => result!.changeScope('session'));
-    await act(async () => { await result!.select('smart'); });
-    expect(agentAPI.updateSessionModel).toHaveBeenCalledOnce();
-    expect(configManager.setConfig).not.toHaveBeenCalled(); expect(host.defaultMode).toBe('manual');
+  it('uses the existing host configuration only when no session or draft owns the selection', async () => {
+    const surface = getActiveSurfaceScope();
+    await act(async () => root.render(<Harness identity="no-session" epoch={surface.epoch}
+      request={{}} allowed open modelName="primary" onModelChange={changed} />));
+    await act(async () => { expect(await result.select('smart')).toBe(true); });
+    expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
+    expect(configManager.setConfig).toHaveBeenCalledExactlyOnceWith('ai.model_routing.default_mode', 'smart');
+    expect(result.mode).toBe('smart');
   });
 
   it('keeps a draft-only strategy local and reads host readiness without a nonexistent session ID', async () => {
     const surface = getActiveSurfaceScope();
     const Draft = () => {
       const [mode, setMode] = useState<'manual' | 'smart'>();
-      result = useModelRouting({ identity: 'draft', epoch: surface.epoch, scopeKey: 'draft',
+      result = useModelRouting({ identity: 'draft', epoch: surface.epoch,
         request: { sessionId: 'reserved', workspacePath: '/remote/workspace' },
         draft: { mode, onChange: setMode }, allowed: true, open: true, modelName: 'primary',
         onModelChange: changed });
       return null;
     };
     await act(async () => root.render(<Draft />));
-    await act(async () => result.changeScope('session'));
     await act(async () => { expect(await result.select('smart')).toBe(true); });
     expect(result.mode).toBe('smart');
     expect(agentAPI.getModelRoutingStatus).toHaveBeenCalledWith({ workspacePath: '/remote/workspace' });
     expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
     expect(configManager.setConfig).not.toHaveBeenCalled();
     expect(host.defaultMode).toBe('manual');
-  });
-
-  it('restores the loaded default when changing a remembered edit to session-only', async () => {
-    host.defaultMode = 'smart'; host.mode = 'smart';
-    await render(); await act(async () => { await result!.select('manual'); });
-    expect(host.defaultMode).toBe('manual');
-    await act(async () => result!.changeScope('session'));
-    expect(host.defaultMode).toBe('smart'); expect(host.mode).toBe('manual');
   });
 
   it('does not enable an unconfigured router or an unsupported host', async () => {
@@ -100,48 +94,18 @@ describe('host-owned model routing', () => {
     expect(configManager.setConfig).not.toHaveBeenCalled(); expect(result!.mode).toBe('manual'); expect(result!.pending).toBe(false);
   });
 
-  it('saves the shared subagent role without enabling routing or modifying session and manual defaults', async () => {
-    host.ready = false;
-    await render(); await act(async () => result!.changeScope('session'));
-    expect(result.status?.subagentModel).toBe('primary');
-    await act(async () => { expect(await result.selectSubagentModel('economy')).toBe(true); });
-    expect(configManager.setConfig).toHaveBeenCalledExactlyOnceWith('ai.model_routing.subagent_model', 'economy');
-    expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
-    expect(host.defaultMode).toBe('manual'); expect(result.mode).toBe('manual');
-    expect(result.status?.subagentModel).toBe('economy');
-    await act(async () => { expect(await result.selectSubagentModel('primary')).toBe(true); });
-    expect(result.status?.subagentModel).toBe('primary');
-  });
-
-  it('does not write unsupported settings when a host omits the capability on recheck', async () => {
-    await render(); delete host.subagentModel;
-    await act(async () => { expect(await result.selectSubagentModel('economy')).toBe(false); });
+  it('ignores legacy subagent-role response fields when switching a main session', async () => {
+    host.subagentModel = 'economy';
+    await render(); await act(async () => { await result.select('smart'); });
     expect(configManager.setConfig).not.toHaveBeenCalled();
-    expect(result.status?.subagentModel).toBeUndefined();
+    expect(host.subagentModel).toBe('economy');
   });
 
-  it('preserves the confirmed subagent role when saving fails', async () => {
-    await render(); vi.mocked(configManager.setConfig).mockRejectedValueOnce(new Error('offline'));
-    await act(async () => { await expect(result.selectSubagentModel('economy')).rejects.toThrow('offline'); });
-    expect(result.status?.subagentModel).toBe('primary'); expect(result.pending).toBe(false);
-  });
-
-  it('discards a subagent setting write when the executing device changes during negotiation', async () => {
-    await render(); let finish!: (value: ModelRoutingStatus) => void;
-    vi.mocked(agentAPI.getModelRoutingStatus).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    let pending!: Promise<boolean>;
-    await act(async () => { pending = result.selectSubagentModel('economy'); });
-    activateSurface('peer'); await render();
-    await act(async () => { finish({ ...host }); expect(await pending).toBe(false); });
-    expect(configManager.setConfig).not.toHaveBeenCalled(); expect(result.pending).toBe(false);
-  });
-
-  it('rejects a stale subagent control before sending a request to another device', async () => {
-    await render(); const staleSelect = result.selectSubagentModel;
-    vi.mocked(agentAPI.getModelRoutingStatus).mockClear();
+  it('rejects an old callback before sending a mutation to another device', async () => {
+    await render(); const staleSelect = result.select;
     activateSurface('peer');
-    await act(async () => { expect(await staleSelect('economy')).toBe(false); });
-    expect(agentAPI.getModelRoutingStatus).not.toHaveBeenCalled();
+    await act(async () => { expect(await staleSelect('smart')).toBe(false); });
+    expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
     expect(configManager.setConfig).not.toHaveBeenCalled();
   });
 

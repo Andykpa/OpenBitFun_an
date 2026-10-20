@@ -194,8 +194,9 @@ pub struct ModelRoutingStatus {
     /// Only an explicit protocol probe establishes a connection, not a config read.
     pub connected: Option<bool>,
     pub summary_enabled: bool,
-    /// Presence advertises support for the smart-session subagent default setting.
-    pub subagent_model: String,
+    /// Older clients use presence as a feature gate; current hosts no longer expose this control.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subagent_model: Option<String>,
 }
 
 pub async fn session_status(
@@ -254,7 +255,7 @@ pub async fn status(
         issue: None,
         connected: None,
         summary_enabled: config.model_routing.summary_enabled,
-        subagent_model: config.model_routing.subagent_model.clone(),
+        subagent_model: None,
     };
     let check = async {
         if !eligible { return Err(OpenBitFunError::Configuration("Smart mode is unavailable for external agents, subagents and immutable dispatched sessions".into())); }

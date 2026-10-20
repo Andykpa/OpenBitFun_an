@@ -75,9 +75,8 @@ import {
 } from '../utils/modelResolution';
 import { getRecentManualModel, setRecentManualModel } from '../utils/manualModelSelection';
 import { useModelRouting } from '../hooks/useModelRouting';
-import { useModelSelectionScope } from '../hooks/useModelSelectionScope';
 import { ModelRouterSettings } from '@/infrastructure/config/components/ModelRouterSettings';
-import { NativeModelSelectionPanel, ModelSelectionScopeItem, type ModelRole } from './NativeModelSelectionPanel';
+import { NativeModelSelectionPanel, type ModelRole } from './NativeModelSelectionPanel';
 import './ModelSelector.scss';
 
 const log = createLogger('ModelSelector');
@@ -1182,6 +1181,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     setActiveProviderKey(null);
     setModelsFromSummary(false);
     setActivePanel(null);
+    setSmartPreviewScope(null);
     setModelSearchQuery('');
     setModelSearchExpanded(false);
     focusModelSearchRef.current = false;
@@ -1304,32 +1304,13 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   const modelInformationLoading = availability.status === 'loading'
     || (isNativeModelSelection && configLoadState === 'ready' && catalogLoadState === 'loading')
     || (isAcpSession && !externalSelection && acpOptionsLoadState === 'loading');
-  const canRememberSelection = isNativeModelSelection && persistSharedModeDefault && !targetIsSubagent;
-  const selectionPreference = useModelSelectionScope({
-    scopeKey: deviceSurfaceScope.key('model-selection-scope', sessionId),
-    epoch: deviceSurfaceScope.epoch,
-    sessionId,
-    allowed: canRememberSelection,
-    open: dropdownOpen,
-    defaultPath: `${modelSelectionsConfigPath()}.mode`,
-    encodeDefault: value => modelSelectionsConfigPath() === 'ai.agent_model_selections' ? JSON.parse(value) : JSON.parse(value).model_ref,
-    decodeDefault: value => JSON.stringify(typeof value === 'string' ? { kind: 'model', model_ref: value } : value),
-    defaultModel: JSON.stringify(defaultPoolId ? { kind: 'pool', pool_id: defaultPoolId } : { kind: 'model', model_ref: modeModel }),
-    selectedModel: JSON.stringify(poolId ? { kind: 'pool', pool_id: poolId } : { kind: 'model', model_ref: currentNativeModelId }),
-    onDefaultChange: value => {
-      const selection = JSON.parse(value) as import('@/infrastructure/config/types').ModelTargetSelection;
-      setDefaultPoolId(selection.kind === 'pool' ? selection.pool_id : undefined);
-      if (selection.kind === 'model') setModeModel(selection.model_ref);
-    },
-  });
+  const canConfigureNativeDefaults = isNativeModelSelection && persistSharedModeDefault && !targetIsSubagent;
   const routing = useModelRouting({
     identity: routingIdentity, epoch: deviceSurfaceScope.epoch,
-    scope: selectionPreference.scope,
-    scopeKey: deviceSurfaceScope.key('model-selection-scope', sessionId),
     request: { sessionId, workspaceId: activeSession?.workspaceId || activeSession?.config.workspaceId,
       workspacePath: activeSession ? sessionProjectWorkspacePath(activeSession) : undefined,
       remoteConnectionId: activeSession?.remoteConnectionId, remoteSshHost: activeSession?.remoteSshHost },
-    allowed: canRememberSelection, open: dropdownOpen,
+    allowed: canConfigureNativeDefaults, open: dropdownOpen,
     draft: sessionDraft ? { mode: sessionDraft.modelRouting, onChange: mode => {
       if (!sessionId) return;
       FlowChatStore.getInstance().setState(state => {
@@ -1348,7 +1329,9 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     },
   });
   const smartView = isNativeModelSelection && (smartPreviewScope === modelSelectionScopeKey || (!poolId && routing.mode === 'smart'));
-  const handleRoutingMode = async (mode: 'manual' | 'smart') => {
+  const smartModeDescription = routing.status?.issue
+    ? t('modelSelector.routing.configurationIssue') : t('modelSelector.modes.smartSummary');
+  const handleRoutingMode = async (mode: 'manual' | 'smart', keepSmartView = false) => {
     try {
       // Inspect unavailable smart mode without changing the host's active strategy.
       if (mode === 'smart' && (!routing.status || !routing.status.ready)) {
@@ -1363,7 +1346,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       }
       const selected = routing.status ? await routing.select(mode) : mode === 'manual';
       if (selected && deviceSurfaceScope.isCurrent() && modelSelectionScopeRef.current === modelSelectionScopeKey) {
-        setSmartPreviewScope(null);
+        setSmartPreviewScope(keepSmartView ? modelSelectionScopeKey : null);
         closePanel(true);
       }
       return selected;
@@ -1377,19 +1360,13 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       return false;
     }
   };
-  const handleSmartSubagentModel = async (model: 'primary' | 'economy') => {
-    try { return await routing.selectSubagentModel(model); }
-    catch (error) {
-      if (deviceSurfaceScope.isCurrent()) {
-        notificationService.error(t('modelSelector.routing.saveFailed'));
-        log.warn('Failed to update smart subagent model', { error });
-        void routing.refresh();
-      }
-      return false;
-    }
-  };
   const currentModelMode = isNativeModelSelection && poolId ? 'pool' : isNativeModelSelection && routing.mode === 'smart' ? 'smart' : null;
+  const settingsModelMode = smartView ? 'smart' : currentModelMode;
+  // Configuration previews do not change the host's active selection.
+  const selectedQuickAction = currentModelMode
+    ?? (isNativeModelSelection && isSpecialModel(currentModelId) ? currentModelId : null);
   const hasReasoningSettings = orderedReasoningPresets.length > 0 && !currentModelMode;
+  const showPanelReasoningSettings = hasReasoningSettings && !smartView;
   const hasSettingsPanel = hasReasoningSettings || isNativeModelSelection;
   useEffect(() => {
     if (!dropdownOpen) return;
@@ -1475,7 +1452,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   }, [allModels, defaultModels, modelCatalog]);
 
   const handleSelectModel = useCallback(async (modelId: string) => {
-    if (disabled || externalSelection?.disabled || loading || reasoningLoading || selectionPreference.pending || routing.pending) return false;
+    if (disabled || externalSelection?.disabled || loading || reasoningLoading || routing.pending) return false;
 
     setLoading(true);
     const selectionScope = getActiveSurfaceScope();
@@ -1575,8 +1552,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       }
 
       await updateTargetSessionModel();
-      if (selectionPreference.remember) {
-        selectionPreference.markDefaultWrite(JSON.stringify({ kind: 'model', model_ref: modelId }));
+      if (persistSharedModeDefault) {
         const saveDefault = rememberModeSelection({ kind: 'model', model_ref: modelId });
         if (!sessionId) {
           // A selector without a draft/session has no other owner for the next
@@ -1642,8 +1618,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     loading,
     modelSelectionScopeKey,
     persistSharedModeDefault,
-    selectionPreference,
     isNativeModelSelection,
+    routing.pending,
     reasoningLoading,
     recentPresetForModel,
     sessionId,
@@ -1662,7 +1638,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   };
 
   const handleConfigureRoleModel = useCallback(async (role: ModelRole, modelId: string) => {
-    if (!canRememberSelection || disabled || loading || reasoningLoading || selectionPreference.pending
+    if (!canConfigureNativeDefaults || disabled || loading || reasoningLoading
       || configLoadState !== 'ready' || roleSaveRef.current) return false;
     if (!allModels.some(model => model.id === modelId && isSelectableTextChatModel(model))) return false;
     const scope = getActiveSurfaceScope();
@@ -1696,7 +1672,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
         if (scope.isCurrent()) setLoading(false);
       }
     }
-  }, [allModels, canRememberSelection, configLoadState, disabled, loading, modelSelectionScopeKey, reasoningLoading, selectionPreference.pending, t]);
+  }, [allModels, canConfigureNativeDefaults, configLoadState, disabled, loading, modelSelectionScopeKey, reasoningLoading, t]);
 
   const handleSelectReasoningPreset = useCallback(async (presetId: string | null) => {
     if (
@@ -1931,8 +1907,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
           store.updateSessionModelPool(sessionId, pool.id, undefined, true);
         }
       }
-      if (selectionPreference.remember) {
-        selectionPreference.markDefaultWrite(JSON.stringify({ kind: 'pool', pool_id: pool.id }));
+      if (!targetIsSubagent && persistSharedModeDefault) {
         const saved = rememberModeSelection({ kind: 'pool', pool_id: pool.id });
         if (!sessionId) await saved;
         else void saved.catch(error => {
@@ -1969,7 +1944,13 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     if (mode !== 'manual' && mode !== 'smart' && mode !== 'pool') return;
     if (disabled || loading || reasoningLoading || modeSelectionPendingRef.current || !isNativeModelSelection) return;
     if (mode === 'pool' && !poolSupported) return;
+    if (mode === 'smart') {
+      setSmartPreviewScope(modelSelectionScopeKey);
+      closePanel(true);
+      return;
+    }
     if (mode === currentModelMode) {
+      setSmartPreviewScope(null);
       closePanel(true);
       return;
     }
@@ -1984,7 +1965,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
         if (!poolError && !poolsLoading && choice) {
           await selectPool(choice);
         } else openPanel('pools', true);
-      } else await handleRoutingMode('smart');
+      }
     } finally {
       modeSelectionPendingRef.current = false;
       setModeSelectionPending(false);
@@ -2263,7 +2244,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   // Keep internal IDs out of the visible label during loading and failure states.
   const poolLabel = selectedPool?.name || (!poolSupported ? t('modelSelector.pools.surfaceUnsupported')
     : poolError ? t('modelSelector.pools.loadError')
-      : poolsLoading ? t('modelSelector.status.loading') : t('modelSelector.pools.missing'));
+      : poolsLoading ? t('modelSelector.status.loading') : t('modelSelector.pools.pendingSelection'));
   const modelLabel = poolId ? poolLabel : isAcpSelection && !showModelChoices
     ? t('modelSelector.modelSettings')
     : currentModelMode === 'smart' ? t('modelSelector.modes.smart')
@@ -2283,26 +2264,19 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   ));
   const manualModelLabel = manualModelConfig?.model_name
     || getAvailabilityLabel(rememberedManualModelId ? 'target-model-unavailable' : nativeAvailability.status, t);
-  const changeSelectionScope = (scope: 'remember' | 'session') => {
-    void (async () => {
-      if (routing.status) await routing.changeScope(scope);
-      if (!deviceSurfaceScope.isCurrent() || modelSelectionScopeRef.current !== modelSelectionScopeKey) return;
-      await selectionPreference.changeScope(scope);
-    })().catch(error => {
-      if (!deviceSurfaceScope.isCurrent()) return;
-      log.warn('Failed to update model selection scope', { error });
-      notificationService.error(t('modelSelector.scope.saveFailed'));
-      void loadConfigData();
-    });
-  };
   const openModelChoices = () => {
     if (disabled || loading || externalSelection?.disabled) return;
     openPanel('models', true);
   };
   const isSelectionPanel = activePanel === 'models' || activePanel === 'providers' || activePanel === 'pool' || activePanel === 'pools';
   const isModelPicker = activePanel === 'models' && !activeProviderGroup;
+  const showEmptyModeCard = !showModelLoadingState && !activeProviderGroup && (
+    (activePanel === 'pools' && poolsEmpty)
+    || (!isSelectionPanel && activePanel !== 'modes' && smartView
+      && (!routing.status?.ready || currentModelMode !== 'smart'))
+  );
   const selectedProviderFilter = providerGroups.find(group => group.key === modelProviderFilter);
-  const pickerDisabled = disabled || loading || reasoningLoading || modeSelectionPending || selectionPreference.pending || routing.pending || Boolean(externalSelection?.disabled);
+  const pickerDisabled = disabled || loading || reasoningLoading || modeSelectionPending || routing.pending || Boolean(externalSelection?.disabled);
   const contextCapacity = displayedModel?.contextWindow || (isAcpSelection ? acpOptions?.contextUsage?.size : undefined) || maxTokens;
   const contextCapacityLabel = contextCapacity > 0
     ? formatCompactTokenCount(contextCapacity) : t('modelSelector.home.unknownContext');
@@ -2391,7 +2365,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     ? allModels.find(model => model.id === poolBinding?.modelId) : undefined;
   const poolProblem = !poolSupported ? t('modelSelector.pools.surfaceUnsupported')
     : poolError ? t('modelSelector.pools.loadError')
-      : !poolsLoading && !selectedPool ? t('modelSelector.pools.missing')
+      : !poolsLoading && !selectedPool ? t('modelSelector.pools.pendingSelection')
         : selectedPool && (!canSelectPool(selectedPool) || poolUnavailable) ? t('modelSelector.pools.unavailable') : undefined;
   const boundModelLabel = boundModel
     ? allModels.filter(model => model.model_name === boundModel.model_name).length > 1
@@ -2578,8 +2552,9 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
             data-placement={resolvedDropdownPlacement}
             data-open={dropdownOpen ? 'true' : 'false'}
             data-menu-level={activeProviderGroup ? 'provider' : isSelectionPanel ? activePanel : 'settings'}
-            data-model-mode={currentModelMode ?? 'manual'}
+            data-model-mode={settingsModelMode ?? 'manual'}
             data-model-picker={isModelPicker || undefined}
+            data-mode-empty={showEmptyModeCard || undefined}
             aria-busy={modelInformationLoading || undefined}
             aria-hidden={!dropdownOpen}
             {...(!dropdownOpen ? { inert: '' } : {})}
@@ -2682,10 +2657,6 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                   </ModelSelectorMenuLevel>
                 </ScrollArea>
                 <div className="openbitfun-model-selector__picker-footer" data-testid="chat-model-selector-actions">
-                  {isNativeModelSelection && canRememberSelection && <ModelSelectionScopeItem
-                    scope={selectionPreference.scope} hasSession={Boolean(sessionId)} disabled={pickerDisabled}
-                    onScopeChange={changeSelectionScope} />}
-
                   <div className="openbitfun-model-selector__picker-actions" data-search-expanded={modelSearchExpanded}>
                     {(modelSearchExpanded || isNativeModelSelection) && (
                       <div className="openbitfun-model-selector__quick-actions-slot">
@@ -2706,7 +2677,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                             {(['primary', 'fast'] as const).map(modelId => {
                               const model = resolveModelReference(allModels, modelId, defaultModels);
                               const label = t(modelId === 'primary' ? 'modelSelector.primaryModel' : 'modelSelector.fastModel');
-                              const isSelected = currentModelId === modelId && !currentModelMode;
+                              const isSelected = selectedQuickAction === modelId;
                               const tooltip = model
                                 ? [label, model.model_name, formatContextWindow(model.context_window)].filter(Boolean).join(' · ')
                                 : `${label} · ${t('modelSelector.modelNotConfigured')}`;
@@ -2730,14 +2701,14 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                               const label = t(mode === 'smart' ? 'modelSelector.modes.smart' : 'modelSelector.modes.pool');
                               const tooltip = `${label} · ${mode === 'pool'
                                 ? poolModeDescription
-                                : routing.status?.issue || t('modelSelector.modes.smartSummary')}`;
+                                : smartModeDescription}`;
                               return (
                                 <Tooltip key={mode} content={tooltip}>
                                   <ModelSelectorQuickAction
                                     data-testid={`chat-model-selector-${mode}-action`}
                                     data-model-mode={mode}
                                     label={label}
-                                    selected={mode === 'smart' ? smartView : currentModelMode === mode}
+                                    selected={selectedQuickAction === mode}
                                     icon={<Icon name={mode === 'smart' ? 'galaxy' : 'battery-full'} size="sm" aria-hidden />}
                                     disabled={(mode === 'pool' && !poolSupported) || pickerDisabled}
                                     onClick={() => { void handleSelectMode(mode); }}
@@ -2863,7 +2834,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
               </div>
             ) : activePanel === 'pools' && poolsEmpty ? (
               <MenuList
-                className="openbitfun-model-selector__pool-empty"
+                className="openbitfun-model-selector__mode-empty"
                 data-testid="chat-model-selector-options"
                 data-panel-kind="pools"
               >
@@ -3013,9 +2984,9 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
               >
                 <MenuList
                   className="openbitfun-model-selector__settings-card"
-                  data-model-mode={smartView ? 'smart' : currentModelMode ?? undefined}
+                  data-model-mode={settingsModelMode ?? undefined}
                   data-has-model={showModelChoices}
-                  data-has-reasoning={hasReasoningSettings}
+                  data-has-reasoning={showPanelReasoningSettings}
                   data-selecting-mode={activePanel === 'modes' ? 'true' : undefined}
                 >
                   {activePanel === 'modes' && (
@@ -3047,7 +3018,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                           label: (
                             <Tooltip content={mode.value === 'manual' ? manualModelLabel
                               : mode.value === 'pool' ? poolModeDescription
-                              : routing.status?.issue || t('modelSelector.modes.smartSummary')}>
+                              : smartModeDescription}>
                               <OverflowText>{mode.label}</OverflowText>
                             </Tooltip>
                           ),
@@ -3065,14 +3036,13 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                       key={routingIdentity} models={allModels}
                       primary={resolveModelReference(allModels, 'primary', defaultModels) ?? undefined}
                       economy={allModels.find(model => model.id === defaultModels.economy && isSelectableTextChatModel(model))}
-                      routing={{ mode: routing.mode, supported: Boolean(routing.status), ready: routing.status?.ready ?? false,
-                        issue: routing.status?.issue, subagentModel: routing.status?.subagentModel }}
-                      scope={selectionPreference.scope} hasSession={Boolean(sessionId)}
+                      routing={{ mode: currentModelMode === 'smart' ? 'smart' : 'manual', supported: Boolean(routing.status), ready: routing.status?.ready ?? false,
+                        issue: routing.status?.issue }}
                       disabled={pickerDisabled || configLoadState !== 'ready'}
-                      onModeChange={handleRoutingMode} onSubagentModelChange={handleSmartSubagentModel}
+                      onModeChange={mode => handleRoutingMode(mode, true)}
                       onRoutingSettings={() => setRouterSettingsScope(routingIdentity)}
-                      onScopeChange={changeSelectionScope} onConfigureModel={handleConfigureRoleModel}
-                      onSettings={handleOpenModelSettings} onSaved={() => { void loadConfigData(); }}
+                      onConfigureModel={handleConfigureRoleModel}
+                      onSettings={handleOpenModelSettings}
                     /> : currentModelMode ? (
                       <>
                         {currentModelMode === 'pool' && (
@@ -3160,7 +3130,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                         </MenuItem>
                       </Tooltip>
                     )}
-                    {hasReasoningSettings && (
+                    {showPanelReasoningSettings && (
                       <ReasoningIntensityControl
                         key={`${sessionId ?? ''}:${currentModelId}`}
                         presets={catalogReasoningPresets}
@@ -3175,7 +3145,6 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                   </MenuList>
                   {showModelChoices && (
                     <>
-                      <MenuSeparator />
                       <MenuList
                         className="openbitfun-model-selector__settings-model-section"
                         data-openbitfun-component="model-selector"

@@ -4,7 +4,7 @@
   "title": "OpenBitFun Playbook",
   "origin": "https://playbook.openbitfun.com",
   "source": "src/shared/interactive-capabilities/catalog.json",
-  "digest": "9f9e5005574074669afdfb2a2a880ccb15f51108083472178a97ce56a20ace0a",
+  "digest": "df8dc4bbb51a54b1d2a2ede3c9300a4b5d6c8c41cb7128128d4ec6b172f1ed54",
   "ownerDigest": "6faa00479189d7f7bc6df3de0898732bec1ef8ec4333ebd8b8e33e8c42a0a9f3",
   "searchAcceptance": [
     {
@@ -27556,13 +27556,13 @@
         },
         {
           "id": "smart-routing",
-          "titleZh": "配置智能模式的 Router 服务、主力与经济模型及子代理默认模型",
-          "titleEn": "Configure smart routing, primary and economy models, and subagent defaults",
+          "titleZh": "配置智能模式的 Router 服务、主力与经济模型",
+          "titleEn": "Configure smart routing with primary and economy models",
           "control": {
             "kind": "open",
             "reasonCode": "unstructuredInteraction",
-            "reasonZh": "“配置智能模式的 Router 服务、主力与经济模型及子代理默认模型”需要在智能模式内部选择配置项并核对执行宿主的模型、Router 服务及能力状态，当前没有覆盖这些配置的独立结构化控制命令。",
-            "reasonEn": "“Configure smart routing, primary and economy models, and subagent defaults” requires reviewing the execution host’s models, Router service and capability status through the smart-mode menu items; no dedicated structured control command covers this configuration."
+            "reasonZh": "“配置智能模式的 Router 服务、主力与经济模型”需要在智能模式内部选择配置项并核对执行宿主的模型、Router 服务及能力状态，当前没有覆盖这些配置的独立结构化控制命令。",
+            "reasonEn": "“Configure smart routing with primary and economy models” requires reviewing the execution host’s models, Router service and capability status through the smart-mode menu items; no dedicated structured control command covers this configuration."
           }
         },
         {
@@ -27687,8 +27687,8 @@
         "Inspect models.dev catalog status, refresh it manually, and reveal its local cache",
         "为供应商添加自定义 Header、请求体字段与 SSL 行为",
         "Add custom headers, request-body fields, and SSL behavior per provider",
-        "配置智能模式的 Router 服务、主力与经济模型及子代理默认模型",
-        "Configure smart routing, primary and economy models, and subagent defaults",
+        "配置智能模式的 Router 服务、主力与经济模型",
+        "Configure smart routing with primary and economy models",
         "保存前测试供应商或模型连接并刷新运行时客户端",
         "Test provider or model connectivity before saving and refresh the runtime client",
         "管理模型池、路由策略与会话模型选择",

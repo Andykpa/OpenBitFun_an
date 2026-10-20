@@ -80,4 +80,10 @@ describe('activateInteractiveCapability', () => {
     })).rejects.toThrow('Unknown documented item');
     expect(mocks.openDestination).not.toHaveBeenCalled();
   });
+
+  it('opens the models settings entry for the stable smart-routing item', async () => {
+    await activateInteractiveCapability('setting.ai.models', { itemId: 'smart-routing' });
+    expect(mocks.openScene).toHaveBeenCalledWith('settings');
+    expect(mocks.openDestination).toHaveBeenCalledWith({ kind: 'settings', pageId: 'ai.models' });
+  });
 });

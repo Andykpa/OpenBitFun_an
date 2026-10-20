@@ -663,7 +663,7 @@
   "editProviderSettingsTitle": "Service connection",
   "sections": {
     "acquisition": "Add or import models",
-    "selectionModes": "Model selection modes",
+    "selectionModes": "Smart mode",
     "pool": "All models",
     "more": "More settings"
   },
@@ -686,7 +686,7 @@
     "smartHint": "Powered by OpenBitFun adaptive routing and collaborative multi-model reasoning to improve cost efficiency and task performance.",
     "battery": "Battery mode",
     "batteryHint": "Multi-source model pooling and failover automatically hand off when quota is exhausted or a connection fails.",
-    "unavailable": "Not available yet"
+    "configure": "Configure smart mode"
   },
   "pool": {
     "manageConnections": "Manage connections",
@@ -762,14 +762,11 @@
     "compactEconomyHigher": "Economy costs more · Estimate"
   },
   "router": {
-    "title": "Smart routing settings",
+    "title": "Smart mode settings",
     "service": "Router service model",
     "serviceHint": "Add an API service supporting the classifier protocol in model settings, then select it here; ordinary chat models and Coding Plans may not support it",
     "tokenizer": "Tokenizer file",
     "tokenizerHint": "Path to tokenizer.json on the OpenBitFun execution host, matching the Router service tokenizer",
-    "threshold": "Economy threshold",
-    "thresholdHint": "Use the economy model when the simple-task probability exceeds this value",
-    "timeout": "Request timeout (ms)",
     "summary": "Auxiliary summaries",
     "summaryHint": "Uses the economy model to summarize routing history and incurs additional model calls",
     "on": "On",
@@ -779,8 +776,9 @@
     "connected": "Classifier protocol check passed",
     "notReady": "Router not ready",
     "unsupported": "This execution host does not support smart routing",
-    "loadFailed": "Could not load routing settings; close and retry",
-    "saveFailed": "Could not save routing settings",
+    "checkFailed": "Smart mode could not be checked. Check the Router service and tokenizer file, then try again.",
+    "loadFailed": "Could not load smart-mode settings; close and retry",
+    "saveFailed": "Could not save smart-mode settings; please retry",
     "manageModels": "Manage services and models",
     "test": "Save and test connection",
     "save": "Save"

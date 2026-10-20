@@ -3455,14 +3455,6 @@
       "acpContext": "ACP 上报上下文: {{usage}}",
       "acpContextLabel": "ACP 上报上下文"
     },
-    "scope": {
-      "remember": "记住选择",
-      "session": "仅用于当前会话",
-      "title": "选择适用范围",
-      "rememberHint": "用于当前会话和之后的新会话",
-      "sessionHint": "临时切换，不改变新会话的默认选择",
-      "saveFailed": "适用范围保存失败，当前会话的模型保持不变"
-    },
     "close": "关闭模型选择",
     "manageModels": "管理模型",
     "picker": {
@@ -3497,7 +3489,7 @@
     },
     "economyModel": "经济模型",
     "routing": {
-      "configure": "配置路由",
+      "configure": "配置智能模式",
       "serviceReady": "已就绪",
       "serviceNotReady": "待配置",
       "serviceUnsupported": "暂不支持",
@@ -3506,21 +3498,12 @@
       "active": "智能路由已启用，失败时回退主力",
       "ready": "配置已就绪，尚未启用",
       "notReady": "路由未就绪，当前仍按原策略执行",
+      "configurationIssue": "智能模式配置不可用，请检查路由服务和分词器文件",
       "unsupported": "当前执行端暂不支持智能路由",
-      "scopeHint": "策略默认记住，也可仅用于当前会话；模型角色配置全局共享",
       "costHint": "路由和辅助摘要可能产生额外费用，计费提示不包含这部分开销",
       "saveFailed": "保存模型策略失败，请重试",
       "latency": "路由耗时 {{ms}} 毫秒",
-      "fallback": "路由失败，已回退主力",
-      "subagents": {
-        "title": "子代理默认模型",
-        "primary": "跟随主力模型",
-        "economy": "跟随经济模型",
-        "primarySummary": "子代理 · 跟随主力模型",
-        "economySummary": "子代理 · 跟随经济模型",
-        "hint": "应用于新启动的子代理，单独配置保持不变",
-        "unsupported": "当前执行端暂不支持此设置，请升级后重试"
-      }
+      "fallback": "路由失败，已回退主力"
     },
     "pools": {
       "title": "模型池",
@@ -3531,7 +3514,7 @@
       "choose": "选择模型池",
       "configure": "配置模型池",
       "empty": "尚未配置模型池",
-      "missing": "此模型池已不存在",
+      "pendingSelection": "待选择",
       "unavailable": "暂无可用模型",
       "ordered": "按顺序",
       "balanced": "负载均衡",

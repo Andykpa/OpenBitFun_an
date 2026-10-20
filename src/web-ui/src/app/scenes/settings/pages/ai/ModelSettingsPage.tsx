@@ -21,6 +21,7 @@ import {
   ConfigRetryState,
 } from '@/infrastructure/config/components/common';
 import DefaultModelConfig from '@/infrastructure/config/components/DefaultModelConfig';
+import { ModelRouterSettings } from '@/infrastructure/config/components/ModelRouterSettings';
 import ModelTagsField from '@/infrastructure/config/components/ModelTagsField';
 import {
   configsNeedingAutoTest,
@@ -425,6 +426,7 @@ const ModelSettingsPage: React.FC = () => {
   const [showTagSyncNotice, setShowTagSyncNotice] = useState(false);
   const [showSubscriptionManager, setShowSubscriptionManager] = useState(false);
   const [showProviderManager, setShowProviderManager] = useState(false);
+  const [routerSettingsScope, setRouterSettingsScope] = useState<ReturnType<typeof getActiveSurfaceScope> | null>(null);
   const [subscriptionLoadError, setSubscriptionLoadError] = useState(false);
   const [isConfigLoading, setIsConfigLoading] = useState(!modelSeed.loaded);
   const [configLoadError, setConfigLoadError] = useState(false);
@@ -448,6 +450,14 @@ const ModelSettingsPage: React.FC = () => {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [expandedProviderGroupKeys, setExpandedProviderGroupKeys] = useState<Set<string>>(new Set());
   const notification = useNotification();
+
+  useEffect(() => {
+    if (!routerSettingsScope) return;
+    const close = () => setRouterSettingsScope(null);
+    if (!routerSettingsScope.isCurrent()) { close(); return; }
+    routerSettingsScope.signal.addEventListener('abort', close, { once: true });
+    return () => routerSettingsScope.signal.removeEventListener('abort', close);
+  }, [routerSettingsScope]);
 
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
 
@@ -4153,7 +4163,10 @@ const ModelSettingsPage: React.FC = () => {
 
         <ConfigPageSection title={t('sections.selectionModes')}>
           <ConfigPageRow className="openbitfun-model-settings__mode-row" label={t('selectionModes.smart')} description={t('selectionModes.smartHint')} align="center">
-            <StatusPill tone="neutral">{t('selectionModes.unavailable')}</StatusPill>
+            <Button size="sm" data-testid="settings-smart-mode-configure" disabled={!modelConfigReady}
+              onClick={() => setRouterSettingsScope(getActiveSurfaceScope())}>
+              {t('selectionModes.configure')}
+            </Button>
           </ConfigPageRow>
 
         </ConfigPageSection>
@@ -4363,6 +4376,9 @@ const ModelSettingsPage: React.FC = () => {
           {renderSubscriptionManagerContent()}
         </DialogBody>
       </Dialog>
+
+      {routerSettingsScope?.isCurrent() && <ModelRouterSettings models={aiModels}
+        onClose={() => setRouterSettingsScope(null)} onSaved={() => { void loadConfig(); }} />}
 
       <Dialog open={showProviderManager} onOpenChange={setShowProviderManager} size="xl">
         <DialogHeader>

@@ -663,7 +663,7 @@
   "editProviderSettingsTitle": "服务连接",
   "sections": {
     "acquisition": "添加或导入模型",
-    "selectionModes": "模型选用模式",
+    "selectionModes": "智能模式",
     "pool": "全部模型",
     "more": "更多设置"
   },
@@ -686,7 +686,7 @@
     "smartHint": "基于 OpenBitFun 自适应路由与多模型协同推理技术，提升经济效益和任务表现",
     "battery": "电池模式",
     "batteryHint": "基于多源模型池化与故障转移技术，额度耗尽或连接失效时自动接力",
-    "unavailable": "尚未开放"
+    "configure": "配置智能模式"
   },
   "pool": {
     "manageConnections": "管理连接",
@@ -762,14 +762,11 @@
     "compactEconomyHigher": "经济模型更贵 · 估算"
   },
   "router": {
-    "title": "智能路由设置",
+    "title": "智能模式配置",
     "service": "Router 服务模型",
     "serviceHint": "先在模型设置中添加支持分类协议的 API 服务，再在这里选择；普通聊天模型和 Coding Plan 不一定支持",
     "tokenizer": "Tokenizer 文件",
     "tokenizerHint": "填写执行 OpenBitFun 的主机上的 tokenizer.json 路径，必须与 Router 服务使用的 tokenizer 一致",
-    "threshold": "经济模型阈值",
-    "thresholdHint": "简单任务概率高于此值时使用经济模型",
-    "timeout": "请求超时（毫秒）",
     "summary": "辅助摘要",
     "summaryHint": "开启后使用经济模型整理路由历史，会产生额外模型调用",
     "on": "开启",
@@ -779,8 +776,9 @@
     "connected": "分类协议检查通过",
     "notReady": "路由未就绪",
     "unsupported": "当前执行端不支持智能路由",
-    "loadFailed": "读取路由配置失败，请关闭后重试",
-    "saveFailed": "保存路由配置失败",
+    "checkFailed": "智能模式配置检查失败，请检查路由服务和分词器文件后重试",
+    "loadFailed": "读取智能模式配置失败，请关闭后重试",
+    "saveFailed": "保存智能模式配置失败，请重试",
     "manageModels": "管理服务与模型",
     "test": "保存并检查连接",
     "save": "保存"

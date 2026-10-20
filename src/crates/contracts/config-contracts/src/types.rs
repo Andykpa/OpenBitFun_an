@@ -1105,8 +1105,8 @@ pub struct ModelRoutingConfig {
     pub tokenizer_path: String,
     pub simple_threshold: f64,
     pub timeout_ms: u64,
-    /// Default role for unconfigured subagents of smart sessions: primary or economy.
-    /// Retain unknown future values on disk; the runtime rejects unsupported choices.
+    /// Legacy smart-subagent setting retained for persisted-data compatibility only.
+    /// Subagent selection follows agent_model_selections; this field has no runtime effect.
     pub subagent_model: String,
     /// Optional auxiliary summaries use the economy model, with separate usage.
     pub summary_enabled: bool,

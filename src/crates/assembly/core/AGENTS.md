@@ -190,10 +190,10 @@ Narrower local guides already exist for some subtrees:
 
 ## Verification
 
-For smart routing, subagent defaults and resumed subagent model choices:
+For smart routing, unchanged subagent model policy and resumed subagent choices:
 
 ```bash
-cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib smart_subagent
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib subagent_model
 cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib round_model_routing
 cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib coordinator::tests::reused_subagent
 ```

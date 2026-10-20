@@ -427,43 +427,6 @@ fn resolve_subagent_model_target(
     }
 }
 
-/// A subagent keeps a fixed execution model while passing the conversation's
-/// delegation policy to its descendants. Immutable/external jobs own their binding.
-fn delegation_model_routing(session: &Session) -> Option<&str> {
-    if session.config.model_binding_policy == SessionModelBindingPolicy::ApprovedImmutable
-        || session.config.agent_route_owner != SessionAgentRouteOwner::Local
-    {
-        return None;
-    }
-    if session.kind == SessionKind::Subagent {
-        session.config.delegation_model_routing.as_deref()
-    } else {
-        session.config.model_routing.as_deref()
-    }
-}
-
-fn configured_subagent_selection(
-    defaults: &AgentModelSelections,
-    agent_type: &str,
-    explicit: Option<AgentModelSelection>,
-) -> Option<AgentModelSelection> {
-    explicit.or_else(|| defaults.subagents.builtin.get(agent_type).cloned())
-}
-
-fn smart_subagent_model(config: &AIConfig) -> OpenBitFunResult<String> {
-    match config.model_routing.subagent_model.as_str() {
-        "primary" => Ok("primary".into()),
-        "economy" => {
-            crate::agentic::execution::round_model_routing::configuration::economy_model_id(
-                config, false,
-            )
-        }
-        _ => Err(OpenBitFunError::Configuration(
-            "Unsupported smart subagent model role".into(),
-        )),
-    }
-}
-
 /// Whether a turn belongs to the review phase of a review child session.
 ///
 /// Only `CodeReview`/`DeepReview` receive the `deep_review_run_manifest`
@@ -12164,27 +12127,13 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
                 .ok_or_else(|| {
                     OpenBitFunError::NotFound(format!("Session not found: {parent_session_id}"))
                 })?;
-            let explicit = configured_subagent_selection(
-                &defaults,
-                agent_type,
-                get_agent_registry()
-                    .get_explicit_subagent_model_selection(
-                        agent_type,
-                        parent_session.config.workspace_id.as_deref(),
-                    )
-                    .map(AgentModelSelection::from),
-            );
-            match explicit {
-                Some(selection) => selection,
-                None if explicit_model_id.is_none()
-                    && delegation_model_routing(&parent_session) == Some("smart") =>
-                {
-                    AgentModelSelection::Model {
-                        model_ref: Self::smart_subagent_model_id().await?,
-                    }
-                }
-                None => defaults.subagents.default.clone(),
-            }
+            get_agent_registry()
+                .get_explicit_subagent_model_selection(
+                    agent_type,
+                    parent_session.config.workspace_id.as_deref(),
+                )
+                .map(AgentModelSelection::from)
+                .unwrap_or(defaults.builtin(agent_type))
         };
         let target = resolve_subagent_model_target(
             if inherit_parent_model {
@@ -12196,17 +12145,6 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
             Some(parent),
         )?;
         Self::normalize_model_target(target).await
-    }
-
-    async fn smart_subagent_model_id() -> OpenBitFunResult<String> {
-        let config = SessionManager::load_ai_config_for_model_resolution()
-            .await
-            .ok_or_else(|| {
-                OpenBitFunError::Configuration(
-                    "AI configuration is unavailable for smart subagent model selection".into(),
-                )
-            })?;
-        smart_subagent_model(&config)
     }
 
     async fn resolve_approved_external_model_binding(
@@ -12553,10 +12491,6 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
                 session_config.continuation_policy = request.continuation_policy;
                 session_config.model_binding_policy = request.model_binding_policy;
                 session_config.model_binding_fingerprint = immutable_model_fingerprint;
-                if request.model_binding_policy != SessionModelBindingPolicy::ApprovedImmutable {
-                    session_config.delegation_model_routing =
-                        delegation_model_routing(&parent_session).map(str::to_owned);
-                }
                 apply_session_model_target(&mut session_config, resolved_target);
 
                 Ok(HiddenSubagentExecutionRequest {
@@ -12612,17 +12546,6 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
                 } else {
                     defaults.subagents.fork.clone()
                 };
-                let configured = if !inherit_parent_model
-                    && model_id.is_none()
-                    && matches!(&configured, AgentModelSelection::Inherit)
-                    && delegation_model_routing(&parent_session) == Some("smart")
-                {
-                    AgentModelSelection::Model {
-                        model_ref: Self::smart_subagent_model_id().await?,
-                    }
-                } else {
-                    configured
-                };
                 let target = resolve_subagent_model_target(
                     if inherit_parent_model {
                         None
@@ -12638,8 +12561,6 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
                 let target = Self::normalize_model_target(target).await?;
                 let mut session_config = snapshot.build_child_session_config(None);
                 apply_session_model_target(&mut session_config, target);
-                session_config.delegation_model_routing =
-                    delegation_model_routing(&parent_session).map(str::to_owned);
                 session_config.model_routing = None;
                 let mut initial_messages = snapshot.messages.clone();
                 initial_messages.push(Message::internal_reminder(
@@ -21936,64 +21857,8 @@ mod tests {
         assert_eq!(config.model_id.as_deref(), Some("model-fast"));
     }
 
-    #[test]
-    fn smart_subagent_roles_reject_unavailable_economy_and_preserve_individual_choices() {
-        let mut config = AIConfig::default();
-        assert_eq!(super::smart_subagent_model(&config).unwrap(), "primary");
-        config.model_routing.subagent_model = "economy".into();
-        config.default_models.fast = Some("worker".into());
-        assert!(super::smart_subagent_model(&config).is_err());
-        config.models.push(AIModelConfig {
-            id: "budget".into(),
-            enabled: true,
-            ..Default::default()
-        });
-        config.default_models.economy = Some("budget".into());
-        assert_eq!(super::smart_subagent_model(&config).unwrap(), "budget");
-        config.models[0].enabled = false;
-        assert!(super::smart_subagent_model(&config).is_err());
-        config.model_routing.subagent_model = "future-role".into();
-        assert!(super::smart_subagent_model(&config).is_err());
-
-        let mut defaults = AgentModelSelections::default();
-        assert!(super::configured_subagent_selection(&defaults, "Explore", None).is_none());
-        defaults.subagents.builtin.insert(
-            "Explore".into(),
-            AgentModelSelection::Model {
-                model_ref: "fast".into(),
-            },
-        );
-        assert_eq!(
-            super::configured_subagent_selection(&defaults, "Explore", None),
-            Some(AgentModelSelection::Model {
-                model_ref: "fast".into()
-            })
-        );
-        assert_eq!(
-            super::configured_subagent_selection(
-                &defaults,
-                "Explore",
-                Some(AgentModelSelection::Inherit)
-            ),
-            Some(AgentModelSelection::Inherit)
-        );
-        assert_eq!(
-            super::configured_subagent_selection(
-                &defaults,
-                "Custom",
-                Some(AgentModelSelection::Model {
-                    model_ref: "custom-id".into()
-                })
-            ),
-            Some(AgentModelSelection::Model {
-                model_ref: "custom-id".into()
-            })
-        );
-    }
-
     #[tokio::test]
-    async fn smart_subagent_defaults_apply_to_fresh_fork_and_nested_work_without_routing_child_rounds(
-    ) {
+    async fn subagent_model_policy_is_unchanged_by_smart_routing_or_legacy_role_settings() {
         let (coordinator, manager) = test_coordinator();
         let workspace = tempfile::tempdir().unwrap();
         let record = crate::service::workspace::legacy_compat::register_local_fixture(
@@ -22047,76 +21912,136 @@ mod tests {
             delegation_policy: DelegationPolicy::top_level().spawn_child(),
             external_generation_lease: None,
         };
-        for (role, expected) in [("primary", "primary"), ("economy", "budget")] {
-            let mut config = AIConfig::default();
-            config.model_routing.subagent_model = role.into();
-            config.models.push(AIModelConfig {
-                id: "budget".into(),
-                enabled: true,
-                ..Default::default()
-            });
-            config.default_models.economy = Some("budget".into());
-            TEST_AGENT_MODEL_DEFAULTS.scope(AgentModelSelections::default(), TEST_MODEL_RESOLUTION_AI_CONFIG.scope(config, async {
-                for fork in [false, true] {
-                    let prepared = coordinator.resolve_hidden_subagent_execution_request(request(&parent.session_id, fork)).await.unwrap();
-                    assert_eq!(prepared.session_config.model_id.as_deref(), Some(expected));
-                    assert!(prepared.session_config.model_routing.is_none());
-                    assert_eq!(prepared.session_config.delegation_model_routing.as_deref(), Some("smart"));
-                    let mut child_config = prepared.session_config;
-                    child_config.model_id = Some("fast".into());
-                    let child = manager.create_transient_session_with_id_and_details(None, "Child".into(), "Explore".into(), child_config,
-                        Some(format!("session-{}", parent.session_id)), SessionKind::Subagent).await.unwrap();
-                    assert!(!crate::agentic::execution::round_model_routing::configuration::session_eligible(&child));
-                    let nested = coordinator.resolve_hidden_subagent_execution_request(request(&child.session_id, false)).await.unwrap();
-                    assert_eq!(nested.session_config.model_id.as_deref(), Some(expected));
-                    assert_eq!(nested.session_config.delegation_model_routing.as_deref(), Some("smart"));
-
-                    // Reuse keeps the existing child choice even if a different default is now configured.
-                    let mut reuse = request(&parent.session_id, false);
-                    reuse.target_session_id = Some(child.session_id.clone()); reuse.subagent_type = None;
-                    let reused = coordinator.resolve_hidden_subagent_execution_request(reuse).await.unwrap();
-                    assert_eq!(reused.session_config.model_id.as_deref(), Some("fast"));
-                }
-                let explicit = coordinator.resolve_fresh_subagent_model_target(Some("fast"), false, "Explore", &parent.session_id).await.unwrap();
-                assert_eq!(explicit, ModelSelection::Model { model_ref: "fast".into() });
-                let inherited = coordinator.resolve_fresh_subagent_model_target(None, true, "Explore", &parent.session_id).await.unwrap();
-                assert_eq!(inherited, ModelSelection::Model { model_ref: "primary".into() });
-                let mut defaults = AgentModelSelections::default();
-                defaults.subagents.builtin.insert("Explore".into(), AgentModelSelection::Model { model_ref: "fast".into() });
-                let configured = TEST_AGENT_MODEL_DEFAULTS.scope(defaults, coordinator.resolve_fresh_subagent_model_target(None, false, "Explore", &parent.session_id)).await.unwrap();
-                assert_eq!(configured, ModelSelection::Model { model_ref: "fast".into() });
-            })).await;
-        }
-        let mut manual = parent.config.clone();
-        manual.model_routing = Some("manual".into());
+        let mut manual_config = parent.config.clone();
+        manual_config.model_routing = Some("manual".into());
         let manual = manager
-            .create_session("Manual".into(), "Standard".into(), manual)
+            .create_session("Manual".into(), "Standard".into(), manual_config)
             .await
             .unwrap();
-        let selected = TEST_AGENT_MODEL_DEFAULTS
-            .scope(
-                AgentModelSelections::default(),
-                coordinator.resolve_fresh_subagent_model_target(
-                    None,
-                    false,
-                    "Explore",
-                    &manual.session_id,
-                ),
+        manager
+            .replace_context_messages(
+                &manual.session_id,
+                vec![Message::user("Inspect the workspace".into())],
             )
-            .await
-            .unwrap();
-        assert_eq!(
-            selected,
-            ModelSelection::Model {
-                model_ref: "fast".into()
-            }
-        );
-        let mut excluded = parent.clone();
-        excluded.config.model_binding_policy = SessionModelBindingPolicy::ApprovedImmutable;
-        assert!(super::delegation_model_routing(&excluded).is_none());
-        excluded.config.model_binding_policy = SessionModelBindingPolicy::Mutable;
-        excluded.config.agent_route_owner = SessionAgentRouteOwner::External;
-        assert!(super::delegation_model_routing(&excluded).is_none());
+            .await;
+        let mut ai = AIConfig::default();
+        // Previously saved smart-role values must not override existing defaults,
+        // require an economy model, or change fresh/fork/nested delegation.
+        ai.model_routing.subagent_model = "economy".into();
+        TEST_MODEL_RESOLUTION_AI_CONFIG
+            .scope(ai, async {
+                for parent in [&parent, &manual] {
+                    TEST_AGENT_MODEL_DEFAULTS
+                        .scope(AgentModelSelections::default(), async {
+                            let fresh = coordinator
+                                .resolve_hidden_subagent_execution_request(request(
+                                    &parent.session_id,
+                                    false,
+                                ))
+                                .await
+                                .unwrap();
+                            assert_eq!(fresh.session_config.model_id.as_deref(), Some("fast"));
+                            let forked = coordinator
+                                .resolve_hidden_subagent_execution_request(request(
+                                    &parent.session_id,
+                                    true,
+                                ))
+                                .await
+                                .unwrap();
+                            assert_eq!(forked.session_config.model_id.as_deref(), Some("primary"));
+                            let mut nested_config = fresh.session_config;
+                            nested_config.delegation_model_routing = Some("smart".into());
+                            let nested_parent = manager
+                                .create_transient_session_with_id_and_details(
+                                    None,
+                                    "Nested parent".into(),
+                                    "Explore".into(),
+                                    nested_config,
+                                    Some(format!("session-{}", parent.session_id)),
+                                    SessionKind::Subagent,
+                                )
+                                .await
+                                .unwrap();
+                            let nested = coordinator
+                                .resolve_hidden_subagent_execution_request(request(
+                                    &nested_parent.session_id,
+                                    false,
+                                ))
+                                .await
+                                .unwrap();
+                            assert_eq!(nested.session_config.model_id.as_deref(), Some("fast"));
+                        })
+                        .await;
+                    let mut defaults = AgentModelSelections::default();
+                    defaults.subagents.builtin.insert(
+                        "Explore".into(),
+                        AgentModelSelection::Model {
+                            model_ref: "primary".into(),
+                        },
+                    );
+                    defaults.subagents.fork = AgentModelSelection::Model {
+                        model_ref: "fast".into(),
+                    };
+                    TEST_AGENT_MODEL_DEFAULTS
+                        .scope(defaults, async {
+                            let configured = coordinator
+                                .resolve_fresh_subagent_model_target(
+                                    None,
+                                    false,
+                                    "Explore",
+                                    &parent.session_id,
+                                )
+                                .await
+                                .unwrap();
+                            assert_eq!(
+                                configured,
+                                ModelSelection::Model {
+                                    model_ref: "primary".into()
+                                }
+                            );
+                            let explicit = coordinator
+                                .resolve_fresh_subagent_model_target(
+                                    Some("fast"),
+                                    false,
+                                    "Explore",
+                                    &parent.session_id,
+                                )
+                                .await
+                                .unwrap();
+                            assert_eq!(
+                                explicit,
+                                ModelSelection::Model {
+                                    model_ref: "fast".into()
+                                }
+                            );
+                            let inherited = coordinator
+                                .resolve_fresh_subagent_model_target(
+                                    None,
+                                    true,
+                                    "Explore",
+                                    &parent.session_id,
+                                )
+                                .await
+                                .unwrap();
+                            assert_eq!(
+                                inherited,
+                                ModelSelection::Model {
+                                    model_ref: "primary".into()
+                                }
+                            );
+                            let forked = coordinator
+                                .resolve_hidden_subagent_execution_request(request(
+                                    &parent.session_id,
+                                    true,
+                                ))
+                                .await
+                                .unwrap();
+                            assert_eq!(forked.session_config.model_id.as_deref(), Some("fast"));
+                        })
+                        .await;
+                }
+            })
+            .await;
     }
 
     #[tokio::test]

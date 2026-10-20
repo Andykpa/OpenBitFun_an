@@ -73,10 +73,10 @@ facts, and isolate all snapshots and pending work by surface activation. An
 existing session commits its selection before remembering future defaults;
 explicit model reads before send must not await the future-default write.
 
-For model selection save scope and configured-channel billing annotations:
+For model selection persistence and configured-channel billing annotations:
 
 ```bash
-pnpm --dir src/web-ui run test:run src/flow_chat/hooks/useModelSelectionScope.test.tsx src/flow_chat/components/ModelSelectorProviderLevels.test.tsx src/infrastructure/config/services/modelBilling.test.ts src/infrastructure/config/services/modelTags.test.ts src/infrastructure/config/components/ModelBillingDetails.test.tsx
+pnpm --dir src/web-ui run test:run src/flow_chat/components/ModelSelectorProviderLevels.test.tsx src/infrastructure/config/services/modelBilling.test.ts src/infrastructure/config/services/modelTags.test.ts src/infrastructure/config/components/ModelBillingDetails.test.tsx
 ```
 
 Billing annotations are advisory metadata, not runtime billing or fallback

@@ -3,13 +3,11 @@ import { agentAPI, type ModelRoutingStatus, type ModelRoutingStatusRequest } fro
 import type { ModelRoutingMode } from '@/infrastructure/config/types';
 import { configManager } from '@/infrastructure/config/services/ConfigManager';
 import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
-import { useModelSelectionScope, type ModelSelectionScope } from './useModelSelectionScope';
 
 /** A host response is the authority for both strategy and feature support. */
-export function useModelRouting({ identity, epoch, scopeKey, scope, request, allowed, open, modelName, reasoningPreset, onModelChange, draft }: {
-  scope?: ModelSelectionScope;
+export function useModelRouting({ identity, epoch, request, allowed, open, modelName, reasoningPreset, onModelChange, draft }: {
   draft?: { mode?: ModelRoutingMode; onChange: (mode: ModelRoutingMode) => void };
-  identity: string; epoch: number; scopeKey: string; request: ModelRoutingStatusRequest;
+  identity: string; epoch: number; request: ModelRoutingStatusRequest;
   allowed: boolean; open: boolean; modelName: string; reasoningPreset?: string;
   onModelChange: (id: string) => void;
 }) {
@@ -41,17 +39,11 @@ export function useModelRouting({ identity, epoch, scopeKey, scope, request, all
     });
   }, [refresh]);
   useEffect(() => { if (open) void refresh(); }, [open, refresh]);
-  const preference = useModelSelectionScope({
-    scopeKey, epoch, sessionId: request.sessionId, allowed, open: open && status !== null,
-    scopeOverride: scope,
-    defaultPath: 'ai.model_routing.default_mode', skipUnchangedWrite: true, defaultModel: status?.defaultMode ?? 'manual', selectedModel: mode,
-    onDefaultChange: value => setSnapshot(current => current.identity === identity && current.status
-      ? { identity, status: { ...current.status, defaultMode: value } } : current),
-  });
   const select = async (next: ModelRoutingMode) => {
-    if (!allowed || !status || busy.current || preference.pending || (next === 'smart' && !status.ready)) return false;
+    if (!allowed || !status || busy.current || (next === 'smart' && !status.ready)) return false;
     if (next === mode && selectedMode === mode && (!draft || draft.mode !== undefined)) return true;
     const surface = getActiveSurfaceScope();
+    if (surface.epoch !== epoch || live.current !== identity) return false;
     busy.current = true; setPendingIdentity(identity);
     try {
       const selected = next === 'smart' ? 'primary' : modelName;
@@ -62,8 +54,7 @@ export function useModelRouting({ identity, epoch, scopeKey, scope, request, all
         if (!surface.isCurrent() || live.current !== identity) return false;
         onModelChange(selected);
       }
-      if (preference.remember) {
-        preference.markDefaultWrite(next);
+      if (!request.sessionId) {
         await configManager.setConfig('ai.model_routing.default_mode', next);
       }
       if (!surface.isCurrent() || live.current !== identity) return false;
@@ -74,28 +65,5 @@ export function useModelRouting({ identity, epoch, scopeKey, scope, request, all
       setPendingIdentity(current => current === identity ? null : current);
     }
   };
-  const selectSubagentModel = async (next: 'primary' | 'economy') => {
-    if (!allowed || typeof status?.subagentModel !== 'string' || busy.current || preference.pending) return false;
-    const surface = getActiveSurfaceScope();
-    if (surface.epoch !== epoch || live.current !== identity) return false;
-    busy.current = true; setPendingIdentity(identity);
-    try {
-      // Negotiate before writing: older hosts accept unknown config keys but
-      // cannot apply this policy. Never report that as a successful selection.
-      const current = await agentAPI.getModelRoutingStatus(JSON.parse(requestKey));
-      if (!surface.isCurrent() || live.current !== identity) return false;
-      if (current.apiVersion !== 1 || typeof current.subagentModel !== 'string') {
-        setSnapshot({ identity, status: current.apiVersion === 1 ? current : null });
-        return false;
-      }
-      if (current.subagentModel !== next) await configManager.setConfig('ai.model_routing.subagent_model', next);
-      if (!surface.isCurrent() || live.current !== identity) return false;
-      await refresh();
-      return surface.isCurrent() && live.current === identity;
-    } finally {
-      busy.current = false;
-      setPendingIdentity(current => current === identity ? null : current);
-    }
-  };
-  return { status, mode, pending: pendingIdentity === identity || preference.pending, select, selectSubagentModel, refresh, changeScope: preference.changeScope };
+  return { status, mode, pending: pendingIdentity === identity, select, refresh };
 }

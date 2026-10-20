@@ -464,7 +464,7 @@ export interface ModelRoutingStatus {
   connected: boolean | null;
   issue: string | null;
   summaryEnabled: boolean;
-  /** Present only when the executing host supports smart subagent defaults. */
+  /** Legacy response field; current hosts omit this retired control. */
   subagentModel?: string;
 }
 export type ModelRoutingStatusRequest = Partial<Pick<UpdateSessionModelRequest,

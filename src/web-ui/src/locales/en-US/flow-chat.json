@@ -3455,14 +3455,6 @@
       "acpContext": "ACP reported context: {{usage}}",
       "acpContextLabel": "ACP reported context"
     },
-    "scope": {
-      "remember": "Remember selection",
-      "session": "Only this session",
-      "title": "Selection scope",
-      "rememberHint": "For this session and future new sessions",
-      "sessionHint": "Temporary choice; new-session defaults stay unchanged",
-      "saveFailed": "Could not change the save preference. Your current session model is unchanged."
-    },
     "close": "Close model selection",
     "manageModels": "Manage models",
     "picker": {
@@ -3497,7 +3489,7 @@
     },
     "economyModel": "Economy Model",
     "routing": {
-      "configure": "Configure",
+      "configure": "Configure smart mode",
       "serviceReady": "Ready",
       "serviceNotReady": "Setup needed",
       "serviceUnsupported": "Unavailable",
@@ -3506,21 +3498,12 @@
       "active": "Smart routing enabled; failures use the primary model",
       "ready": "Configured, not enabled",
       "notReady": "Router not ready; the current strategy remains active",
+      "configurationIssue": "Smart-mode configuration is unavailable. Check the Router service and tokenizer file.",
       "unsupported": "This execution host does not support smart routing",
-      "scopeHint": "Remember the strategy by default, or use it for this session only; model roles are shared",
       "costHint": "Router and auxiliary summary calls may incur extra costs that are not included in these billing hints",
       "saveFailed": "Could not save the model strategy; try again",
       "latency": "Routing took {{ms}} ms",
-      "fallback": "Router failed; using primary",
-      "subagents": {
-        "title": "Default subagent model",
-        "primary": "Follow primary model",
-        "economy": "Follow economy model",
-        "primarySummary": "Subagents · Primary model",
-        "economySummary": "Subagents · Economy model",
-        "hint": "Applies to new subagents and preserves individual model settings",
-        "unsupported": "Update the executing host to configure this setting"
-      }
+      "fallback": "Router failed; using primary"
     },
     "pools": {
       "title": "Model pools",
@@ -3531,7 +3514,7 @@
       "choose": "Choose model pool",
       "configure": "Configure model pools",
       "empty": "No model pools configured",
-      "missing": "This model pool no longer exists",
+      "pendingSelection": "Not selected",
       "unavailable": "No available models",
       "ordered": "Ordered",
       "balanced": "Balanced",

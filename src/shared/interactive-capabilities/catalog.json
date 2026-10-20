@@ -6923,18 +6923,19 @@
         },
         {
           "id": "smart-routing",
-          "titleZh": "配置智能模式的 Router 服务、主力与经济模型及子代理默认模型",
-          "titleEn": "Configure smart routing, primary and economy models, and subagent defaults",
+          "titleZh": "配置智能模式的 Router 服务、主力与经济模型",
+          "titleEn": "Configure smart routing with primary and economy models",
           "control": {
             "kind": "open",
             "reasonCode": "unstructuredInteraction",
-            "reasonZh": "“配置智能模式的 Router 服务、主力与经济模型及子代理默认模型”需要在智能模式内部选择配置项并核对执行宿主的模型、Router 服务及能力状态，当前没有覆盖这些配置的独立结构化控制命令。",
-            "reasonEn": "“Configure smart routing, primary and economy models, and subagent defaults” requires reviewing the execution host’s models, Router service and capability status through the smart-mode menu items; no dedicated structured control command covers this configuration."
+            "reasonZh": "“配置智能模式的 Router 服务、主力与经济模型”需要在智能模式内部选择配置项并核对执行宿主的模型、Router 服务及能力状态，当前没有覆盖这些配置的独立结构化控制命令。",
+            "reasonEn": "“Configure smart routing with primary and economy models” requires reviewing the execution host’s models, Router service and capability status through the smart-mode menu items; no dedicated structured control command covers this configuration."
           },
           "evidence": [
             "command:get_model_routing_status",
             "source:src/web-ui/src/infrastructure/config/components/ModelRouterSettings.tsx#ModelRouterSettings",
-            "source:src/web-ui/src/flow_chat/components/NativeModelSelectionPanel.tsx#onSubagentModelChange"
+            "source:src/web-ui/src/flow_chat/components/NativeModelSelectionPanel.tsx#onRoutingSettings",
+            "source:src/web-ui/src/app/scenes/settings/pages/ai/ModelSettingsPage.tsx#settings-smart-mode-configure"
           ]
         },
         {

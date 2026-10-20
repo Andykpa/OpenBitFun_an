@@ -4,9 +4,11 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { aiApi } from '@/infrastructure/api';
+import { agentAPI } from '@/infrastructure/api/service-api/AgentAPI';
 import { configManager } from '@/infrastructure/config/services/ConfigManager';
-import type { AIModelConfig } from '@/infrastructure/config/types';
+import type { AIModelConfig, ModelRoutingConfig } from '@/infrastructure/config/types';
 import { i18nService } from '@/infrastructure/i18n';
+import { activateSurface } from '@/infrastructure/peer-device/deviceSurface';
 import ModelSettingsPage from './ModelSettingsPage';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -53,6 +55,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
   });
 
   beforeEach(() => {
+    activateSurface('local');
     configManager.clearCache();
     reads = new Map([
       'ai.models', 'ai.default_models', 'ai.proxy',
@@ -78,6 +81,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     act(() => root.unmount());
     container.remove();
     vi.restoreAllMocks();
+    activateSurface('local');
   });
 
   it('renders a warm model pool immediately without starting a read that could overwrite edits', () => {
@@ -104,9 +108,10 @@ describe('ModelSettingsPage loading and provider actions', () => {
     for (const key of ['acquisition.noneConfigured', 'acquisition.noneImported', 'pool.empty']) {
       expect(container.textContent).not.toContain(copy(key));
     }
-    expect(selectors()).toHaveLength(4);
+    expect(selectors()).toHaveLength(5);
     expect(selectors().every(element => element.disabled)).toBe(true);
     expect(button('actions.addModel').disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="settings-smart-mode-configure"]')?.disabled).toBe(true);
     expect(button('acquisition.import').disabled).toBe(false);
 
     await act(async () => {
@@ -118,6 +123,52 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(selectors()[0].disabled).toBe(false);
     expect(selectors()[0].textContent).toContain(model.model_name);
     expect(button('actions.addModel').disabled).toBe(false);
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="settings-smart-mode-configure"]')?.disabled).toBe(false);
+  });
+
+  it('opens the shared smart configuration dialog and saves without enabling routing', async () => {
+    let routing: ModelRoutingConfig = { default_mode: 'manual', router_model_id: null, tokenizer_path: '',
+      simple_threshold: .75, timeout_ms: 10000, summary_enabled: false };
+    vi.spyOn(configManager, 'getConfigs').mockResolvedValue({ 'ai.model_routing': routing, 'ai.default_models': { primary: model.id } });
+    const updateConfig = vi.spyOn(configManager, 'updateConfig').mockImplementation(async <T,>(path: string, update: (current: T) => T) => {
+      expect(path).toBe('ai.model_routing'); routing = update(routing as T) as ModelRoutingConfig; return routing as T;
+    });
+    vi.spyOn(agentAPI, 'getModelRoutingStatus').mockResolvedValue({ apiVersion: 1, mode: 'manual', defaultMode: 'manual',
+      ready: false, issue: null, connected: null, summaryEnabled: false });
+    const updateSession = vi.spyOn(agentAPI, 'updateSessionModel');
+    await act(async () => root.render(<ModelSettingsPage />));
+    await act(async () => { reads.get('ai.models')!.resolve([model]); reads.get('ai.default_models')!.resolve({ primary: model.id }); });
+    expect(container.querySelector('.openbitfun-model-settings__mode-row [data-openbitfun-component="status-pill"]')).toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="settings-smart-mode-configure"]')!.click());
+    const dialog = document.querySelector<HTMLElement>('.model-router-settings')!.closest('[role="dialog"]')!;
+    expect(dialog.textContent).toContain(copy('router.title'));
+    expect(updateConfig).not.toHaveBeenCalled();
+    const tokenizer = dialog.querySelector<HTMLInputElement>(`[aria-label="${copy('router.tokenizer')}"]`)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(tokenizer, '/host/tokenizer.json');
+      tokenizer.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(element => element.textContent === copy('router.save'))!.click());
+    expect(document.querySelector('.model-router-settings')).toBeNull();
+    expect(routing.tokenizer_path).toBe('/host/tokenizer.json');
+    expect(routing.default_mode).toBe('manual');
+    expect(updateConfig).toHaveBeenCalledOnce(); expect(updateSession).not.toHaveBeenCalled();
+    expect(configManager.getOptionalConfig).toHaveBeenCalledTimes(4);
+  });
+
+  it('closes smart configuration on a device switch and ignores its late read', async () => {
+    const pending = deferred();
+    vi.spyOn(configManager, 'getConfigs').mockReturnValue(pending.promise as ReturnType<typeof configManager.getConfigs>);
+    const updateConfig = vi.spyOn(configManager, 'updateConfig');
+    await act(async () => root.render(<ModelSettingsPage />));
+    await act(async () => { reads.get('ai.models')!.resolve([model]); reads.get('ai.default_models')!.resolve({ primary: model.id }); });
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="settings-smart-mode-configure"]')!.click());
+    expect(document.querySelector('.model-router-settings')).not.toBeNull();
+    await act(async () => activateSurface('peer-smart-settings'));
+    expect(document.querySelector('.model-router-settings')).toBeNull();
+    await act(async () => pending.resolve({ 'ai.model_routing': {}, 'ai.default_models': { primary: model.id } }));
+    expect(document.querySelector('.model-router-settings')).toBeNull();
+    expect(updateConfig).not.toHaveBeenCalled();
   });
 
   it('isolates a failed model read, keeps network settings usable, and recovers through the section retry', async () => {

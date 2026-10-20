@@ -193,50 +193,34 @@ VITE_BUILD_TARGET=web pnpm --dir src/web-ui run build
 # output: dist/
 ```
 
-## Model selection and billing hints
+## Model selection and smart mode
 
-The chat model picker remembers a native session's selection for future new
-sessions by default. **Only this session** keeps a temporary choice on the
-current session without changing that default. Choosing it after changing the
-model in the same open picker also restores the previous default, unless another
-editor has since changed it. Existing sessions keep their explicit model choices.
-Delegated subagents and external agent transports keep their own model ownership.
-Before a draft session exists, only the remembered default is available.
+The compact chat model picker keeps the context limit, reasoning effort and
+selected model together. Its model list retains search, provider filters and the
+primary/fast, pool and smart shortcuts. Manual model choices use the existing
+session and future-default saving rules. Delegated subagents keep their original
+explicit, default, inherited and Fork model configuration.
 
-The session model and remembered default use the existing host configuration and
-session APIs, including the active peer surface. The picker remembers its
-save-scope preference locally per device and session; it does not store model
-credentials or a second copy of the host's default. The compact menu keeps the
-context limit, reasoning effort and selected model together. Its model list
-retains search, provider filters and the primary/fast, pool and smart shortcuts.
-Smart mode adds primary/economy model bindings, subagent policy, Router status,
-save scope and billing as items inside that mode. Select a role to search
-configured text models within the same popover; Back or Escape returns to the
-smart items. These role edits leave the current session model unchanged.
+Smart mode adds primary/economy bindings and Router status as items
+inside that mode. Before configuration, it shows a centered **Configure smart
+mode** action, matching the model-pool empty state. Its configuration dialog
+contains the primary/economy bindings in one row, Router service and tokenizer
+settings, and a summary switch on the right. Pricing, economy threshold and timeout
+controls are no longer exposed; existing saved values remain intact. The default-models
+section has no separate Router or billing entry. Settings → Models → Smart mode
+opens the same configuration dialog. Once configured, a centered switch
+controls activation. Opening smart mode only shows this switch and configuration
+action until enabled; primary/economy and Router items appear after the
+host confirms activation. Turning it off hides those items and keeps the switch
+available. Select a role to search text models within the same popover; Back or
+Escape returns to the smart items. Editing roles leaves the session model unchanged.
 
-A ready host activates smart routing through its session API. An unconfigured
-or older host can expose a clearly unavailable preview without changing the
-active strategy or remembered default. Model pool mode uses the named pools
-advertised by the execution host and is unavailable on hosts lacking that
-capability. Remote surfaces use the selected host's models and configuration.
-
-**Billing details**, inside smart mode and Settings → Models → Default models, lets
-you annotate each configured model channel with its billing method, currency,
-API rates, account label and source. An API key can represent a Coding Plan;
-account sign-in alone does not establish pricing either. Rates are user-entered
-estimates, not an authenticated bill or a model-name-based catalog price.
-Missing rates stay unknown, while an explicit zero means free. Subscription
-quota and overage remain unknown, and monthly fees are never converted into
-per-token rates. Different currencies are not compared.
-
-Comparisons use the same displayed example input/output usage with no cache
-hits, excluding cache-write, routing and other fees. The calculation treats
-cached input as a subset of total input. A more expensive fast model produces
-an advisory, not a block or an automatic model swap. These annotations do not
-enforce budgets or approve paid fallback. Changing a model's endpoint, identity,
-authentication or API key marks its quote for review; provider group edits do
-not copy one model's rates to others. Unknown future billing records are
-preserved without overwriting them.
+A ready host activates smart routing for the current session or draft through
+its existing API, without changing the strategy default or subagent policy.
+Before a session or draft exists, the host strategy default owns the selection.
+There is no additional remember-selection control. Older hosts show an explicit
+unsupported state. Model pools use the named pools advertised by the execution
+host. Remote surfaces read and save the selected host's models and configuration.
 
 ## Subscription models
 

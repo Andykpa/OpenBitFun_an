@@ -1,52 +1,23 @@
-import { useLayoutEffect, useRef, useState } from 'react';
-import { Icon, MenuItem, MenuList, MenuPopover, MenuSection, OverflowText, ScrollArea, SearchField, Tooltip } from '@openbitfun/ui';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Button, Icon, MenuItem, MenuList, MenuSection, OverflowText, ScrollArea, SearchField, Switch, Tooltip } from '@openbitfun/ui';
 import { useI18n } from '@/infrastructure/i18n';
 import type { AIModelConfig } from '@/infrastructure/config/types';
-import { ModelBillingSummary } from '@/infrastructure/config/components/ModelBillingSummary';
 import { filterSelectableTextChatModels } from '@/infrastructure/config/services/modelCategory';
 import { getProviderDisplayName, getProviderGroupKey } from '@/infrastructure/config/services/modelConfigs';
-import type { ModelSelectionScope } from '../hooks/useModelSelectionScope';
 import './NativeModelSelectionPanel.scss';
 
 export type ModelRole = 'primary' | 'economy';
 
-interface ScopeProps {
-  scope: ModelSelectionScope;
-  hasSession: boolean;
+interface Props {
   disabled: boolean;
-  onScopeChange: (scope: ModelSelectionScope) => void;
-}
-
-export function ModelSelectionScopeItem(props: ScopeProps) {
-  const { t } = useI18n('flow-chat');
-  const [open, setOpen] = useState(false);
-  const anchorRef = useRef<HTMLButtonElement>(null);
-  return <MenuList>
-    <MenuItem ref={anchorRef} data-testid="model-selection-scope" aria-haspopup="menu" aria-expanded={open}
-      disabled={props.disabled} metadata={<Icon name="chevron-right" size="sm" />}
-      onClick={() => setOpen(!open)}>
-      {t(props.scope === 'remember' ? 'modelSelector.scope.remember' : 'modelSelector.scope.session')}
-    </MenuItem>
-    <MenuPopover open={open} onClose={() => setOpen(false)} anchorRef={anchorRef} ownerRef={anchorRef}
-      aria-label={t('modelSelector.scope.title')} items={(['remember', 'session'] as const).map(scope => ({
-        id: scope, label: t(scope === 'remember' ? 'modelSelector.scope.remember' : 'modelSelector.scope.session'),
-        role: 'menuitemradio', checked: props.scope === scope, disabled: props.disabled || (scope === 'session' && !props.hasSession),
-        onSelect: () => { setOpen(false); props.onScopeChange(scope); },
-      }))} />
-  </MenuList>;
-}
-
-interface Props extends ScopeProps {
   models: AIModelConfig[];
   primary?: AIModelConfig;
   economy?: AIModelConfig;
-  routing: { mode: 'manual' | 'smart'; ready: boolean; supported: boolean; issue?: string | null; subagentModel?: string };
+  routing: { mode: 'manual' | 'smart'; ready: boolean; supported: boolean; issue?: string | null };
   onModeChange: (mode: 'manual' | 'smart') => Promise<boolean>;
-  onSubagentModelChange: (model: ModelRole) => Promise<boolean>;
   onRoutingSettings: () => void;
   onConfigureModel: (role: ModelRole, modelId: string) => Promise<boolean>;
   onSettings: () => void;
-  onSaved: () => void;
 }
 
 /** Smart-specific items share the original model selector's compact menu. */
@@ -54,14 +25,16 @@ export function NativeModelSelectionPanel(props: Props) {
   const { t } = useI18n('flow-chat');
   const [pickingRole, setPickingRole] = useState<ModelRole | null>(null);
   const [query, setQuery] = useState('');
-  const [subagentOpen, setSubagentOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
   const primaryRef = useRef<HTMLButtonElement>(null);
   const economyRef = useRef<HTMLButtonElement>(null);
-  const subagentRef = useRef<HTMLButtonElement>(null);
   const returnRole = useRef<ModelRole | null>(null);
+  const smartEnabled = props.routing.supported && props.routing.ready && props.routing.mode === 'smart';
   const roleLabel = (role: ModelRole) => t(role === 'primary' ? 'modelSelector.primaryModel' : 'modelSelector.economyModel');
+  useEffect(() => {
+    if (!smartEnabled) { setPickingRole(null); setQuery(''); returnRole.current = null; }
+  }, [smartEnabled]);
   useLayoutEffect(() => {
     if (pickingRole) searchRef.current?.focus({ preventScroll: true });
     else if (returnRole.current) {
@@ -70,7 +43,7 @@ export function NativeModelSelectionPanel(props: Props) {
     }
   }, [pickingRole]);
   const closePicker = () => { returnRole.current = pickingRole; setPickingRole(null); setQuery(''); };
-  if (pickingRole) {
+  if (pickingRole && smartEnabled) {
     const search = query.trim().toLowerCase();
     const groups = new Map<string, { name: string; models: AIModelConfig[] }>();
     for (const model of filterSelectableTextChatModels(props.models)) {
@@ -116,12 +89,33 @@ export function NativeModelSelectionPanel(props: Props) {
       <MenuList><MenuItem onClick={props.onSettings} metadata={<Icon name="chevron-right" size="sm" />}>{t('modelSelector.manageModels')}</MenuItem></MenuList>
     </div>;
   }
-  const supportedSubagents = typeof props.routing.subagentModel === 'string';
-  const subagentLabel = t(props.routing.subagentModel === 'primary' ? 'modelSelector.routing.subagents.primary'
-    : props.routing.subagentModel === 'economy' ? 'modelSelector.routing.subagents.economy' : 'modelSelector.modelNotConfigured');
-  const statusLabel = t(!props.routing.supported ? 'modelSelector.routing.unsupported' : !props.routing.ready
-    ? 'modelSelector.routing.notReady' : props.routing.mode === 'smart' ? 'modelSelector.routing.active' : 'modelSelector.routing.ready');
+  if (!props.routing.ready || !props.routing.supported) {
+    return <MenuList className="openbitfun-model-selector__mode-empty" data-testid="model-selection-smart-empty">
+      <Tooltip content={!props.routing.supported ? t('modelSelector.routing.unsupported')
+        : props.routing.issue ? t('modelSelector.routing.configurationIssue') : t('modelSelector.routing.notReady')}>
+        <Button variant="quiet" size="sm" role="menuitem" tabIndex={-1} data-openbitfun-menu-item=""
+          data-testid="model-routing-settings" disabled={props.disabled || !props.routing.supported}
+          onClick={props.onRoutingSettings}>
+          {t(props.routing.supported ? 'modelSelector.routing.configure' : 'modelSelector.routing.unsupported')}
+        </Button>
+      </Tooltip>
+    </MenuList>;
+  }
+  const statusLabel = t(props.routing.mode === 'smart' ? 'modelSelector.routing.active' : 'modelSelector.routing.ready');
   return <div className="native-model-selection" data-openbitfun-component="model-selector" data-openbitfun-part="nativePanel">
+    <MenuList className="native-model-selection__activation" data-testid="model-selection-smart-activation" data-empty={!smartEnabled || undefined}>
+      <label className="native-model-selection__toggle">
+        {t('modelSelector.routing.enable')}
+        <Switch checked={smartEnabled} disabled={props.disabled} data-testid="model-routing-toggle"
+          data-openbitfun-menu-item="" tabIndex={-1}
+          onCheckedChange={checked => { void props.onModeChange(checked ? 'smart' : 'manual'); }} />
+      </label>
+      {!smartEnabled && <Button variant="quiet" size="sm" role="menuitem" tabIndex={-1} data-openbitfun-menu-item=""
+        data-testid="model-routing-settings" disabled={props.disabled} onClick={props.onRoutingSettings}>
+        {t('modelSelector.routing.configure')}
+      </Button>}
+    </MenuList>
+    {smartEnabled && <>
     <MenuList data-testid="model-selection-smart-preview">
       {(['primary', 'economy'] as const).map(role => <Tooltip key={role} content={props[role]
         ? `${props[role]!.model_name} · ${getProviderDisplayName(props[role]!)}` : t('modelSelector.modelNotConfigured')}>
@@ -132,34 +126,15 @@ export function NativeModelSelectionPanel(props: Props) {
           {roleLabel(role)}
         </MenuItem>
       </Tooltip>)}
-      <Tooltip content={t(supportedSubagents ? 'modelSelector.routing.subagents.hint' : 'modelSelector.routing.subagents.unsupported')}>
-        <MenuItem ref={subagentRef} data-testid="model-selection-subagent-field"
-          className="openbitfun-model-selector__settings-row" disabled={props.disabled || !supportedSubagents}
-          aria-haspopup="menu" aria-expanded={subagentOpen}
-          metadata={<OverflowText>{subagentLabel}</OverflowText>} shortcut={<Icon name="chevron-right" size="sm" />}
-          onClick={() => setSubagentOpen(!subagentOpen)}>{t('modelSelector.routing.subagents.title')}</MenuItem>
-      </Tooltip>
-      <MenuPopover open={subagentOpen && !props.disabled} onClose={() => setSubagentOpen(false)} anchorRef={subagentRef} ownerRef={subagentRef}
-        aria-label={t('modelSelector.routing.subagents.title')} items={(['primary', 'economy'] as const).map(role => ({
-          id: role, testId: `model-selection-subagent-${role}`, label: t(`modelSelector.routing.subagents.${role}`),
-          role: 'menuitemradio', checked: props.routing.subagentModel === role,
-          disabled: props.disabled || (role === 'economy' && !props.economy),
-          onSelect: () => { setSubagentOpen(false); void props.onSubagentModelChange(role); },
-        }))} />
     </MenuList>
     <MenuList data-testid="model-routing-section">
-      <Tooltip content={props.routing.issue || t('modelSelector.routing.costHint')}>
+      <Tooltip content={props.routing.issue ? t('modelSelector.routing.configurationIssue') : t('modelSelector.routing.costHint')}>
         <MenuItem data-testid="model-routing-settings" className="openbitfun-model-selector__settings-row"
           disabled={props.disabled || !props.routing.supported} onClick={props.onRoutingSettings}
           metadata={<OverflowText role="status">{statusLabel}</OverflowText>}
           shortcut={<Icon name="chevron-right" size="sm" />}>{t('modelSelector.routing.settings')}</MenuItem>
       </Tooltip>
-      {props.routing.supported && props.routing.ready && props.routing.mode !== 'smart' && <MenuItem
-        data-testid="model-routing-enable" disabled={props.disabled} onClick={() => { void props.onModeChange('smart'); }}>
-        {t('modelSelector.routing.enable')}
-      </MenuItem>}
     </MenuList>
-    <ModelSelectionScopeItem scope={props.scope} hasSession={props.hasSession} disabled={props.disabled} onScopeChange={props.onScopeChange} />
-    <ModelBillingSummary compact secondaryRole="economy" primary={props.primary} fast={props.economy} disabled={props.disabled} onSaved={props.onSaved} />
+    </>}
   </div>;
 }
