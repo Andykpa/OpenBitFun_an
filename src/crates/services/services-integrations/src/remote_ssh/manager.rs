@@ -1976,19 +1976,34 @@ fn split_container_entry_fields<'a>(
     Ok((name, path, kind, size, modified, permissions))
 }
 
-fn parse_container_exists_output(path: &str, stderr: &str, status: i32) -> anyhow::Result<bool> {
-    match status {
-        0 => Ok(true),
-        1 if stderr.trim().is_empty() => Ok(false),
-        _ => anyhow::bail!(
+fn parse_container_exists_output(
+    path: &str,
+    stdout: &[u8],
+    stderr: &[u8],
+    status: i32,
+) -> anyhow::Result<bool> {
+    if status != 0 {
+        anyhow::bail!(
             "Failed to check whether container path '{}' exists: command exited with status {}{}",
             path,
             status,
-            if stderr.trim().is_empty() {
+            if stderr.is_empty() {
                 String::new()
             } else {
-                format!(": {}", stderr.trim())
+                format!(": {}", container_stderr_detail(stderr))
             }
+        );
+    }
+    // A launcher can also exit 1, so only an explicit Linux probe response may
+    // establish that a path is missing. The probe and parser run on one host;
+    // this is not a cross-version wire or persisted format.
+    match stdout {
+        b"exists" => Ok(true),
+        b"missing" => Ok(false),
+        _ => anyhow::bail!(
+            "Failed to check whether container path '{}' exists: invalid probe output: {}",
+            path,
+            container_stderr_detail(stderr)
         ),
     }
 }
@@ -2023,32 +2038,25 @@ fn parse_container_dir_output(
 
 /// Render transport stderr for a container failure message.
 ///
-/// Local process transports write their own Windows-host messages into the same
-/// stderr stream as the Linux command, in UTF-16LE. Reporting that stream raw
-/// both hides the Linux-side error behind mojibake and attributes host noise to
-/// the workspace, so every container failure decodes and filters it first.
+/// Prefer Linux diagnostics over host warnings, but keep host errors when the
+/// launcher fails before a Linux command can report anything.
 fn container_stderr_detail(stderr: &[u8]) -> String {
-    let detail = super::wsl::stderr_diagnostics(stderr);
-    if detail.is_empty() {
-        "no stderr output".to_string()
-    } else {
-        detail
-    }
+    super::wsl::stderr_diagnostics(stderr)
+        .failure_detail()
+        .to_string()
 }
 
-/// Interpret a workspace directory listing from its exit status alone.
+/// Ignore host warnings while preserving directory producer errors.
 ///
-/// The exit status is the only success signal: local process transports (WSL,
-/// Docker) write their own host messages into the same stderr stream as the
-/// listing probe, so a complete listing must not be failed for having stderr
-/// output. Stdout stays byte-exact because it carries NUL-delimited filenames.
+/// The find/head/xargs pipeline can exit 0 even if find failed. Linux stderr
+/// therefore remains a failure signal. Stdout carries NUL-delimited filenames.
 fn container_dir_entries(
     path: &str,
     stdout: Vec<u8>,
     stderr: &[u8],
     status: i32,
 ) -> anyhow::Result<Vec<crate::remote_ssh::types::RemoteDirEntry>> {
-    if status != 0 {
+    if status != 0 || !super::wsl::stderr_diagnostics(stderr).workspace.is_empty() {
         anyhow::bail!(
             "Failed to list container directory '{}': command exited with status {}: {}",
             path,
@@ -5704,16 +5712,13 @@ impl SSHConnectionManager {
     pub async fn container_exists(&self, connection_id: &str, path: &str) -> anyhow::Result<bool> {
         let path = self.resolve_sftp_path(connection_id, path).await?;
         let command = format!(
-            "test -e {0} || test -L {0}",
+            "if test -e {0} || test -L {0}; then printf exists; else printf missing; fi",
             crate::remote_ssh::shell::quote_arg(&path)
         );
-        // Read raw bytes: local process transports write their own host
-        // messages into the same stderr stream, and they have to be decoded and
-        // dropped before the exit status can be interpreted.
-        let (_, stderr, status) = self
+        let (stdout, stderr, status) = self
             .execute_workspace_bytes(connection_id, &command)
             .await?;
-        parse_container_exists_output(&path, &super::wsl::stderr_diagnostics(&stderr), status)
+        parse_container_exists_output(&path, &stdout, &stderr, status)
     }
 
     pub async fn container_mkdir(
@@ -8573,21 +8578,26 @@ mod tests {
 
     #[test]
     fn container_exists_retains_transport_and_command_errors() {
-        assert!(parse_container_exists_output("/workspace/file", "", 0).unwrap());
-        assert!(!parse_container_exists_output("/workspace/missing", "", 1).unwrap());
+        assert!(parse_container_exists_output("/workspace/file", b"exists", b"", 0).unwrap());
+        assert!(!parse_container_exists_output("/workspace/missing", b"missing", b"", 0).unwrap());
         for (status, stderr) in [
             (1, "Error response from daemon: No such container"),
+            (1, "wsl.exe: WSL2 is not installed"),
             (2, "Permission denied"),
             (125, "Cannot connect to the Docker daemon"),
             (126, "Shell is not executable"),
             (127, ""),
         ] {
-            let error = parse_container_exists_output("/workspace/file", stderr, status)
-                .expect_err("container failures must not be treated as missing files")
-                .to_string();
+            let error =
+                parse_container_exists_output("/workspace/file", b"", stderr.as_bytes(), status)
+                    .expect_err("container failures must not be treated as missing files")
+                    .to_string();
             assert!(error.contains(&format!("status {status}")));
             assert!(error.contains(stderr));
         }
+        assert!(parse_container_exists_output("/workspace/missing", b"", b"", 1).is_err());
+        assert!(parse_container_exists_output("/workspace/missing", b"", b"", 0).is_err());
+        assert!(parse_container_exists_output("/workspace/missing", b"unknown", b"", 0).is_err());
     }
 
     /// `wsl.exe` prints this host warning on every launch, including launches
@@ -8647,9 +8657,11 @@ mod tests {
 
     #[test]
     fn container_exists_ignores_host_warnings() {
-        let stderr = super::super::wsl::stderr_diagnostics(&wsl_host_warning_stderr());
-
-        assert!(!parse_container_exists_output("/workspace/missing", &stderr, 1).unwrap());
+        let stderr = wsl_host_warning_stderr();
+        assert!(parse_container_exists_output("/workspace/file", b"exists", &stderr, 0).unwrap());
+        assert!(
+            !parse_container_exists_output("/workspace/missing", b"missing", &stderr, 0).unwrap()
+        );
     }
 
     #[test]
@@ -8664,8 +8676,105 @@ mod tests {
         assert_eq!(container_stderr_detail(&[]), "no stderr output");
         assert_eq!(
             container_stderr_detail(&wsl_host_warning_stderr()),
-            "no stderr output"
+            "wsl: 检测到 localhost 代理配置，但未镜像到 WSL。NAT 模式下的 WSL 不支持 localhost 代理。"
         );
+    }
+
+    #[test]
+    fn workspace_container_failure_retains_host_launch_error() {
+        for stderr in [
+            b"wsl.exe: WSL2 is not installed\r\n".to_vec(),
+            "wsl: Failed to start distribution\r\n"
+                .encode_utf16()
+                .flat_map(u16::to_le_bytes)
+                .collect(),
+        ] {
+            let detail = container_stderr_detail(&stderr);
+            assert!(detail.contains("WSL2 is not installed") || detail.contains("Failed to start"));
+            let error = parse_container_exists_output("/workspace/file", b"", &stderr, 1)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(&detail));
+        }
+    }
+
+    #[test]
+    fn workspace_container_listing_rejects_producer_errors_with_zero_exit_status() {
+        for stdout in [Vec::new(), container_dir_listing()] {
+            let mut stderr = wsl_host_warning_stderr();
+            stderr.extend_from_slice(b"find: /workspace: Permission denied\n");
+            let error = container_dir_entries("/workspace", stdout, &stderr, 0)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("Permission denied"));
+            assert!(!error.contains("localhost"));
+        }
+    }
+
+    #[test]
+    fn workspace_container_listing_ignores_consecutive_utf16_warnings() {
+        let stderr = "wsl: 上次启动警告\r\nwsl.exe: second warning\r\n"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>();
+        let entries = container_dir_entries("/workspace", container_dir_listing(), &stderr, 0)
+            .expect("UTF-16 host messages must not be mistaken for Linux errors");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "AGENTS.md");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn workspace_container_unreadable_directory_is_not_empty() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let (manager, _) = shell_workspace_provider_fixture(temp.path()).await;
+        let denied = temp.path().join("denied");
+        std::fs::create_dir(&denied).unwrap();
+        std::fs::write(denied.join("existing.txt"), b"exists").unwrap();
+        std::fs::set_permissions(&denied, std::fs::Permissions::from_mode(0)).unwrap();
+        let result = manager
+            .container_read_dir("workspace-shell-fixture", denied.to_str().unwrap())
+            .await;
+        // Restore before asserting so temporary data remains removable on failure.
+        std::fs::set_permissions(&denied, std::fs::Permissions::from_mode(0o700)).unwrap();
+        // Privileged CI hosts can read a mode-000 directory. The producer-error
+        // test above covers the parser independently of host privileges.
+        match result {
+            Err(error) => assert!(error.to_string().contains("Permission denied")),
+            Ok(entries) => assert!(entries.iter().any(|entry| entry.name == "existing.txt")),
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn workspace_container_exists_requires_a_probe_response() {
+        let temp = tempfile::tempdir().unwrap();
+        let (manager, _) = shell_workspace_provider_fixture(temp.path()).await;
+        let existing = temp.path().join("existing file");
+        let missing = temp.path().join("missing file");
+        std::fs::write(&existing, b"exists").unwrap();
+        assert!(manager
+            .container_exists("workspace-shell-fixture", existing.to_str().unwrap())
+            .await
+            .unwrap());
+        assert!(!manager
+            .container_exists("workspace-shell-fixture", missing.to_str().unwrap())
+            .await
+            .unwrap());
+        let executable = temp.path().join("docker shell fixture");
+        std::fs::write(
+            &executable,
+            "#!/bin/sh\nprintf 'wsl.exe: WSL2 is not installed\\n' >&2\nexit 1\n",
+        )
+        .unwrap();
+        let error = manager
+            .container_exists("workspace-shell-fixture", existing.to_str().unwrap())
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("WSL2 is not installed"));
     }
 
     #[test]

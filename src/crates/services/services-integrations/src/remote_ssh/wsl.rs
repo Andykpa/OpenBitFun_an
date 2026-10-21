@@ -119,27 +119,65 @@ fn is_host_diagnostic(line: &str) -> bool {
     })
 }
 
-/// Decode a workspace command's stderr and drop the Windows-host messages
-/// `wsl.exe` interleaves into it.
-///
-/// `wsl.exe` reports host conditions (the NAT localhost-proxy warning, update
-/// notices) on the same stderr stream as the Linux command, encoded as UTF-16LE
-/// even when the Linux side writes UTF-8. Those messages describe the Windows
-/// host, so they must never turn a successful workspace command into a failure
-/// and must never be reported as the Linux-side error. Decode line by line
-/// because one stream mixes both encodings.
-pub(crate) fn stderr_diagnostics(bytes: &[u8]) -> String {
-    bytes
-        .split(|byte| *byte == b'\n')
-        .map(decode_cli_output)
-        .map(|line| {
-            line.trim_matches(|character| matches!(character, '\0' | '\r' | '\u{feff}'))
-                .to_string()
-        })
-        .filter(|line| !line.trim().is_empty())
-        .filter(|line| !is_host_diagnostic(line))
-        .collect::<Vec<_>>()
-        .join("\n")
+#[derive(Debug, Default)]
+pub(super) struct StderrDiagnostics {
+    pub(super) workspace: String,
+    host: String,
+}
+
+impl StderrDiagnostics {
+    /// Prefer the Linux command's error, but retain host launch failures when
+    /// there is no Linux diagnostic. Host messages are not always warnings.
+    pub(super) fn failure_detail(&self) -> &str {
+        if !self.workspace.is_empty() {
+            &self.workspace
+        } else if !self.host.is_empty() {
+            &self.host
+        } else {
+            "no stderr output"
+        }
+    }
+}
+
+/// Separate Linux stderr from the Windows-host messages interleaved by WSL.
+/// UTF-16LE lines must consume the entire two-byte LF code unit, otherwise the
+/// next line is misaligned. Searching by code unit also avoids splitting a
+/// character such as U+4E0A at its low byte. Linux stderr remains UTF-8.
+pub(super) fn stderr_diagnostics(mut bytes: &[u8]) -> StderrDiagnostics {
+    let mut diagnostics = StderrDiagnostics::default();
+    while !bytes.is_empty() {
+        let prefix = bytes.split(|byte| *byte == b'\n').next().unwrap_or(bytes);
+        let utf16 = prefix.starts_with(&[0xff, 0xfe])
+            || prefix.iter().skip(1).step_by(2).any(|byte| *byte == 0);
+        let newline = if utf16 {
+            bytes
+                .chunks_exact(2)
+                .position(|pair| pair == [b'\n', 0])
+                .map(|index| (index * 2, 2))
+        } else {
+            bytes
+                .iter()
+                .position(|byte| *byte == b'\n')
+                .map(|index| (index, 1))
+        };
+        let (end, delimiter_len) = newline.unwrap_or((bytes.len(), 0));
+        let line = decode_cli_output(&bytes[..end]);
+        bytes = &bytes[end + delimiter_len..];
+        let line = line.trim_matches(|character| matches!(character, '\0' | '\r' | '\u{feff}'));
+        if line.trim().is_empty() {
+            continue;
+        }
+        let target = if utf16 || is_host_diagnostic(line) {
+            &mut diagnostics.host
+        } else {
+            &mut diagnostics.workspace
+        };
+        if !target.is_empty() {
+            target.push('\n');
+        }
+        target.push_str(line);
+    }
+    diagnostics
 }
 
 fn check_output(output: &Output) -> anyhow::Result<()> {
@@ -251,11 +289,60 @@ mod tests {
         mixed.extend_from_slice(b"ls: cannot access '/home/x': No such file or directory\n");
 
         assert_eq!(
-            stderr_diagnostics(&mixed),
+            stderr_diagnostics(&mixed).workspace,
             "ls: cannot access '/home/x': No such file or directory"
         );
-        assert_eq!(stderr_diagnostics(&[]), "");
-        assert_eq!(stderr_diagnostics(b"wsl.exe: WSL2 is not installed\n"), "");
+        assert_eq!(stderr_diagnostics(&[]).workspace, "");
+        assert_eq!(
+            stderr_diagnostics(b"wsl.exe: WSL2 is not installed\n").failure_detail(),
+            "wsl.exe: WSL2 is not installed"
+        );
+    }
+
+    #[test]
+    fn wsl_stderr_preserves_utf16_line_boundaries_and_linux_unicode() {
+        for host in [
+            "wsl: first warning\r\nwsl: second warning\r\n",
+            "wsl: 上次启动警告\r\n",
+            "wsl: warning\r\n    additional host detail\r\n",
+        ] {
+            for bom in [false, true] {
+                let mut stderr = if bom { vec![0xff, 0xfe] } else { Vec::new() };
+                stderr.extend(host.encode_utf16().flat_map(u16::to_le_bytes));
+                stderr.extend_from_slice("cat: /workspace/文件: Permission denied\n".as_bytes());
+                stderr.extend(
+                    "wsl.exe: final warning\r\n"
+                        .encode_utf16()
+                        .flat_map(u16::to_le_bytes),
+                );
+                stderr.extend_from_slice(b"second Linux diagnostic");
+                let diagnostics = stderr_diagnostics(&stderr);
+                assert_eq!(
+                    diagnostics.workspace,
+                    "cat: /workspace/文件: Permission denied\nsecond Linux diagnostic"
+                );
+                assert!(diagnostics.host.contains("final warning"));
+                assert!(!diagnostics.workspace.contains('\0'));
+            }
+        }
+    }
+
+    #[test]
+    fn wsl_stderr_keeps_host_errors_without_a_trailing_newline() {
+        let stderr = "wsl: Failed to start distribution"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>();
+        let diagnostics = stderr_diagnostics(&stderr);
+        assert!(diagnostics.workspace.is_empty());
+        assert_eq!(
+            diagnostics.failure_detail(),
+            "wsl: Failed to start distribution"
+        );
+        assert_eq!(
+            stderr_diagnostics(b"\r\n").failure_detail(),
+            "no stderr output"
+        );
     }
 
     #[test]
