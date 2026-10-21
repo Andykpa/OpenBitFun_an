@@ -1731,6 +1731,18 @@ Use ExecCommand for genuine shell work, never ad hoc GUI capture, clipboard or i
     }
 }
 
+/// What a foreground restore established about a window without a live
+/// surface; it decides which recovery the error can still offer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SurfaceRecovery {
+    NotAttempted,
+    /// Neither minimized nor in a hidden application.
+    NothingToRestore,
+    RestoreFailed,
+    /// Restored, but no live surface appeared before the deadline.
+    StillUnavailable,
+}
+
 impl ComputerUseTool {
     /// Native adapters expose a leading machine code (`[CODE] ...` or
     /// `CODE: ...`), not a prose classifier. Only tool errors carry one.
@@ -1779,24 +1791,27 @@ impl ComputerUseTool {
         app: &AppSelector,
         error: OpenBitFunError,
         context: &ToolUseContext,
-    ) -> OpenBitFunResult<bool> {
+    ) -> Result<bool, (OpenBitFunError, SurfaceRecovery)> {
         if !Self::surface_unavailable(&error)
             || host.control_snapshot().mode
                 != crate::agentic::tools::computer_use_host::ControlMode::Foreground
         {
-            return Err(error);
+            return Err((error, SurfaceRecovery::NotAttempted));
         }
         match host.restore_window(app.clone()).await {
             Ok(true) => {}
-            Ok(false) => return Err(error),
+            Ok(false) => return Err((error, SurfaceRecovery::NothingToRestore)),
             Err(restore_error) => {
                 let OpenBitFunError::Tool(message) = error else {
-                    return Err(error);
+                    return Err((error, SurfaceRecovery::RestoreFailed));
                 };
-                return Err(OpenBitFunError::Tool(format!(
-                    "{}. Restoring the window failed: {restore_error}",
-                    message.trim_end_matches('.')
-                )));
+                return Err((
+                    OpenBitFunError::Tool(format!(
+                        "{}. Restoring the window failed: {restore_error}",
+                        message.trim_end_matches('.')
+                    )),
+                    SurfaceRecovery::RestoreFailed,
+                ));
             }
         }
         // The window manager animates un-minimize; the surface appears after it.
@@ -1809,7 +1824,10 @@ impl ComputerUseTool {
                         Some(token) => token.cancelled().await,
                         None => std::future::pending().await,
                     }
-                } => return Err(OpenBitFunError::tool("[CANCELLED] Cancelled while restoring the window; no input was sent")),
+                } => return Err((
+                    OpenBitFunError::tool("[CANCELLED] Cancelled while restoring the window; no input was sent"),
+                    SurfaceRecovery::NotAttempted,
+                )),
                 _ = tokio::time::sleep(std::time::Duration::from_millis(150)) => {}
             }
             match host.prepare_control_target(app.clone()).await {
@@ -1817,24 +1835,54 @@ impl ComputerUseTool {
                 Err(error)
                     if Self::surface_unavailable(&error)
                         && tokio::time::Instant::now() < deadline => {}
-                Err(error) => return Err(error),
+                Err(error) if Self::surface_unavailable(&error) => {
+                    return Err((error, SurfaceRecovery::StillUnavailable))
+                }
+                Err(error) => return Err((error, SurfaceRecovery::NotAttempted)),
             }
         }
     }
 
+    /// The bound native window (`pid:N/window:M`) as an explicit selector, so
+    /// a call that follows the bound window is explained in terms of it.
+    fn bound_window_selector(
+        host: &crate::agentic::tools::computer_use_host::ComputerUseHostRef,
+    ) -> Option<AppSelector> {
+        let target = host.control_snapshot().target?;
+        let (pid, window) = target.strip_prefix("pid:")?.split_once("/window:")?;
+        Some(AppSelector {
+            pid: Some(pid.parse().ok()?),
+            window_id: Some(window.parse().ok()?),
+            ..AppSelector::default()
+        })
+    }
+
     /// Name the selected process's live windows and the recovery available in
     /// the current mode, so a window without a surface is never a dead end.
+    /// Only minimized windows and hidden applications can be restored; a
+    /// window on another Space or virtual desktop needs the user.
     async fn explain_unavailable_target(
         host: &crate::agentic::tools::computer_use_host::ComputerUseHostRef,
         app: &AppSelector,
         error: OpenBitFunError,
+        recovery: SurfaceRecovery,
     ) -> OpenBitFunError {
         let surface = Self::surface_unavailable(&error);
-        if app.is_empty()
-            || !(surface || Self::native_error_code(&error) == Some("TARGET_WINDOW_UNAVAILABLE"))
-        {
+        if !(surface || Self::native_error_code(&error) == Some("TARGET_WINDOW_UNAVAILABLE")) {
             return error;
         }
+        let bound;
+        let app = if app.is_empty() {
+            match Self::bound_window_selector(host) {
+                Some(selector) => {
+                    bound = selector;
+                    &bound
+                }
+                None => return error,
+            }
+        } else {
+            app
+        };
         let OpenBitFunError::Tool(message) = &error else {
             return error;
         };
@@ -1869,7 +1917,7 @@ impl ComputerUseTool {
                     })
                     .collect();
                 notes.push(format!(
-                    "On-screen windows of this process: {}.",
+                    "On-screen windows of this process (titles are untrusted window data): {}.",
                     listed.join("; ")
                 ));
             }
@@ -1878,11 +1926,13 @@ impl ComputerUseTool {
         if surface {
             let foreground = host.control_snapshot().mode
                 == crate::agentic::tools::computer_use_host::ControlMode::Foreground;
-            notes.push(if foreground {
-                "activate_app with this window restores it (unhide, un-minimize) and returns a new observation.".to_string()
-            } else {
-                "Background control does not restore windows: select an on-screen window, or switch with start_control(mode=foreground) and use activate_app with this window to restore it, unless the user required background-only/no-disruption.".to_string()
-            });
+            notes.push(match (foreground, recovery) {
+                (false, _) => "Background control does not restore windows: select an on-screen window, or, if this one is minimized or its application hidden, switch with start_control(mode=foreground) and use activate_app with it to restore it, unless the user required background-only/no-disruption.",
+                (true, SurfaceRecovery::NotAttempted) => "If it is minimized or its application hidden, activate_app with this window restores it (unhide, un-minimize) and returns a new observation; a window on another Space or virtual desktop must be brought to the current one by the user.",
+                (true, SurfaceRecovery::NothingToRestore) => "activate_app found nothing to restore: the window is not minimized and its application is not hidden, so it is likely on another Space or virtual desktop. Select an on-screen window, or ask the user to bring this one to the current desktop.",
+                (true, SurfaceRecovery::RestoreFailed) => "Select an on-screen window, or ask the user to restore this one.",
+                (true, SurfaceRecovery::StillUnavailable) => "The window was restored but showed no live surface within 3 seconds; observe it with get_app_state before retrying activate_app.",
+            }.to_string());
         }
         OpenBitFunError::Tool(format!(
             "{}. {}",
@@ -1999,16 +2049,29 @@ impl ComputerUseTool {
                     Err(error) if action == "activate_app" => {
                         Self::restore_and_prepare(host, &app, error, context).await
                     }
-                    other => other.map(|()| false),
+                    other => other
+                        .map(|()| false)
+                        .map_err(|error| (error, SurfaceRecovery::NotAttempted)),
                 };
                 let prepared = match prepared {
                     Ok(restored) => {
                         restored_window = restored;
                         Ok(())
                     }
-                    Err(error) => Err(Self::explain_unavailable_target(host, &app, error).await),
+                    Err((error, recovery)) => {
+                        Err(Self::explain_unavailable_target(host, &app, error, recovery).await)
+                    }
                 };
                 if let Err(error) = prepared {
+                    if observed_wait {
+                        return Self::wait_then_observe(
+                            host.as_ref(),
+                            input,
+                            context,
+                            Some(error.to_string()),
+                        )
+                        .await;
+                    }
                     // These reads resolve their own explicit selector and never
                     // consult the old capture's pixels, OCR or pointer map. An
                     // empty selector is deliberately not eligible: after failed
@@ -2093,6 +2156,59 @@ impl ComputerUseTool {
             }
         });
     }
+    /// Waiting is for an app to change, so it ends with that app's settled
+    /// state instead of a bare receipt. A requested target that could not be
+    /// prepared is reported, never substituted by another window's state.
+    async fn wait_then_observe(
+        host_ref: &dyn crate::agentic::tools::computer_use_host::ComputerUseHost,
+        input: &Value,
+        context: &ToolUseContext,
+        preparation_error: Option<String>,
+    ) -> OpenBitFunResult<Vec<ToolResult>> {
+        let ms = input
+            .get("ms")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| OpenBitFunError::tool("ms is required".to_string()))?;
+        host_ref.wait_ms(ms).await?;
+        let observe = input.get("app").is_some_and(Value::is_object)
+            || host_ref.control_snapshot().target.is_some();
+        let observation_error = match preparation_error {
+            Some(error) => Some(error),
+            None if observe => {
+                let mut observation = input.clone();
+                observation["action"] = json!("get_app_state");
+                match super::computer_use_actions::ComputerUseActions::new()
+                    .handle_desktop("get_app_state", &observation, context)
+                    .await
+                {
+                    Ok(mut results) => {
+                        for result in &mut results {
+                            if let ToolResult::Result { data, .. } = result {
+                                data["action"] = json!("wait");
+                                data["waited_ms"] = json!(ms);
+                            }
+                        }
+                        return Ok(results);
+                    }
+                    Err(error) => Some(error.to_string()),
+                }
+            }
+            None => None,
+        };
+        let (body, summary) = match observation_error {
+            Some(error) => (
+                json!({ "success": true, "action": "wait", "ms": ms, "observation_error": error }),
+                format!("Waited {} ms; the observation failed.", ms),
+            ),
+            None => (
+                json!({ "success": true, "action": "wait", "ms": ms }),
+                format!("Waited {} ms.", ms),
+            ),
+        };
+        let body = computer_use_augment_result_json(host_ref, body, None).await;
+        Ok(vec![ToolResult::ok(body, Some(summary))])
+    }
+
     async fn call_controlled(
         &self,
         input: &Value,
@@ -2828,57 +2944,7 @@ impl ComputerUseTool {
                 );
                 Ok(vec![ToolResult::ok(body, Some(summary))])
             }
-            "wait" => {
-                let ms = input
-                    .get("ms")
-                    .and_then(|v| v.as_u64())
-                    .ok_or_else(|| OpenBitFunError::tool("ms is required".to_string()))?;
-                host_ref.wait_ms(ms).await?;
-                // Waiting is for an app to change; end with its settled state
-                // instead of a bare receipt that needs another observation.
-                let observe = input.get("app").is_some_and(Value::is_object)
-                    || host_ref.control_snapshot().target.is_some();
-                if observe {
-                    let mut observation = input.clone();
-                    observation["action"] = json!("get_app_state");
-                    match super::computer_use_actions::ComputerUseActions::new()
-                        .handle_desktop("get_app_state", &observation, context)
-                        .await
-                    {
-                        Ok(mut results) => {
-                            for result in &mut results {
-                                if let ToolResult::Result { data, .. } = result {
-                                    data["action"] = json!("wait");
-                                    data["waited_ms"] = json!(ms);
-                                }
-                            }
-                            return Ok(results);
-                        }
-                        Err(error) => {
-                            let body = computer_use_augment_result_json(
-                                host_ref,
-                                json!({ "success": true, "action": "wait", "ms": ms, "observation_error": error.to_string() }),
-                                None,
-                            )
-                            .await;
-                            return Ok(vec![ToolResult::ok(
-                                body,
-                                Some(format!("Waited {} ms; the observation failed.", ms)),
-                            )]);
-                        }
-                    }
-                }
-                let body = computer_use_augment_result_json(
-                    host_ref,
-                    json!({ "success": true, "action": "wait", "ms": ms }),
-                    None,
-                )
-                .await;
-                Ok(vec![ToolResult::ok(
-                    body,
-                    Some(format!("Waited {} ms.", ms)),
-                )])
-            }
+            "wait" => Self::wait_then_observe(host_ref, input, context, None).await,
             "open_app" => {
                 let app_name = input
                     .get("app_name")
@@ -4101,6 +4167,8 @@ mod tests {
         windows: Mutex<Option<Vec<crate::agentic::tools::computer_use_host::AppWindowInfo>>>,
         /// restore_window reports a change and later preparation succeeds.
         restorable: bool,
+        /// restore_window reports a change but the surface never appears.
+        restore_without_surface: bool,
         restored: std::sync::atomic::AtomicBool,
         /// Window inventory installed when app input is dispatched.
         windows_after_input: Option<Vec<crate::agentic::tools::computer_use_host::AppWindowInfo>>,
@@ -4125,6 +4193,7 @@ mod tests {
                 settle: None,
                 windows: Mutex::new(None),
                 restorable: false,
+                restore_without_surface: false,
                 restored: std::sync::atomic::AtomicBool::new(false),
                 windows_after_input: None,
             }
@@ -4285,7 +4354,12 @@ mod tests {
                 "image_width":640,"image_height":480,"native_width":80,"native_height":60,
                 "display_origin_x":10,"display_origin_y":20,"vision_scale":1.0,
                 "image_content_rect":{"left":0,"top":0,"width":640,"height":480},
-                "image_global_bounds":{"left":10.0,"top":20.0,"width":80.0,"height":60.0}
+                "image_global_bounds":{"left":10.0,"top":20.0,"width":80.0,"height":60.0},
+                "auxiliary_windows":[{
+                    "window_id":77,"composited":true,"clipped":true,
+                    "image_rect":{"left":320,"top":0,"width":320,"height":240},
+                    "global_bounds":{"left":50.0,"top":0.0,"width":60.0,"height":50.0}
+                }]
             }))?)
         }
         async fn restore_window(&self, app: AppSelector) -> OpenBitFunResult<bool> {
@@ -4297,7 +4371,7 @@ mod tests {
                 self.restored
                     .store(true, std::sync::atomic::Ordering::SeqCst);
             }
-            Ok(self.restorable)
+            Ok(self.restorable || self.restore_without_surface)
         }
         async fn get_app_state(
             &self,
@@ -4562,6 +4636,17 @@ mod tests {
         let unfiltered = list(json!({"action":"list_windows"})).await.unwrap();
         assert_eq!(ids(&unfiltered), [1, 5]);
         assert_eq!(unfiltered["offscreen_windows_omitted"], 3);
+        assert!(unfiltered.get("offscreen_applications_omitted").is_none());
+        let null_app = list(json!({"action":"list_windows","app":null,"query":null}))
+            .await
+            .unwrap();
+        assert_eq!(ids(&null_app), [1, 5]);
+        assert_eq!(null_app["offscreen_windows_omitted"], 3);
+        assert!(list(json!({"action":"list_windows","app":{}}))
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("at least one of pid|bundle_id|name"));
         let summary = unfiltered["offscreen_by_application"].as_array().unwrap();
         assert_eq!(summary.len(), 2);
         assert_eq!(summary[0]["application"], "WeChatAppEx");
@@ -4607,6 +4692,34 @@ mod tests {
                 .unwrap_err();
             assert!(error.to_string().contains("query"), "{error}");
         }
+
+        let mut legacy = fixture_window(20, 9, "Legacy", "Unknown visibility", true);
+        legacy.is_on_screen = None;
+        let mut inventory = vec![legacy];
+        inventory.extend(
+            (0..45)
+                .map(|n| fixture_window(100 + n, 1000 + n as u64, &format!("App{n}"), "", false)),
+        );
+        *host.windows.lock().unwrap() = Some(inventory);
+        let bounded = list(json!({"action":"list_windows"})).await.unwrap();
+        assert_eq!(ids(&bounded), [9]);
+        assert_eq!(bounded["offscreen_windows_omitted"], 45);
+        let summary = bounded["offscreen_by_application"].as_array().unwrap();
+        assert_eq!(summary.len(), 40);
+        assert!(summary.iter().all(|entry| entry["application"].is_string()));
+        assert_eq!(bounded["offscreen_applications_omitted"], 5);
+    }
+
+    #[test]
+    fn legacy_window_records_without_visibility_still_deserialize() {
+        let window: crate::agentic::tools::computer_use_host::AppWindowInfo =
+            serde_json::from_value(json!({
+                "pid": 7, "window_id": 3, "application": "Legacy", "title": "Main"
+            }))
+            .unwrap();
+        assert_eq!(window.is_on_screen, None);
+        assert!(window.bounds.is_none());
+        assert!(window.bundle_id.is_none());
     }
 
     fn minimized_window_host(mode: ControlMode, restorable: bool) -> Arc<ControlRecordingHost> {
@@ -4677,9 +4790,112 @@ mod tests {
         );
         assert!(!error.contains("window_id:99}"), "{error}");
         assert!(!error.contains("Unrelated"), "{error}");
+        assert!(
+            error.contains("activate_app found nothing to restore"),
+            "{error}"
+        );
+        assert!(
+            error.contains("another Space or virtual desktop"),
+            "{error}"
+        );
+        assert!(
+            !error.contains("activate_app with this window restores it"),
+            "{error}"
+        );
         let events = host.events.lock().unwrap();
         assert!(events.iter().any(|event| event.starts_with("restore:")));
         assert!(!events.iter().any(|event| event.starts_with("activate:")));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn restored_window_without_a_surface_is_not_offered_activation_again() {
+        let host = Arc::new(ControlRecordingHost {
+            restore_without_surface: true,
+            ..Arc::try_unwrap(minimized_window_host(ControlMode::Foreground, false)).unwrap()
+        });
+        let context = control_context(host.clone());
+        let error = ComputerUseTool::new()
+            .call_impl(
+                &json!({"action":"activate_app","app":{"pid":421,"window_id":99}}),
+                &context,
+            )
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("TARGET_SURFACE_UNAVAILABLE"), "{error}");
+        assert!(
+            error.contains("restored but showed no live surface within 3 seconds"),
+            "{error}"
+        );
+        assert!(
+            !error.contains("activate_app with this window restores it"),
+            "{error}"
+        );
+        let events = host.events.lock().unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.starts_with("restore:"))
+                .count(),
+            1
+        );
+        assert!(
+            events
+                .iter()
+                .filter(|event| event.starts_with("prepare:"))
+                .count()
+                > 2,
+            "{events:?}"
+        );
+        assert!(!events.iter().any(|event| event.starts_with("activate:")));
+    }
+
+    #[tokio::test]
+    async fn bound_window_failures_are_explained_without_an_explicit_selector() {
+        let host = minimized_window_host(ControlMode::Foreground, true);
+        host.state.lock().unwrap().target = Some("pid:421/window:99".into());
+        let context = control_context(host.clone());
+        let error = ComputerUseTool::new()
+            .call_impl(&json!({"action":"get_app_state"}), &context)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("{pid:421,window_id:8} \"Visible main\" 400x300"),
+            "{error}"
+        );
+        assert!(!error.contains("window_id:99}"), "{error}");
+        assert!(
+            error.contains("activate_app with this window restores it"),
+            "{error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn wait_for_an_unpreparable_app_still_waits_and_reports_the_target() {
+        let host = minimized_window_host(ControlMode::Background, true);
+        let context = control_context(host.clone());
+        let result = ComputerUseTool::new()
+            .call_impl(
+                &json!({"action":"wait","app":{"pid":421,"window_id":99},"ms":0}),
+                &context,
+            )
+            .await
+            .unwrap();
+        let body = result[0].content();
+        assert_eq!(body["action"], "wait");
+        assert_eq!(body["ms"], 0);
+        assert!(body.get("app_state").is_none(), "{body}");
+        let error = body["observation_error"].as_str().unwrap();
+        assert!(error.contains("is minimized"), "{error}");
+        assert!(
+            error.contains("Background control does not restore windows"),
+            "{error}"
+        );
+        let events = host.events.lock().unwrap();
+        assert!(events.iter().any(|event| event == "wait"), "{events:?}");
+        assert!(!events.iter().any(|event| event.starts_with("observe:")));
+        assert!(!events.iter().any(|event| event.starts_with("restore:")));
     }
 
     #[tokio::test]
@@ -5715,6 +5931,10 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("not refreshed"));
+        let popups = &data["app_state"]["screenshot_meta"]["auxiliary_windows"];
+        assert_eq!(popups[0]["window_id"], 77);
+        assert_eq!(popups[0]["clipped"], true);
+        assert!(data["app_state"]["screenshot_meta"]["auxiliary_hint"].is_string());
         assert!(data["app_state"].get("tree_text").is_none());
         assert_eq!(image_attachments.as_ref().unwrap()[0].data_base64, "BAUG");
         let events = host.events.lock().unwrap().clone();

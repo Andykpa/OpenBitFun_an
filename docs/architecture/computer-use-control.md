@@ -263,12 +263,19 @@ can establish: `TARGET_APP_HIDDEN` for a hidden macOS application, and
 `TARGET_SURFACE_UNAVAILABLE` naming a minimized, cloaked or off-Space window.
 Windows reports display-affinity exclusion as `CAPTURE_TARGET_UNAVAILABLE`. The
 tool appends the process's other on-screen windows as exact selectors and a
-mode-aware recovery. Only a foreground `activate_app` recovers such a window:
-the host unhides the application and un-minimizes the selected window (macOS
-`AXMinimized`, Windows `SW_RESTORE`), within the admitted sharing scope, then
-prepares the target again and reports `restored_window: true`. Background
-actions never restore, unhide or activate a window, and no other window or
-desktop pixels are substituted.
+mode-aware recovery. Only a foreground `activate_app` recovers such a window,
+and only when it is minimized or its application hidden: the host unhides the
+application and un-minimizes the window the error named (the explicit or bound
+window, else the one capture selects; macOS `AXMinimized`, Windows
+`SW_RESTORE`), within the admitted sharing scope, then prepares the target
+again and reports `restored_window: true`. Activation also sets the capture
+input barrier, so the returned observation comes from a frame delivered after
+it. A window on another Space or virtual desktop cannot be restored; once a
+restore found nothing to change, failed, or left no live surface, the recovery
+note says so instead of offering `activate_app` again. Background actions never
+restore, unhide or activate a window, and no other window or desktop pixels are
+substituted. A `wait` whose target cannot be prepared still waits and reports
+that error as `observation_error` instead of observing another window.
 
 A `wait` that names `app`, or runs with a bound window, returns that window's
 observation after the duration, with the same `include_image` choice. A bare
@@ -557,7 +564,12 @@ The zoomed image is an image observation with its own `screenshot_id`. Its
 pointer map records the region's offset inside the window and the window size,
 so `image_xy` on it maps into that region and survives pure window movement; a
 resize invalidates it like any other observation. Full and zoomed observations
-of the same window remain usable together while its size is unchanged. A zoom
+of the same window remain usable together while its size is unchanged. The map
+marks itself as zoomed rather than being inferred from its region, so a zoom of
+the whole window is still a zoom. While a zoom is the latest image, image
+coordinates without a `screenshot_id` are rejected with
+`SCREENSHOT_ID_REQUIRED` instead of being guessed. Popups composited into the
+zoom are listed in its `auxiliary_windows`, clipped to the region. A zoom
 is vision-only, refreshes no AX tree or `observation_id`, never falls back to an
 accessibility-only read, and never captures outside the bound window. Linux and
 older hosts report the capability as unsupported.
