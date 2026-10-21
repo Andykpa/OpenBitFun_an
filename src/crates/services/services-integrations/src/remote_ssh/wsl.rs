@@ -108,6 +108,40 @@ fn distribution_names(bytes: &[u8]) -> Vec<String> {
         .collect()
 }
 
+/// Prefixes `wsl.exe` uses for messages about the Windows host itself.
+const HOST_DIAGNOSTIC_PREFIXES: [&str; 2] = ["wsl:", "wsl.exe:"];
+
+fn is_host_diagnostic(line: &str) -> bool {
+    let line = line.trim_start();
+    HOST_DIAGNOSTIC_PREFIXES.iter().any(|prefix| {
+        line.get(..prefix.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+    })
+}
+
+/// Decode a workspace command's stderr and drop the Windows-host messages
+/// `wsl.exe` interleaves into it.
+///
+/// `wsl.exe` reports host conditions (the NAT localhost-proxy warning, update
+/// notices) on the same stderr stream as the Linux command, encoded as UTF-16LE
+/// even when the Linux side writes UTF-8. Those messages describe the Windows
+/// host, so they must never turn a successful workspace command into a failure
+/// and must never be reported as the Linux-side error. Decode line by line
+/// because one stream mixes both encodings.
+pub(crate) fn stderr_diagnostics(bytes: &[u8]) -> String {
+    bytes
+        .split(|byte| *byte == b'\n')
+        .map(decode_cli_output)
+        .map(|line| {
+            line.trim_matches(|character| matches!(character, '\0' | '\r' | '\u{feff}'))
+                .to_string()
+        })
+        .filter(|line| !line.trim().is_empty())
+        .filter(|line| !is_host_diagnostic(line))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn check_output(output: &Output) -> anyhow::Result<()> {
     if !output.status.success() {
         let mut detail = decode_cli_output(&output.stderr);
@@ -203,6 +237,25 @@ mod tests {
             distribution_names(&[&[0xff, 0xfe][..], &utf16].concat()),
             distribution_names(&utf16)
         );
+    }
+
+    /// `wsl.exe` reports host conditions on the same stderr stream as the Linux
+    /// command, in UTF-16LE, so the two encodings have to be told apart per line.
+    #[test]
+    fn wsl_stderr_diagnostics_drop_host_messages_and_keep_linux_output() {
+        let mut mixed: Vec<u8> =
+            "wsl: 检测到 localhost 代理配置，但未镜像到 WSL。NAT 模式下的 WSL 不支持 localhost 代理。\r\n"
+                .encode_utf16()
+                .flat_map(u16::to_le_bytes)
+                .collect();
+        mixed.extend_from_slice(b"ls: cannot access '/home/x': No such file or directory\n");
+
+        assert_eq!(
+            stderr_diagnostics(&mixed),
+            "ls: cannot access '/home/x': No such file or directory"
+        );
+        assert_eq!(stderr_diagnostics(&[]), "");
+        assert_eq!(stderr_diagnostics(b"wsl.exe: WSL2 is not installed\n"), "");
     }
 
     #[test]
@@ -338,6 +391,36 @@ mod tests {
         assert!(result.success);
         assert_eq!(result.server_info.unwrap().os_type, "Linux");
         manager.save_connection(&config).await.unwrap();
+        // The host interleaves its own wsl.exe messages into the command stderr
+        // stream (the NAT localhost-proxy warning, for one). Listing and
+        // existence probes must still read the Linux side correctly, including
+        // the `/home` directory the workspace picker opens first.
+        manager
+            .container_read_dir(&config.id, "/home")
+            .await
+            .unwrap();
+        let remote_dir = format!("/tmp/openbitfun-wsl-dir-{}", uuid::Uuid::new_v4());
+        manager
+            .container_mkdir(&config.id, &remote_dir, false)
+            .await
+            .unwrap();
+        assert!(manager
+            .container_read_dir(&config.id, &remote_dir)
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(manager
+            .container_exists(&config.id, &remote_dir)
+            .await
+            .unwrap());
+        assert!(!manager
+            .container_exists(&config.id, &format!("{remote_dir}/missing"))
+            .await
+            .unwrap());
+        manager
+            .execute_command(&config.id, &format!("rmdir -- '{}'", remote_dir))
+            .await
+            .unwrap();
         let remote_path = format!("/tmp/openbitfun-wsl-{}", uuid::Uuid::new_v4());
         let bytes = b"binary\0payload\n\xff\xfe";
         manager

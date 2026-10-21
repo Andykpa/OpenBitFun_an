@@ -2021,6 +2021,40 @@ fn parse_container_dir_output(
         .collect()
 }
 
+/// Interpret a workspace directory listing from its exit status alone.
+///
+/// The exit status is the only success signal: local process transports (WSL,
+/// Docker) write their own host messages into the same stderr stream as the
+/// listing probe, so a complete listing must not be failed for having stderr
+/// output. Stdout stays byte-exact because it carries NUL-delimited filenames.
+fn container_dir_entries(
+    path: &str,
+    stdout: Vec<u8>,
+    stderr: &[u8],
+    status: i32,
+) -> anyhow::Result<Vec<crate::remote_ssh::types::RemoteDirEntry>> {
+    if status != 0 {
+        let detail = super::wsl::stderr_diagnostics(stderr);
+        anyhow::bail!(
+            "Failed to list container directory '{}': command exited with status {}{}",
+            path,
+            status,
+            if detail.is_empty() {
+                String::new()
+            } else {
+                format!(": {detail}")
+            }
+        );
+    }
+    let stdout = String::from_utf8(stdout).with_context(|| {
+        format!(
+            "Container directory '{}' contains a filename that is not valid UTF-8",
+            path
+        )
+    })?;
+    parse_container_dir_output(&stdout)
+}
+
 fn parse_container_file_output(
     output: &str,
 ) -> anyhow::Result<Option<crate::remote_ssh::types::RemoteFileEntry>> {
@@ -5653,20 +5687,7 @@ impl SSHConnectionManager {
         let path = self.resolve_sftp_path(connection_id, path).await?;
         let script = container_read_dir_script(&path, max_entries);
         let (stdout, stderr, status) = self.execute_workspace_bytes(connection_id, &script).await?;
-        if status != 0 || !stderr.is_empty() {
-            anyhow::bail!(
-                "Failed to list container directory '{}': {}",
-                path,
-                String::from_utf8_lossy(&stderr).trim()
-            );
-        }
-        let stdout = String::from_utf8(stdout).with_context(|| {
-            format!(
-                "Container directory '{}' contains a filename that is not valid UTF-8",
-                path
-            )
-        })?;
-        parse_container_dir_output(&stdout)
+        container_dir_entries(&path, stdout, &stderr, status)
     }
 
     pub async fn container_exists(&self, connection_id: &str, path: &str) -> anyhow::Result<bool> {
@@ -5675,8 +5696,13 @@ impl SSHConnectionManager {
             "test -e {0} || test -L {0}",
             crate::remote_ssh::shell::quote_arg(&path)
         );
-        let (_, stderr, status) = self.execute_command(connection_id, &command).await?;
-        parse_container_exists_output(&path, &stderr, status)
+        // Read raw bytes: local process transports write their own host
+        // messages into the same stderr stream, and they have to be decoded and
+        // dropped before the exit status can be interpreted.
+        let (_, stderr, status) = self
+            .execute_workspace_bytes(connection_id, &command)
+            .await?;
+        parse_container_exists_output(&path, &super::wsl::stderr_diagnostics(&stderr), status)
     }
 
     pub async fn container_mkdir(
@@ -8549,6 +8575,68 @@ mod tests {
             assert!(error.contains(&format!("status {status}")));
             assert!(error.contains(stderr));
         }
+    }
+
+    /// `wsl.exe` prints this host warning on every launch, including launches
+    /// whose Linux command succeeds. It arrives as UTF-16LE bytes on the same
+    /// stderr stream as the Linux command.
+    fn wsl_host_warning_stderr() -> Vec<u8> {
+        "wsl: 检测到 localhost 代理配置，但未镜像到 WSL。NAT 模式下的 WSL 不支持 localhost 代理。\r\n"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect()
+    }
+
+    fn container_dir_listing() -> Vec<u8> {
+        format!(
+            "{}\u{0}",
+            [
+                "AGENTS.md",
+                "/workspace/AGENTS.md",
+                "f",
+                "15",
+                "1720000000",
+                "644"
+            ]
+            .join("\u{0}")
+        )
+        .into_bytes()
+    }
+
+    #[test]
+    fn container_directory_listing_succeeds_with_host_warnings_on_stderr() {
+        let entries = container_dir_entries(
+            "/workspace",
+            container_dir_listing(),
+            &wsl_host_warning_stderr(),
+            0,
+        )
+        .expect("a successful listing must not fail because the transport wrote to stderr");
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "AGENTS.md");
+        assert!(entries[0].is_file);
+    }
+
+    #[test]
+    fn container_directory_listing_reports_linux_errors_without_host_noise() {
+        let mut stderr = wsl_host_warning_stderr();
+        stderr.extend_from_slice(b"Container path is not a directory or is inaccessible\n");
+
+        let error = container_dir_entries("/workspace", Vec::new(), &stderr, 44)
+            .expect_err("a failing probe must not report a listing")
+            .to_string();
+
+        assert!(error.contains("status 44"));
+        assert!(error.contains("Container path is not a directory or is inaccessible"));
+        assert!(!error.contains("localhost"));
+    }
+
+    #[test]
+    fn container_exists_ignores_host_warnings() {
+        let stderr = super::super::wsl::stderr_diagnostics(&wsl_host_warning_stderr());
+
+        assert!(!parse_container_exists_output("/workspace/missing", &stderr, 1).unwrap());
     }
 
     #[test]
