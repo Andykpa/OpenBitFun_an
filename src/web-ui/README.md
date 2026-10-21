@@ -23,10 +23,26 @@ Removing a folder from the draft never deletes it from disk.
 
 With no source folders, enter a name to create the empty project automatically in
 `~/OpenBitFun/Projects/<project-name>`. The home directory belongs to the target
-host: the current device, controlled peer, or selected SSH host. SSH creation may
-ask for a connection, but never a save location. Hosts that do not provide their
-home directory report an error without falling back to the controller. The source selector supports the current device (including a
-controlled peer) and SSH. All folders in one project must belong to the same host.
+host or environment, including a controlled peer, SSH host, container, or WSL
+distribution. Creating in another environment may ask for a connection, but never
+a save location. Hosts that do not provide their home directory report an error
+without falling back to the controller.
+
+Choose the work location (**This computer** or **Remote host**), then the
+environment (**Host system**, **Container**, or **WSL**). Each label shares a row with its left-aligned switch;
+the environment row appears after selecting a remote host, and source-folder controls stay disabled until an environment instance is selected. Create and refresh icon buttons sit on the right, with configured or detected
+choices shown below as capsules. Click a capsule to select it; its separate edit
+icon opens a configuration dialog. Remote host choices remain available when
+the environment is a container, and discovery uses the selected host.
+The current device name and the same system icon used in the device switcher are centered below **Work location** when **This computer**
+is selected. Click a selected capsule again to clear it; clearing a host also clears its container selection. Native WSL requires the current Windows work host.
+Choose a host before adding a remote container connection. Its dialog selects only existing SSH hosts and container settings; it does not repeat the host address or authentication form. Legacy direct-container SSH profiles remain supported. New and edit dialogs do not repeat the source or saved/new chooser. The connection dialog includes the selected environment in its title. Reuse a selected connection without filling another form. Docker runtime
+options and the optional WSL user live in **Advanced settings**; direct container
+SSH needs no Docker container ID. Authentication prompts include the target in the title and request missing credentials,
+with saved authentication settings available only when explicitly expanded.
+Folder addition uses the system picker on this computer and an environment-scoped directory dialog for SSH, Docker, or WSL. A selected instance goes directly to that directory dialog.
+All folders in one project must belong to the same connection/environment; remove
+the selected folders before changing either source dimension.
 The form does not show recent projects.
 
 ## MCP configuration

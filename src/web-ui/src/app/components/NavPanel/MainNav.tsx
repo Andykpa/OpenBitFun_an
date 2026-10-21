@@ -36,6 +36,10 @@ import { useWorkspaceContext } from '@/infrastructure/contexts/WorkspaceContext'
 import { createLogger } from '@/shared/utils/logger';
 import { isRemoteWorkspace } from '@/shared/types';
 import { useSSHRemoteContext, SSHConnectionDialog, RemoteFileBrowser } from '@/features/ssh-remote';
+import { savedConnectionConfig } from '@/features/ssh-remote/savedConnectionConfig';
+import { workspacePresetHost } from '@/features/ssh-remote/useWorkspaceSourceOptions';
+import { isSshAuthenticationError, workspaceSourceErrorKey } from '@/features/ssh-remote/workspaceSourceError';
+import type { WorkspaceConnectionTarget } from '@/features/ssh-remote/types';
 import { openGlobalSearch } from '@/app/global-search/globalSearchStore';
 import { activateProductAction } from '@/app/global-search/productActionActivator';
 import { createProject, type ProjectDraft, type ProjectFolder } from '@/app/services/createProject';
@@ -50,6 +54,7 @@ import {
 } from '@/app/global-search/globalSearchShortcut';
 
 import './NavPanel.scss';
+import type { WorkspaceConnectionPreset } from '@/features/ssh-remote/useWorkspaceSourceOptions';
 
 const log = createLogger('MainNav');
 const NewProjectDialog = lazyWithRecovery(() =>
@@ -61,22 +66,9 @@ const MainNav: React.FC = () => {
   const sshRemoteRef = useRef(sshRemote);
   sshRemoteRef.current = sshRemote;
   const [isSSHConnectionDialogOpen, setIsSSHConnectionDialogOpen] = useState(false);
+  const [connectionTargetType, setConnectionTargetType] = useState<WorkspaceConnectionTarget>('ssh');
+  const [connectionPreset, setConnectionPreset] = useState<WorkspaceConnectionPreset>();
   const remoteHostResolver = useRef<((host: NonNullable<ProjectFolder['remote']> | null) => void) | null>(null);
-
-  useEffect(() => {
-    if (sshRemote.showFileBrowser) {
-      setIsSSHConnectionDialogOpen(false);
-      if (remoteHostResolver.current && sshRemote.connectionId) {
-        remoteHostResolver.current({
-          connectionId: sshRemote.connectionId,
-          connectionName: sshRemote.connectionConfig?.name || sshRemote.connectionId,
-          sshHost: sshRemote.connectionConfig?.host,
-        });
-        remoteHostResolver.current = null;
-        sshRemote.setShowFileBrowser(false);
-      }
-    }
-  }, [sshRemote]);
 
   const { openScene } = useSceneManager();
   const activeTabId = useSceneStore(s => s.activeTabId);
@@ -106,47 +98,50 @@ const MainNav: React.FC = () => {
   const sectionsScrollRef = useRef<HTMLDivElement | null>(null);
   const sessionContentRef = useRef<HTMLDivElement | null>(null);
   const [workspaceDialogOpen, setWorkspaceDialogOpen] = useState(false);
+  const [showAssistantChoice, setShowAssistantChoice] = useState(true);
   const [remoteFolderTarget, setRemoteFolderTarget] = useState<ProjectFolder | null>(null);
   const remoteFolderResolver = useRef<((folder: ProjectFolder | null) => void) | null>(null);
-
   const finishRemoteFolderPick = useCallback((folder: ProjectFolder | null) => {
     remoteFolderResolver.current?.(folder);
     remoteFolderResolver.current = null;
     setRemoteFolderTarget(null);
   }, []);
+  useEffect(() => () => { remoteFolderResolver.current?.(null); }, []);
+  useEffect(() => () => { remoteHostResolver.current?.(null); }, []);
 
-  useEffect(() => {
-    if (!isSSHConnectionDialogOpen && !sshRemote.showFileBrowser && !remoteFolderTarget) {
-      finishRemoteFolderPick(null);
-      remoteHostResolver.current?.(null);
-      remoteHostResolver.current = null;
+  const handleSelectRemoteHost = useCallback(async (target: WorkspaceConnectionTarget, preset?: WorkspaceConnectionPreset) => {
+    const scope = getActiveSurfaceScope();
+    const profile = workspacePresetHost(preset);
+    if (profile && !preset?.edit && (profile.username !== '' || profile.wsl || profile.container?.local)) {
+      try {
+        const result = await sshRemoteRef.current.connect(profile.id, savedConnectionConfig(profile), { browseAfterConnect: false });
+        scope.assertCurrent('accept connected project source');
+        return { connectionId: result?.connectionId || profile.id, connectionName: profile.name, sshHost: profile.host };
+      } catch (cause) {
+        scope.assertCurrent('retry project source authentication');
+        if (profile.wsl || profile.container?.local || !isSshAuthenticationError(cause)) {
+          log.error('Failed to connect selected project source', cause);
+          throw new Error(t(profile.wsl || profile.container?.local ? workspaceSourceErrorKey(target, cause) : 'workspaceSource.connectionFailed'));
+        }
+        preset = { kind: 'saved', connection: profile, authenticate: true };
+      }
     }
-  }, [isSSHConnectionDialogOpen, sshRemote.showFileBrowser, remoteFolderTarget, finishRemoteFolderPick]);
+    return new Promise<NonNullable<ProjectFolder['remote']> | null>(resolve => {
+      remoteHostResolver.current = resolve;
+      setConnectionTargetType(target); setConnectionPreset(preset); setIsSSHConnectionDialogOpen(true);
+    });
+  }, [t]);
 
-  useEffect(() => () => {
-    remoteFolderResolver.current?.(null);
-    remoteHostResolver.current?.(null);
-  }, []);
-
-  const handleSelectRemoteHost = useCallback(() => new Promise<NonNullable<ProjectFolder['remote']> | null>(resolve => {
-    const remote = sshRemoteRef.current;
-    if (remote.isConnected && remote.connectionId) {
-      resolve({
-        connectionId: remote.connectionId,
-        connectionName: remote.connectionConfig?.name || remote.connectionId,
-        sshHost: remote.connectionConfig?.host,
-      });
-      return;
-    }
-    remoteHostResolver.current = resolve;
-    setIsSSHConnectionDialogOpen(true);
-  }), []);
-
-  const handlePickRemoteFolder = useCallback((existing?: ProjectFolder) => new Promise<ProjectFolder | null>(resolve => {
-    remoteFolderResolver.current = resolve;
-    if (existing?.remote) setRemoteFolderTarget(existing);
-    else setIsSSHConnectionDialogOpen(true);
-  }), []);
+  const handlePickRemoteFolder = useCallback(async (target: WorkspaceConnectionTarget, existing?: ProjectFolder, preset?: WorkspaceConnectionPreset) => {
+    const scope = getActiveSurfaceScope();
+    const remote = existing?.remote ?? await handleSelectRemoteHost(target, preset);
+    scope.assertCurrent('browse selected project environment');
+    if (!remote) return null;
+    return new Promise<ProjectFolder | null>(resolve => {
+      remoteFolderResolver.current = resolve;
+      setRemoteFolderTarget({ path: existing?.path || '', remote });
+    });
+  }, [handleSelectRemoteHost]);
 
   const handleConfirmProject = useCallback((draft: ProjectDraft) => createProject(draft, async folder => {
     const remote = sshRemoteRef.current;
@@ -167,7 +162,20 @@ const MainNav: React.FC = () => {
     setWorkspaceDialogOpen(false);
   }, []);
 
-  const openWorkspaceDialog = useCallback(() => setWorkspaceDialogOpen(true), []);
+  const openWorkspaceDialog = useCallback(() => {
+    setShowAssistantChoice(true);
+    setWorkspaceDialogOpen(true);
+  }, []);
+
+  // Menu, Welcome and global search use the same source pickers as the sidebar.
+  useEffect(() => {
+    const onNewProject = () => {
+      setShowAssistantChoice(false);
+      setWorkspaceDialogOpen(true);
+    };
+    window.addEventListener('nav:new-project', onNewProject);
+    return () => window.removeEventListener('nav:new-project', onNewProject);
+  }, []);
 
   const handleCreateAssistant = useCallback(async () => {
     const scope = getActiveSurfaceScope();
@@ -179,16 +187,8 @@ const MainNav: React.FC = () => {
 
   const handleSelectRemoteWorkspace = useCallback(async (path: string) => {
     try {
-      if (remoteFolderResolver.current) {
-        const remote = remoteFolderTarget?.remote ?? (sshRemote.connectionId ? {
-          connectionId: sshRemote.connectionId,
-          connectionName: sshRemote.connectionConfig?.name || sshRemote.connectionId,
-          sshHost: sshRemote.connectionConfig?.host,
-        } : undefined);
-        if (!remote) return;
-        finishRemoteFolderPick({ path, remote });
-        sshRemote.setShowFileBrowser(false);
-        setIsSSHConnectionDialogOpen(false);
+      if (remoteFolderResolver.current && remoteFolderTarget?.remote) {
+        finishRemoteFolderPick({ path, remote: remoteFolderTarget.remote });
         return;
       }
       if (!(await sshRemote.openWorkspace(path))) {
@@ -341,7 +341,7 @@ const MainNav: React.FC = () => {
             onConfirm={handleConfirmProject}
             onPickRemoteFolder={handlePickRemoteFolder}
             onSelectRemoteHost={handleSelectRemoteHost}
-            onCreateAssistant={handleCreateAssistant}
+            onCreateAssistant={showAssistantChoice ? handleCreateAssistant : undefined}
             defaultParentPath={currentWorkspace && !isRemoteWorkspace(currentWorkspace) ? currentWorkspace.rootPath : undefined}
             data-testid="nav-workspace-dialog"
           />
@@ -351,9 +351,18 @@ const MainNav: React.FC = () => {
       {/* SSH Remote Dialogs */}
       <SSHConnectionDialog
         open={isSSHConnectionDialogOpen}
-        onClose={() => setIsSSHConnectionDialogOpen(false)}
+        initialTargetType={connectionTargetType}
+        initialPreset={connectionPreset}
+        fixedSource
+        confirmLabel={t('ssh.remote.connect')}
+        browseAfterConnect={false}
+        onConnected={(config, connectionId) => {
+          remoteHostResolver.current?.({ connectionId, connectionName: config.name, sshHost: config.host });
+          remoteHostResolver.current = null;
+        }}
+        onClose={() => { remoteHostResolver.current?.(null); remoteHostResolver.current = null; setIsSSHConnectionDialogOpen(false); }}
       />
-      {!remoteHostResolver.current && (remoteFolderTarget?.remote || (sshRemote.showFileBrowser && sshRemote.connectionId)) && (
+      {(remoteFolderTarget?.remote || (!workspaceDialogOpen && sshRemote.showFileBrowser && sshRemote.connectionId)) && (
         <RemoteFileBrowser
           connectionId={remoteFolderTarget?.remote?.connectionId || sshRemote.connectionId!}
           initialPath={remoteFolderTarget?.path || sshRemote.remoteFileBrowserInitialPath}
@@ -361,8 +370,7 @@ const MainNav: React.FC = () => {
           selectDirectoriesOnly
           onSelect={handleSelectRemoteWorkspace}
           onCancel={() => {
-            const wasSelectingFolder = Boolean(remoteFolderResolver.current);
-            finishRemoteFolderPick(null);
+            if (remoteFolderResolver.current) { finishRemoteFolderPick(null); return; }
             const hasActiveRemoteWorkspace =
               Boolean(sshRemote.remoteWorkspace) ||
               openedWorkspacesList.some(workspace =>
@@ -370,7 +378,7 @@ const MainNav: React.FC = () => {
                 workspace.connectionId === sshRemote.connectionId
               );
             sshRemote.setShowFileBrowser(false);
-            if (!wasSelectingFolder && !hasActiveRemoteWorkspace) {
+            if (!hasActiveRemoteWorkspace) {
               void sshRemote.disconnect();
             }
           }}

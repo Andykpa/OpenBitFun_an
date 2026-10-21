@@ -259,6 +259,7 @@ describe('unified project session creation', () => {
     expect(workspaceItem).toContain('data-testid="nav-workspace-menu-create-session"');
     expect(workspaceItem).not.toContain('nav-workspace-menu-create-code-session');
     expect(workspaceItem).not.toContain('nav-workspace-menu-create-cowork-session');
+    expect(workspaceItem).not.toContain('WorkspaceSessionSourceFilter');
     expect(sessionMenu).toContain("new CustomEvent('toolbar-create-session')");
     expect(sessionMenu).toContain("t('toolCards.toolbar.newSessionItem')");
     expect(sessionMenu).not.toContain("createSession('cowork')");

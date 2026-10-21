@@ -14,6 +14,7 @@ import { notificationService } from '@/shared/notification-system';
 import type { WorkspaceInfo } from '@/shared/types';
 import SessionsSection from '../sessions/SessionsSection';
 import { readAssistantDefaultSession, saveAssistantDefaultSession } from './assistantSessionPreferences';
+import './AssistantSessionHistoryDialog.scss';
 
 interface Props {
   workspace: WorkspaceInfo;
@@ -84,25 +85,27 @@ export default function AssistantSessionHistoryDialog({ workspace, isActive, onC
         </DialogHeading>
         <DialogClose />
       </DialogHeader>
-      <DialogBody>
+      <DialogBody className="assistant-session-history__body">
         {loadFailed && (
           <Button variant="text" size="sm" onClick={() => { void loadPreference(); }}>
             {t('nav.sessions.defaultReadFailed')}
           </Button>
         )}
-        <SessionsSection
-          workspaceId={workspace.id}
-          workspacePath={workspace.rootPath}
-          isActiveWorkspace={isActive}
-          layout="flat"
-          onSessionOpened={onClose}
-          defaultSessionAction={{
-            sessionId: preference?.sessionId ?? null,
-            disabled: Boolean(disabledReason) || saving,
-            disabledReason,
-            onChange: sessionId => { void changeDefault(sessionId); },
-          }}
-        />
+        <div className="assistant-session-history" data-openbitfun-component="sessions-section" data-openbitfun-part="root">
+          <SessionsSection
+            workspaceId={workspace.id}
+            workspacePath={workspace.rootPath}
+            isActiveWorkspace={isActive}
+            layout="flat"
+            onSessionOpened={onClose}
+            defaultSessionAction={{
+              sessionId: preference?.sessionId ?? null,
+              disabled: Boolean(disabledReason) || saving,
+              disabledReason,
+              onChange: sessionId => { void changeDefault(sessionId); },
+            }}
+          />
+        </div>
       </DialogBody>
       {preference?.sessionId && (
         <DialogFooter>
