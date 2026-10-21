@@ -12,6 +12,7 @@
     "branchHint": "继续自 {{source}}",
     "openSource": "打开来源会话",
     "unavailable": "来源暂不可用，显示上次缓存",
+    "unsupported": "来源格式暂不支持，请升级 OpenBitFun 后重试。",
     "incomplete": "来源对话尚未完成，当前显示已读取的历史",
     "openBeforeContinue": "请先打开来源会话并等待历史加载完成，再继续对话。"
   },

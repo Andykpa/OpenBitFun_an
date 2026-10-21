@@ -400,7 +400,7 @@ export interface Session {
   externalHistory?: {
     mode: 'follow';
     contentVersion?: string;
-    sourceStatus?: 'available' | 'unavailable';
+    sourceStatus?: 'available' | 'unavailable' | 'unsupported';
     incomplete?: boolean;
     observedFingerprint?: string;
     materializedObservation?: string;
