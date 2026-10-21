@@ -781,7 +781,10 @@ pub fn validate_template(
                 return Err("progress value must be finite and max must be positive".to_string());
             }
             if value.is_none() && value_path.is_none() {
-                return Err("progress requires value or valuePath".to_string());
+                return Err(
+                    "progress requires template.value or template.valuePath, for example {\"kind\":\"progress\",\"valuePath\":\"/done\",\"maxPath\":\"/total\"}"
+                        .to_string(),
+                );
             }
             Ok(DesktopCardTemplateKind::Progress {
                 value,
@@ -795,7 +798,7 @@ pub fn validate_template(
         DesktopCardTemplateKind::Metrics { items, layout } => {
             if items.is_empty() || items.len() > MAX_METRIC_ITEMS {
                 return Err(format!(
-                    "metrics requires between 1 and {MAX_METRIC_ITEMS} items"
+                    "metrics requires template.items with 1 to {MAX_METRIC_ITEMS} entries inside the template object (not in data), for example {{\"kind\":\"metrics\",\"items\":[{{\"label\":\"Stars\",\"path\":\"/stars\",\"format\":\"number\"}}]}}"
                 ));
             }
             if let Some(layout) = layout.as_deref() {
@@ -807,7 +810,7 @@ pub fn validate_template(
             for item in items {
                 if item.value.is_none() && item.path.is_none() {
                     return Err(format!(
-                        "metric `{}` requires value or path",
+                        "metric `{}` requires value (static) or path (JSON Pointer into the card data, such as /stars)",
                         item.label.trim()
                     ));
                 }
