@@ -130,19 +130,20 @@ describe('ProgrammersDayEgg', () => {
     expect(value()?.textContent).toBe('1024');
   });
 
-  it('drops the rain, blink, glitch, and burst when reduced motion is preferred', () => {
+  it('keeps the rain, decode, blink, and click replay when the OS reports reduced motion', () => {
     stubReducedMotion();
     renderOn(new Date(2026, 9, 24, 9, 0, 0));
-    expect(value()?.textContent).toBe('1024');
-    expect(rain()).toBeNull();
+    expect(rain()).not.toBeNull();
+    expect(value()?.textContent).toHaveLength(PROGRAMMERS_DAY_BINARY.length);
 
-    act(() => { vi.advanceTimersByTime(20_000); });
-    expect(cursor()?.dataset.blink).toBeUndefined();
-    expect(egg()?.dataset.openbitfunState).toBeUndefined();
+    settleDecode();
+    expect(value()?.textContent).toBe('1024');
+    act(() => { vi.advanceTimersByTime(530); });
+    expect(cursor()?.dataset.blink).toBeDefined();
 
     act(() => badge()!.click());
-    expect(value()?.textContent).toBe('1024');
-    expect(particles()).toHaveLength(0);
+    expect(value()?.textContent).toHaveLength(PROGRAMMERS_DAY_BINARY.length);
+    expect(particles()).toHaveLength(8);
   });
 
   it('disappears at the local midnight that ends October 24', () => {

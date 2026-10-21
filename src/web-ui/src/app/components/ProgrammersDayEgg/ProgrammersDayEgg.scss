@@ -279,19 +279,3 @@
     transform: none;
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .openbitfun-programmers-day-egg,
-  .openbitfun-programmers-day-egg__badge,
-  .openbitfun-programmers-day-egg__value,
-  .openbitfun-programmers-day-egg__value::before,
-  .openbitfun-programmers-day-egg__value::after {
-    animation: none;
-    transition: none;
-  }
-
-  .openbitfun-programmers-day-egg__rain,
-  .openbitfun-programmers-day-egg__burst {
-    display: none;
-  }
-}

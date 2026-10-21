@@ -5,13 +5,17 @@
  * title-bar space with bit rain, decodes the binary form of 1024 into a
  * phosphor-lit `<1024/>` with a blinking terminal cursor, glitches on hover
  * and now and then, and bursts the rain plus bit particles when clicked.
+ *
+ * The script-driven effects (rain, decode, blink, glitch toggles) do not
+ * consult `prefers-reduced-motion`: Windows reports it whenever the system
+ * "Animation effects" setting is off, which would leave the egg inert. CSS
+ * keyframes still follow the global reduced-motion rules.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Tooltip } from '@openbitfun/ui';
 
 import { useI18n } from '@/infrastructure/i18n';
-import { isReducedMotionPreferred } from '@/shared/utils/motionPreference';
 import { BitRain } from './bitRain';
 import {
   DECODE_TOTAL_FRAMES,
@@ -61,10 +65,7 @@ function createParticles(): Particle[] {
 
 const ProgrammersDayBadge: React.FC = () => {
   const { t } = useI18n('common');
-  const [reducedMotion] = useState(isReducedMotionPreferred);
-  const [display, setDisplay] = useState(() => (
-    reducedMotion ? PROGRAMMERS_DAY_VALUE : decodeFrame(0)
-  ));
+  const [display, setDisplay] = useState(() => decodeFrame(0));
   const [burst, setBurst] = useState<ParticleBurst | null>(null);
   const [clipped, setClipped] = useState(false);
   const [glitching, setGlitching] = useState(false);
@@ -127,7 +128,7 @@ const ProgrammersDayBadge: React.FC = () => {
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (reducedMotion || !canvas) return undefined;
+    if (!canvas) return undefined;
     const rain = new BitRain(canvas);
     rainRef.current = rain;
     layoutRain();
@@ -144,7 +145,7 @@ const ProgrammersDayBadge: React.FC = () => {
       rain.destroy();
       rainRef.current = null;
     };
-  }, [reducedMotion, layoutRain]);
+  }, [layoutRain]);
 
   useEffect(() => {
     const rain = rainRef.current;
@@ -155,7 +156,6 @@ const ProgrammersDayBadge: React.FC = () => {
 
   // Writes data attributes directly so the blink never re-renders React.
   useEffect(() => {
-    if (reducedMotion) return undefined;
     let flickerTimer: ReturnType<typeof setTimeout> | undefined;
     const blinkTimer = setInterval(() => {
       const cursor = cursorRef.current;
@@ -174,20 +174,18 @@ const ProgrammersDayBadge: React.FC = () => {
       clearInterval(blinkTimer);
       if (flickerTimer !== undefined) clearTimeout(flickerTimer);
     };
-  }, [reducedMotion]);
+  }, []);
 
   const triggerGlitch = useCallback(() => {
-    if (reducedMotion) return;
     setGlitching(true);
     if (glitchTimerRef.current !== undefined) clearTimeout(glitchTimerRef.current);
     glitchTimerRef.current = setTimeout(() => {
       glitchTimerRef.current = undefined;
       setGlitching(false);
     }, GLITCH_MS);
-  }, [reducedMotion]);
+  }, []);
 
   useEffect(() => {
-    if (reducedMotion) return undefined;
     let timer: ReturnType<typeof setTimeout>;
     const schedule = () => {
       timer = setTimeout(() => {
@@ -199,15 +197,11 @@ const ProgrammersDayBadge: React.FC = () => {
     };
     schedule();
     return () => clearTimeout(timer);
-  }, [reducedMotion, triggerGlitch]);
+  }, [triggerGlitch]);
 
   const startDecode = useCallback(() => {
     if (decodeTimerRef.current !== undefined) clearInterval(decodeTimerRef.current);
     decodeTimerRef.current = undefined;
-    if (reducedMotion) {
-      setDisplay(PROGRAMMERS_DAY_VALUE);
-      return;
-    }
     let frame = 0;
     setDisplay(decodeFrame(frame));
     decodeTimerRef.current = setInterval(() => {
@@ -218,7 +212,7 @@ const ProgrammersDayBadge: React.FC = () => {
         decodeTimerRef.current = undefined;
       }
     }, DECODE_FRAME_MS);
-  }, [reducedMotion]);
+  }, []);
 
   useEffect(() => {
     startDecode();
@@ -231,7 +225,6 @@ const ProgrammersDayBadge: React.FC = () => {
 
   const handleClick = useCallback(() => {
     startDecode();
-    if (reducedMotion) return;
     rainRef.current?.burst(CLICK_RAIN_BURST_MS);
     burstIdRef.current += 1;
     setBurst({ id: burstIdRef.current, particles: createParticles() });
@@ -240,7 +233,7 @@ const ProgrammersDayBadge: React.FC = () => {
       burstTimerRef.current = undefined;
       setBurst(null);
     }, PARTICLE_LIFETIME_MS);
-  }, [reducedMotion, startDecode]);
+  }, [startDecode]);
 
   const handleMouseEnter = useCallback(() => {
     if (!isDecodingRef.current) triggerGlitch();
@@ -267,16 +260,14 @@ const ProgrammersDayBadge: React.FC = () => {
       data-openbitfun-state={rootState || undefined}
       data-testid="programmers-day-egg"
     >
-      {!reducedMotion && (
-        <canvas
-          ref={canvasRef}
-          className="openbitfun-programmers-day-egg__rain"
-          data-openbitfun-component="programmers-day-egg"
-          data-openbitfun-part="rain"
-          data-testid="programmers-day-egg-rain"
-          aria-hidden="true"
-        />
-      )}
+      <canvas
+        ref={canvasRef}
+        className="openbitfun-programmers-day-egg__rain"
+        data-openbitfun-component="programmers-day-egg"
+        data-openbitfun-part="rain"
+        data-testid="programmers-day-egg-rain"
+        aria-hidden="true"
+      />
       <span className="openbitfun-programmers-day-egg__anchor" data-openbitfun-component="programmers-day-egg" data-openbitfun-part="anchor">
         <Tooltip content={t('nav.programmersDay.tooltip')} placement="bottom" disabled={clipped}>
           <button
