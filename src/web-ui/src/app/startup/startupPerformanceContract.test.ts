@@ -745,6 +745,7 @@ describe('startup performance contract', () => {
 
   it('keeps on-demand workspace utility dialogs out of startup-visible chunks', () => {
     const appLayoutSource = readSource('../../app/layout/AppLayout.tsx');
+    const mainNavSource = readSource('../../app/components/NavPanel/MainNav.tsx');
     const workspaceItemSource = readSource('../../app/components/NavPanel/sections/workspaces/WorkspaceItem.tsx');
     const sessionsSectionSource = readSource('../../app/components/NavPanel/sections/sessions/SessionsSection.tsx');
     const footerActionsSource = readSource('../../app/components/NavPanel/components/PersistentFooterActions.tsx');
@@ -755,9 +756,11 @@ describe('startup performance contract', () => {
 
     expect(appLayoutSource).not.toMatch(/import\s+\{\s*open\s*\}\s+from\s+['"]@tauri-apps\/plugin-dialog['"]/);
     expect(appLayoutSource).not.toMatch(/import\s+\{\s*NewProjectDialog\s*\}\s+from/);
-    expect(appLayoutSource).toContain('const NewProjectDialog = lazy');
-    expect(appLayoutSource).toContain("import('../components/NewProjectDialog')");
-    expect(appLayoutSource).toContain('<RetainedMountBoundary present={showNewProjectDialog}>');
+    expect(appLayoutSource).not.toContain('<NewProjectDialog');
+    expect(mainNavSource).not.toMatch(/import\s+\{\s*NewProjectDialog\s*\}\s+from/);
+    expect(mainNavSource).toContain('const NewProjectDialog = lazy');
+    expect(mainNavSource).toContain("import('../NewProjectDialog')");
+    expect(mainNavSource).toContain('<RetainedMountBoundary present={workspaceDialogOpen}>');
 
     expect(workspaceItemSource).not.toMatch(/import\s+WorkspaceRelatedPathsDialog\s+from/);
     expect(workspaceItemSource).not.toMatch(/import\s+WorkspaceSessionBatchModal\s+from/);

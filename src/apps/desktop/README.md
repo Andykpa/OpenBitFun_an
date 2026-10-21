@@ -526,8 +526,8 @@ the restarting desktop are interrupted.
 
 ## Windows WSL workspaces
 
-In the remote connection dialog, choose **Workspace target → Windows WSL**.
-Select an installed Linux distribution, optionally enter a Linux user, then
+Choose **Work location → This computer**, then **Work environment → WSL**.
+Select an installed Linux distribution, optionally enter a Linux user under **Advanced settings**, then
 connect and choose a folder inside that distribution. **Refresh distributions**
 reloads the list after you install another distribution. No SSH server or SSH
 credentials are needed. WSL must already be installed and the distribution must
