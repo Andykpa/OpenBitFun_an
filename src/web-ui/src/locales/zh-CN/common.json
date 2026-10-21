@@ -72,6 +72,10 @@
     "forward": "前进",
     "backShortcut": "后退 (Alt+←)",
     "forwardShortcut": "前进 (Alt+→)",
+    "programmersDay": {
+      "tooltip": "2¹⁰ = 1024 · 程序员节快乐，愿你今天零 Bug",
+      "ariaLabel": "1024 程序员节快乐"
+    },
     "items": {
       "personalOverview": "首页",
       "sessions": "会话",
