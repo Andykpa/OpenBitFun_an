@@ -1,11 +1,11 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "27c7a36f2c817b3df4411cb5ceceb707ae2bfa2b6d128c6498358956fca30411",
-  "commandCount": 699,
+  "catalogDigest": "c7c38fecfad3e83e4a9f6f451a37edbf7d42ef399409238253f9a0fd124f879b",
+  "commandCount": 701,
   "coverage": {
-    "commandCount": 699,
-    "documentedCommandCount": 642,
+    "commandCount": 701,
+    "documentedCommandCount": 644,
     "implementationCommandCount": 57,
     "implementationDigest": "503b48eebc37750e50e0427d861e884dfa353a81aae32236e4bc2d7e0f5310e2"
   },
@@ -3445,6 +3445,22 @@
       "sourceFile": "src/apps/desktop/src/api/commands.rs",
       "signature": "fn get_file_tree( state: State<'_, AppState>, request: GetFileTreeRequest, ) -> Result<serde_json::Value, String>",
       "remoteWorkspacePolicy": "RemoteRouted"
+    },
+    {
+      "id": "get_file_watch_status",
+      "moduleId": "commands",
+      "capabilityId": "feature.projects",
+      "capabilityIds": [
+        "feature.projects"
+      ],
+      "documentedItemIds": [
+        "feature.projects:file-watch"
+      ],
+      "visibility": "documented",
+      "rustPath": "get_file_watch_status",
+      "sourceFile": "src/apps/desktop/src/api/commands.rs",
+      "signature": "fn get_file_watch_status() -> Result<file_watch::FileWatchStatus, String>",
+      "remoteWorkspacePolicy": "LocalOnly"
     },
     {
       "id": "get_frontend_update_status",
@@ -8260,6 +8276,22 @@
       "sourceFile": "src/apps/desktop/src/api/agentic_api.rs",
       "signature": "fn restore_session_with_turns( runtime: State<'_, DesktopRuntimeContext>, request: RestoreSessionRequest, ) -> Result<RestoreSessionWithTurnsResponse, String>",
       "remoteWorkspacePolicy": "LegacyUnaudited"
+    },
+    {
+      "id": "retry_file_watch",
+      "moduleId": "commands",
+      "capabilityId": "feature.projects",
+      "capabilityIds": [
+        "feature.projects"
+      ],
+      "documentedItemIds": [
+        "feature.projects:file-watch"
+      ],
+      "visibility": "documented",
+      "rustPath": "retry_file_watch",
+      "sourceFile": "src/apps/desktop/src/api/commands.rs",
+      "signature": "fn retry_file_watch() -> Result<(), String>",
+      "remoteWorkspacePolicy": "LocalOnly"
     },
     {
       "id": "retry_model_pool_member",
