@@ -81,9 +81,10 @@ impl WgcCaptureSession {
             .map_err(OpenBitFunError::service)?;
         let target = super::windows_window_target::inspect_window(hwnd);
         if let Some(reason) = target.capture_unavailable_reason() {
-            return Err(OpenBitFunError::service(format!(
-                "[CAPTURE_TARGET_UNAVAILABLE] {reason}; {target:?}"
-            )));
+            log::debug!("WGC capture target unavailable: reason={reason:?}, target={target:?}");
+            return Err(OpenBitFunError::tool(
+                reason.error(target.pid, target.handle),
+            ));
         }
         unsafe {
             let (device, context) = create_d3d11_device()?;
@@ -567,18 +568,19 @@ fn ensure_stream(
     )>,
     handle: usize,
 ) -> OpenBitFunResult<&mut WgcCaptureSession> {
-    use windows::Win32::UI::WindowsAndMessaging::{GetWindowThreadProcessId, IsIconic, IsWindow};
+    use windows::Win32::UI::WindowsAndMessaging::IsWindow;
     crate::computer_use::control_session::capture_allowed().map_err(OpenBitFunError::service)?;
     let hwnd = HWND(handle as *mut _);
-    let mut pid = 0;
-    unsafe {
-        if !IsWindow(Some(hwnd)).as_bool() || IsIconic(hwnd).as_bool() {
-            return Err(OpenBitFunError::service(
-                "capture_unavailable: target closed or minimized",
-            ));
-        }
-        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+    if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+        return Err(OpenBitFunError::tool(format!(
+            "[TARGET_WINDOW_UNAVAILABLE] Window {handle} was closed. No other window or desktop pixels were captured."
+        )));
     }
+    let target = super::windows_window_target::inspect_window(hwnd);
+    if let Some(error) = target.bound_surface_error() {
+        return Err(OpenBitFunError::tool(error));
+    }
+    let pid = target.pid;
     crate::computer_use::control_session::target_allowed(&format!(
         "pid:{pid}/window:{}",
         handle as isize

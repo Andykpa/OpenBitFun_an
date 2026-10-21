@@ -20,21 +20,77 @@ pub(super) struct WindowCandidate {
     pub bounds: Option<[i32; 4]>,
 }
 
+/// Why a window has no capturable surface. Surface states are recoverable by
+/// restoring the window; the others are properties of the window itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CaptureUnavailable {
+    Minimized,
+    Hidden,
+    Cloaked,
+    DisplayAffinity,
+    NoBounds,
+}
+
+impl CaptureUnavailable {
+    pub(super) fn code(self) -> &'static str {
+        match self {
+            Self::Minimized | Self::Hidden | Self::Cloaked => "TARGET_SURFACE_UNAVAILABLE",
+            Self::DisplayAffinity => "CAPTURE_TARGET_UNAVAILABLE",
+            Self::NoBounds => "TARGET_WINDOW_UNAVAILABLE",
+        }
+    }
+
+    pub(super) fn reason(self) -> &'static str {
+        match self {
+            Self::Minimized => "is minimized",
+            Self::Hidden => "is hidden (not shown)",
+            Self::Cloaked => "is cloaked by DWM (on another virtual desktop or suspended)",
+            Self::DisplayAffinity => "restricts capture through window display affinity",
+            Self::NoBounds => "has no readable, non-empty window bounds",
+        }
+    }
+
+    /// Tool error naming the window, without dumping native handle details.
+    pub(super) fn error(self, pid: u32, handle: usize) -> String {
+        let surface = match self.code() {
+            "TARGET_SURFACE_UNAVAILABLE" => "; no live surface is available",
+            _ => "",
+        };
+        format!(
+            "[{}] Window {handle} of process {pid} {}{surface}. No other window or desktop pixels were captured.",
+            self.code(),
+            self.reason()
+        )
+    }
+}
+
 impl WindowCandidate {
-    pub(super) fn capture_unavailable_reason(&self) -> Option<&'static str> {
-        if !self.visible || self.minimized {
-            return Some("target is hidden or minimized");
+    pub(super) fn capture_unavailable_reason(&self) -> Option<CaptureUnavailable> {
+        if self.minimized {
+            return Some(CaptureUnavailable::Minimized);
+        }
+        if !self.visible {
+            return Some(CaptureUnavailable::Hidden);
         }
         if self.cloaked.is_some_and(|value| value != 0) {
-            return Some("target is cloaked by DWM");
+            return Some(CaptureUnavailable::Cloaked);
         }
         if self.display_affinity.is_some_and(|value| value != 0) {
-            return Some("target restricts capture through window display affinity");
+            return Some(CaptureUnavailable::DisplayAffinity);
         }
         match self.bounds {
             Some([left, top, right, bottom]) if right > left && bottom > top => None,
-            _ => Some("target has no readable, non-empty window bounds"),
+            _ => Some(CaptureUnavailable::NoBounds),
         }
+    }
+
+    /// A bound stream outlives occlusion and resizing, but a window that was
+    /// minimized, hidden or cloaked after binding has no live surface; that
+    /// state is reported precisely so a foreground restore can recover it.
+    pub(super) fn bound_surface_error(&self) -> Option<String> {
+        self.capture_unavailable_reason()
+            .filter(|reason| reason.code() == "TARGET_SURFACE_UNAVAILABLE")
+            .map(|reason| reason.error(self.pid, self.handle))
     }
 
     fn priority(&self) -> (bool, bool, bool) {
@@ -204,6 +260,58 @@ mod tests {
         assert_eq!(select_default_window(5580, unavailable.clone()), None);
         unavailable.push(window(8));
         assert_eq!(select_default_window(5580, unavailable), Some(8));
+    }
+
+    #[test]
+    fn unavailable_surfaces_name_the_precise_recoverable_state() {
+        let mut minimized = window(1);
+        minimized.minimized = true;
+        minimized.visible = false;
+        assert_eq!(
+            minimized.capture_unavailable_reason(),
+            Some(CaptureUnavailable::Minimized)
+        );
+        let mut hidden = window(2);
+        hidden.visible = false;
+        assert_eq!(
+            hidden.capture_unavailable_reason(),
+            Some(CaptureUnavailable::Hidden)
+        );
+        let mut cloaked = window(3);
+        cloaked.cloaked = Some(2);
+        assert_eq!(
+            cloaked.capture_unavailable_reason(),
+            Some(CaptureUnavailable::Cloaked)
+        );
+        let error = CaptureUnavailable::Minimized.error(5580, 1);
+        assert!(
+            error.starts_with("[TARGET_SURFACE_UNAVAILABLE] Window 1 of process 5580 is minimized")
+        );
+        assert!(!error.contains("WindowCandidate"));
+        assert!(CaptureUnavailable::NoBounds
+            .error(5580, 7)
+            .starts_with("[TARGET_WINDOW_UNAVAILABLE]"));
+    }
+
+    #[test]
+    fn bound_windows_report_only_a_lost_live_surface() {
+        let mut minimized = window(1);
+        minimized.minimized = true;
+        minimized.visible = false;
+        assert!(minimized.bound_surface_error().is_some_and(|error| error
+            .starts_with("[TARGET_SURFACE_UNAVAILABLE] Window 1 of process 5580 is minimized")));
+        let mut cloaked = window(2);
+        cloaked.cloaked = Some(2);
+        assert!(cloaked
+            .bound_surface_error()
+            .is_some_and(|error| error.contains("is cloaked by DWM")));
+        assert_eq!(window(3).bound_surface_error(), None);
+        let mut affinity = window(4);
+        affinity.display_affinity = Some(1);
+        assert_eq!(affinity.bound_surface_error(), None);
+        let mut no_bounds = window(5);
+        no_bounds.bounds = None;
+        assert_eq!(no_bounds.bound_surface_error(), None);
     }
 
     #[test]

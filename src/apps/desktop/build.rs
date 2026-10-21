@@ -17,7 +17,13 @@ fn main() {
             .compile("computer_use_capture");
         // Older macOS installs must reach the runtime unsupported-version guard.
         println!("cargo:rustc-link-arg=-Wl,-weak_framework,ScreenCaptureKit");
-        for framework in ["CoreMedia", "CoreVideo", "CoreImage", "AppKit"] {
+        for framework in [
+            "CoreMedia",
+            "CoreVideo",
+            "CoreImage",
+            "AppKit",
+            "ApplicationServices",
+        ] {
             println!("cargo:rustc-link-lib=framework={framework}");
         }
     }

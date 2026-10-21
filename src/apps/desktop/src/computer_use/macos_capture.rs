@@ -62,6 +62,17 @@ unsafe extern "C" {
         error: *mut c_char,
         capacity: usize,
     ) -> i32;
+    fn obf_capture_window_detail(
+        pid: i32,
+        window: u32,
+        bytes: *mut *mut u8,
+        length: *mut usize,
+        width: *mut u32,
+        height: *mut u32,
+        bounds: *mut f64,
+        error: *mut c_char,
+        capacity: usize,
+    ) -> i32;
     fn obf_capture_stop(handle: *mut c_void);
     fn obf_pointer_show(window: u32, x: f64, y: f64, click: bool);
     fn obf_pointer_hide();
@@ -319,6 +330,70 @@ fn window_snapshot(pid: i32, window_id: u32) -> Result<(Vec<u8>, u32, u32), Stri
     // SAFETY: freed exactly once, after the copy above.
     unsafe { obf_capture_free(bytes.cast()) };
     Ok((rgba, width, height))
+}
+
+/// The bound window at its backing scale, with open popups composited as in
+/// the stream frame. Requires macOS 14; the stream frame stays untouched.
+pub(super) fn detail_frame(pid: i32, window_id: u32) -> Result<CaptureFrame, String> {
+    super::control_session::capture_allowed()?;
+    let scope = {
+        let active = capture().lock().map_err(|_| "Capture lock poisoned")?;
+        let session = active.as_ref().ok_or("CAPTURE_STOPPED")?;
+        if session.pid != pid || session.window_id != window_id {
+            return Err("CAPTURE_TARGET_CHANGED: Re-observe the intended target".into());
+        }
+        session.check()?;
+        openbitfun_agent_tools::computer_use_control::ObservationScope {
+            generation: session.generation,
+            target_revision: session.target_revision,
+            target: Some(format!("pid:{pid}/window:{window_id}")),
+        }
+    };
+    let mut error = [0; 1024];
+    let mut bytes = std::ptr::null_mut();
+    let (mut length, mut width, mut height) = (0, 0, 0);
+    let mut bounds = [0.0; 4];
+    // SAFETY: every out-pointer refers to a live local, `bounds` holds four
+    // values, and `error` is a writable buffer of the advertised capacity.
+    let ok = unsafe {
+        obf_capture_window_detail(
+            pid,
+            window_id,
+            &mut bytes,
+            &mut length,
+            &mut width,
+            &mut height,
+            bounds.as_mut_ptr(),
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    if ok == 0 {
+        return Err(error_string(&error));
+    }
+    if bytes.is_null() || length != width as usize * height as usize * 4 {
+        // SAFETY: the buffer, if any, was allocated by the native capture and
+        // is freed exactly once; free(NULL) is a no-op.
+        unsafe { obf_capture_free(bytes.cast()) };
+        return Err("DETAIL_CAPTURE_FAILED: Invalid RGBA buffer".into());
+    }
+    // SAFETY: on success the native capture returns a non-null buffer of
+    // exactly `length` initialized bytes that stays valid until freed below.
+    let rgba = unsafe { std::slice::from_raw_parts(bytes, length).to_vec() };
+    // SAFETY: freed exactly once, after the copy above.
+    unsafe { obf_capture_free(bytes.cast()) };
+    let mut frame = CaptureFrame {
+        rgba,
+        width,
+        height,
+        window_id,
+        bounds,
+        scope,
+        auxiliary: Vec::new(),
+    };
+    composite_overlays(pid, &mut frame);
+    super::control_session::validate_observation_scope(&frame.scope)?;
+    Ok(frame)
 }
 
 /// Paints the target's open menus and popups over its window capture, back

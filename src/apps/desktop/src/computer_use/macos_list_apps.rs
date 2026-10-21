@@ -87,9 +87,14 @@ pub(super) fn list_windows() -> OpenBitFunResult<Vec<AppWindowInfo>> {
                     .map(|value| unsafe { CFString::wrap_under_get_rule(value.cast()) }.to_string())
             };
             let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid as i32);
+            // WindowServer omits kCGWindowIsOnscreen for windows that are not
+            // on screen, so an absent key is an explicit off-screen fact.
             let is_on_screen = value(&window, "kCGWindowIsOnscreen")
                 .filter(|value| unsafe { CFGetTypeID(*value) } == CFBoolean::type_id())
-                .map(|value| bool::from(unsafe { CFBoolean::wrap_under_get_rule(value.cast()) }));
+                // SAFETY: the value is borrowed from the live window dictionary
+                // and was just checked to be a CFBoolean.
+                .map(|value| bool::from(unsafe { CFBoolean::wrap_under_get_rule(value.cast()) }))
+                .unwrap_or(false);
             targets.push(AppWindowInfo {
                 pid: pid as i32,
                 window_id: id as u64,
@@ -99,7 +104,7 @@ pub(super) fn list_windows() -> OpenBitFunResult<Vec<AppWindowInfo>> {
                 bundle_id: app
                     .and_then(|app| app.bundleIdentifier())
                     .map(|id| id.to_string()),
-                is_on_screen,
+                is_on_screen: Some(is_on_screen),
                 bounds: Some(frame),
             });
         }

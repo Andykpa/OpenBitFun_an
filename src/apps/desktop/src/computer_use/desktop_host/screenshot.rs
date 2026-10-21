@@ -6,9 +6,12 @@
 use super::macos;
 use super::DesktopComputerUseHost;
 use image::codecs::jpeg::JpegEncoder;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(test, target_os = "macos", target_os = "windows"))]
 use image::DynamicImage;
 use image::RgbImage;
+use openbitfun_agent_tools::computer_use_geometry::CaptureGeometry;
+#[cfg(any(test, target_os = "macos", target_os = "windows"))]
+use openbitfun_core::agentic::tools::computer_use_host::ComputerUseZoomRegion;
 use openbitfun_core::agentic::tools::computer_use_host::{
     ComputerScreenshot, ComputerUseDisplayInfo, ComputerUseImageContentRect,
     ComputerUseImageGlobalBounds, ComputerUseScreenshotParams, OcrRegionNative, OcrTextMatch,
@@ -29,10 +32,60 @@ fn bound_window_identity(target: &str) -> OpenBitFunResult<(i32, isize)> {
 }
 
 /// One validated image-to-surface transform shared by all native backends.
+/// A zoomed observation covers a region of the window; its offset inside the
+/// window and the window size keep it valid while the window only moves.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct PointerMap(openbitfun_agent_tools::computer_use_geometry::CaptureGeometry);
+pub(super) struct PointerMap {
+    geometry: CaptureGeometry,
+    window_offset: [f64; 2],
+    window_size: [f64; 2],
+}
 
 impl PointerMap {
+    fn full_window(geometry: CaptureGeometry) -> Self {
+        let bounds = geometry.bounds();
+        Self {
+            geometry,
+            window_offset: [0.0, 0.0],
+            window_size: [bounds[2], bounds[3]],
+        }
+    }
+
+    #[cfg(any(test, target_os = "macos", target_os = "windows"))]
+    fn window_region(
+        geometry: CaptureGeometry,
+        window_offset: [f64; 2],
+        window_size: [f64; 2],
+    ) -> Self {
+        Self {
+            geometry,
+            window_offset,
+            window_size,
+        }
+    }
+
+    fn is_full_window(&self) -> bool {
+        let bounds = self.geometry.bounds();
+        self.window_offset == [0.0, 0.0] && bounds[2..] == self.window_size
+    }
+
+    /// The region of the window, relative to its origin, covered by an image
+    /// pixel rectangle of this observation.
+    #[cfg(any(test, target_os = "macos", target_os = "windows"))]
+    fn window_region_of(&self, region: &ComputerUseZoomRegion) -> OpenBitFunResult<[f64; 4]> {
+        let global = self
+            .geometry
+            .image_rect_to_global(region.x, region.y, region.width, region.height)
+            .map_err(OpenBitFunError::tool)?;
+        let bounds = self.geometry.bounds();
+        Ok([
+            global[0] - bounds[0] + self.window_offset[0],
+            global[1] - bounds[1] + self.window_offset[1],
+            global[2],
+            global[3],
+        ])
+    }
+
     fn from_screenshot(shot: &ComputerScreenshot) -> OpenBitFunResult<Self> {
         let content = shot.image_content_rect.as_ref().ok_or_else(|| {
             OpenBitFunError::tool("[INVALID_GEOMETRY] Capture content rectangle unavailable")
@@ -42,37 +95,53 @@ impl PointerMap {
                 "[COORDINATES_UNAVAILABLE] Capture has no authoritative surface bounds",
             )
         })?;
-        openbitfun_agent_tools::computer_use_geometry::CaptureGeometry::new(
-            shot.image_width,
-            shot.image_height,
-            content,
-            bounds,
-        )
-        .map(Self)
-        .map_err(OpenBitFunError::tool)
+        CaptureGeometry::new(shot.image_width, shot.image_height, content, bounds)
+            .map(Self::full_window)
+            .map_err(OpenBitFunError::tool)
     }
     #[cfg(target_os = "macos")]
     pub(super) fn image_delta_to_global(&self, dx: i32, dy: i32) -> OpenBitFunResult<(f64, f64)> {
-        Ok(self.0.image_delta_to_global(dx, dy))
+        Ok(self.geometry.image_delta_to_global(dx, dy))
     }
+    /// Two full-window observations must share one image projection. A
+    /// zoomed region and any other observation of the window agree while the
+    /// window keeps its size; each keeps its own image-to-window transform.
     pub(super) fn same_window_projection(&self, other: &Self) -> bool {
-        self.0.same_projection(&other.0)
+        if self.is_full_window() && other.is_full_window() {
+            self.geometry.same_projection(&other.geometry)
+        } else {
+            self.window_size == other.window_size
+        }
     }
     pub(super) fn at_window_bounds(self, bounds: [f64; 4]) -> OpenBitFunResult<Self> {
-        self.0
-            .at_bounds(bounds)
-            .map(Self)
-            .map_err(OpenBitFunError::tool)
+        if bounds[2..] != self.window_size {
+            return Err(OpenBitFunError::tool(
+                "[STALE_CAPTURE] Target resized; observe again before coordinate input",
+            ));
+        }
+        let region = self.geometry.bounds();
+        let geometry = self
+            .geometry
+            .at_bounds([
+                bounds[0] + self.window_offset[0],
+                bounds[1] + self.window_offset[1],
+                region[2],
+                region[3],
+            ])
+            .map_err(OpenBitFunError::tool)?;
+        Ok(Self { geometry, ..self })
     }
     pub(super) fn map_image_to_global_f64(&self, x: i32, y: i32) -> OpenBitFunResult<(f64, f64)> {
-        self.0.image_to_global(x, y).map_err(OpenBitFunError::tool)
+        self.geometry
+            .image_to_global(x, y)
+            .map_err(OpenBitFunError::tool)
     }
     pub(super) fn map_normalized_to_global_f64(
         &self,
         x: i32,
         y: i32,
     ) -> OpenBitFunResult<(f64, f64)> {
-        self.0
+        self.geometry
             .normalized_to_global(x, y)
             .map_err(OpenBitFunError::tool)
     }
@@ -320,6 +389,226 @@ impl DesktopComputerUseHost {
             );
         }
         Ok(shot)
+    }
+}
+
+/// Zoomed image size, in output pixels per window unit (macOS points,
+/// Windows physical pixels): the long edge is enlarged toward a legible size
+/// but kept below the size at which vision models downscale images again.
+#[cfg(any(test, target_os = "macos", target_os = "windows"))]
+const ZOOM_TARGET_LONG_EDGE: f64 = 1024.0;
+#[cfg(any(test, target_os = "macos", target_os = "windows"))]
+const ZOOM_MAX_LONG_EDGE: f64 = 1568.0;
+#[cfg(any(test, target_os = "macos", target_os = "windows"))]
+const ZOOM_MAX_SCALE: f64 = 8.0;
+
+#[cfg(any(test, target_os = "macos", target_os = "windows"))]
+fn zoom_scale(region_width: f64, region_height: f64, source_scale: f64) -> f64 {
+    let long_edge = region_width.max(region_height);
+    (ZOOM_TARGET_LONG_EDGE / long_edge)
+        .clamp(source_scale.min(ZOOM_MAX_SCALE), ZOOM_MAX_SCALE)
+        .min(ZOOM_MAX_LONG_EDGE / long_edge)
+}
+
+/// A window-relative region cut from a full-window frame. The region snaps
+/// outward to whole source pixels, so the image and its mapping agree.
+#[cfg(any(test, target_os = "macos", target_os = "windows"))]
+struct ZoomCrop {
+    image: RgbImage,
+    region: [f64; 4],
+}
+
+#[cfg(any(test, target_os = "macos", target_os = "windows"))]
+fn zoom_crop(
+    source: &image::RgbaImage,
+    window_size: [f64; 2],
+    region: [f64; 4],
+) -> OpenBitFunResult<ZoomCrop> {
+    let scale_x = f64::from(source.width()) / window_size[0];
+    let scale_y = f64::from(source.height()) / window_size[1];
+    let x0 = (region[0] * scale_x).floor().max(0.0) as u32;
+    let y0 = (region[1] * scale_y).floor().max(0.0) as u32;
+    let x1 = ((region[0] + region[2]) * scale_x)
+        .ceil()
+        .min(f64::from(source.width())) as u32;
+    let y1 = ((region[1] + region[3]) * scale_y)
+        .ceil()
+        .min(f64::from(source.height())) as u32;
+    if !(scale_x.is_finite() && scale_y.is_finite()) || x1 <= x0 || y1 <= y0 {
+        return Err(OpenBitFunError::tool(
+            "[INVALID_COORDINATES] Zoom region is outside the bound window",
+        ));
+    }
+    let snapped = [
+        f64::from(x0) / scale_x,
+        f64::from(y0) / scale_y,
+        f64::from(x1 - x0) / scale_x,
+        f64::from(y1 - y0) / scale_y,
+    ];
+    let scale = zoom_scale(snapped[2], snapped[3], scale_x.min(scale_y));
+    let width = (snapped[2] * scale).round().max(1.0) as u32;
+    let height = (snapped[3] * scale).round().max(1.0) as u32;
+    let crop = image::imageops::crop_imm(source, x0, y0, x1 - x0, y1 - y0).to_image();
+    let crop = if crop.dimensions() == (width, height) {
+        crop
+    } else {
+        image::imageops::resize(
+            &crop,
+            width,
+            height,
+            image::imageops::FilterType::CatmullRom,
+        )
+    };
+    Ok(ZoomCrop {
+        image: DynamicImage::ImageRgba8(crop).to_rgb8(),
+        region: snapped,
+    })
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+impl DesktopComputerUseHost {
+    /// A zoomed observation of the bound window: a fresh capture at the
+    /// highest native detail, cut to a region of an earlier observation. It is
+    /// recorded as the latest image with its own window-relative mapping.
+    pub(super) async fn zoom_observation_impl(
+        &self,
+        app: openbitfun_core::agentic::tools::computer_use_host::AppSelector,
+        region: ComputerUseZoomRegion,
+    ) -> OpenBitFunResult<ComputerScreenshot> {
+        crate::computer_use::control_session::capture_allowed().map_err(OpenBitFunError::tool)?;
+        let snapshot = crate::computer_use::control_session::snapshot();
+        if snapshot.state != "active" {
+            return Err(OpenBitFunError::tool(
+                "[CONTROL_STOPPED] Zoom requires an active control session",
+            ));
+        }
+        let target = snapshot.target.ok_or_else(|| {
+            OpenBitFunError::tool("[TARGET_REQUIRED] Observe the bound window before zooming")
+        })?;
+        crate::computer_use::control_session::target_allowed(&target)
+            .map_err(OpenBitFunError::tool)?;
+        let (pid, window) = bound_window_identity(&target)?;
+        if app.pid.is_some_and(|requested| requested != pid)
+            || app
+                .window_id
+                .is_some_and(|requested| i64::try_from(requested).ok() != Some(window as i64))
+        {
+            return Err(OpenBitFunError::tool(
+                "[TARGET_CHANGED] Zoom reads the bound window only; observe the requested window before zooming into it",
+            ));
+        }
+        let scope = crate::computer_use::control_session::observation_scope()
+            .map_err(OpenBitFunError::tool)?;
+        let (window_region, window_size) = {
+            let state = self.state_for_scope(&scope)?;
+            let source = state
+                .observations
+                .image(Some(&region.screenshot_id))
+                .map_err(OpenBitFunError::tool)?;
+            if !state
+                .observations
+                .latest_image()
+                .is_some_and(|current| current.same_window_projection(&source))
+            {
+                return Err(OpenBitFunError::tool(
+                    "[STALE_CAPTURE] Screenshot does not match the target's current geometry; observe the window again before zooming",
+                ));
+            }
+            (source.window_region_of(&region)?, source.window_size)
+        };
+        let (rgba, bounds) = Self::window_detail_frame(pid, window).await?;
+        if bounds[2..] != window_size {
+            return Err(OpenBitFunError::tool(
+                "[STALE_CAPTURE] Target resized; observe the window again before zooming",
+            ));
+        }
+        crate::computer_use::control_session::validate_observation_scope(&scope)
+            .map_err(OpenBitFunError::tool)?;
+        let crop = zoom_crop(&rgba, window_size, window_region)?;
+        let [x, y, width, height] = crop.region;
+        let left = bounds[0] + x;
+        let top = bounds[1] + y;
+        let mut shot = Self::raw_shot_from_rgb_crop(
+            crop.image,
+            left.round() as i32,
+            top.round() as i32,
+            width.round().max(1.0) as u32,
+            height.round().max(1.0) as u32,
+        )?;
+        shot.image_global_bounds = Some(ComputerUseImageGlobalBounds {
+            left,
+            top,
+            width,
+            height,
+        });
+        let map = PointerMap::window_region(
+            PointerMap::from_screenshot(&shot)?.geometry,
+            [x, y],
+            window_size,
+        );
+        crate::computer_use::control_session::validate_observation_scope(&scope)
+            .map_err(OpenBitFunError::tool)?;
+        self.state_for_scope(&scope)?.transition_after_screenshot(
+            shot.screenshot_id.clone().expect("capture identity"),
+            map,
+        );
+        Ok(shot)
+    }
+
+    /// The bound window's pixels at the most detail the platform offers, with
+    /// its global frame: backing scale on macOS 14+, else the live frame.
+    #[cfg(target_os = "macos")]
+    async fn window_detail_frame(
+        pid: i32,
+        window: isize,
+    ) -> OpenBitFunResult<(image::RgbaImage, [f64; 4])> {
+        let window = u32::try_from(window)
+            .map_err(|_| OpenBitFunError::tool("[TARGET_INVALID] Window id out of range"))?;
+        let frame = crate::computer_use::control_session::spawn_blocking(move || {
+            let bound = crate::computer_use::macos_capture::bound_window_id(pid)?;
+            if bound != window {
+                return Err(
+                    "[TARGET_CHANGED] Native capture window differs from the authorized target"
+                        .to_string(),
+                );
+            }
+            match crate::computer_use::macos_capture::detail_frame(pid, window) {
+                Err(reason) if reason.starts_with("DETAIL_CAPTURE_UNSUPPORTED") => {
+                    log::debug!("Computer use zoom uses the live frame: pid={pid}, window={window}, reason={reason}");
+                    crate::computer_use::macos_capture::capture_frame(pid, Some(window))
+                }
+                result => result,
+            }
+        })
+        .await
+        .map_err(|e| OpenBitFunError::tool(e.to_string()))?
+        .map_err(OpenBitFunError::tool)?;
+        let image = image::RgbaImage::from_raw(frame.width, frame.height, frame.rgba)
+            .ok_or_else(|| OpenBitFunError::tool("[CAPTURE_INVALID_FRAME] Invalid RGBA buffer"))?;
+        Ok((image, frame.bounds))
+    }
+
+    #[cfg(target_os = "windows")]
+    async fn window_detail_frame(
+        _pid: i32,
+        window: isize,
+    ) -> OpenBitFunResult<(image::RgbaImage, [f64; 4])> {
+        let cap = crate::computer_use::control_session::spawn_blocking(move || {
+            crate::computer_use::windows_capture::screenshot_window_capture(
+                windows::Win32::Foundation::HWND(window as *mut std::ffi::c_void),
+            )
+        })
+        .await
+        .map_err(|e| OpenBitFunError::tool(e.to_string()))??;
+        let bounds = [
+            f64::from(cap.origin_x),
+            f64::from(cap.origin_y),
+            f64::from(cap.width),
+            f64::from(cap.height),
+        ];
+        let image = image::RgbaImage::from_raw(cap.width, cap.height, cap.rgba)
+            .ok_or_else(|| OpenBitFunError::tool("[CAPTURE_INVALID_FRAME] Invalid RGBA buffer"))?;
+        Ok((image, bounds))
     }
 }
 
@@ -572,7 +861,7 @@ impl DesktopComputerUseHost {
 mod window_projection_tests {
     #[cfg(target_os = "macos")]
     use super::DesktopComputerUseHost;
-    use super::{bound_window_identity, PointerMap};
+    use super::{bound_window_identity, CaptureGeometry, PointerMap};
     #[cfg(target_os = "macos")]
     use openbitfun_core::agentic::tools::computer_use_host::ComputerUseHost;
 
@@ -594,8 +883,8 @@ mod window_projection_tests {
     }
 
     fn capture_map() -> PointerMap {
-        PointerMap(
-            openbitfun_agent_tools::computer_use_geometry::CaptureGeometry::new(
+        PointerMap::full_window(
+            CaptureGeometry::new(
                 900,
                 600,
                 &super::ComputerUseImageContentRect {
@@ -659,8 +948,8 @@ mod window_projection_tests {
         assert!(observed
             .at_window_bounds([f64::NAN, 40.0, 1800.0, 1200.0])
             .is_err());
-        let resampled = PointerMap(
-            openbitfun_agent_tools::computer_use_geometry::CaptureGeometry::new(
+        let resampled = PointerMap::full_window(
+            CaptureGeometry::new(
                 450,
                 300,
                 &super::ComputerUseImageContentRect {
@@ -679,5 +968,139 @@ mod window_projection_tests {
             .unwrap(),
         );
         assert!(!observed.same_window_projection(&resampled));
+    }
+
+    fn zoom_region(x: u32, y: u32, width: u32, height: u32) -> super::ComputerUseZoomRegion {
+        super::ComputerUseZoomRegion {
+            screenshot_id: "observed".into(),
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    /// The window region [200,100,180,120] of capture_map, as a 360x240 image.
+    fn zoomed_map() -> PointerMap {
+        PointerMap::window_region(
+            CaptureGeometry::new(
+                360,
+                240,
+                &super::ComputerUseImageContentRect {
+                    left: 0,
+                    top: 0,
+                    width: 360,
+                    height: 240,
+                },
+                &super::ComputerUseImageGlobalBounds {
+                    left: 339.0,
+                    top: 140.0,
+                    width: 180.0,
+                    height: 120.0,
+                },
+            )
+            .unwrap(),
+            [200.0, 100.0],
+            [1800.0, 1200.0],
+        )
+    }
+
+    #[test]
+    fn zoom_regions_are_window_relative_and_nest() {
+        let observed = capture_map();
+        assert_eq!(
+            observed
+                .window_region_of(&zoom_region(100, 50, 90, 60))
+                .unwrap(),
+            [200.0, 100.0, 180.0, 120.0]
+        );
+        assert_eq!(
+            zoomed_map()
+                .window_region_of(&zoom_region(200, 150, 100, 75))
+                .unwrap(),
+            [300.0, 175.0, 50.0, 37.5]
+        );
+        assert!(observed
+            .window_region_of(&zoom_region(850, 0, 51, 10))
+            .is_err());
+        assert!(observed
+            .window_region_of(&zoom_region(0, 0, 0, 10))
+            .is_err());
+    }
+
+    #[test]
+    fn zoomed_observations_share_the_window_and_follow_its_moves() {
+        let observed = capture_map();
+        let zoomed = zoomed_map();
+        assert!(observed.same_window_projection(&zoomed));
+        assert!(zoomed.same_window_projection(&observed));
+        assert_eq!(
+            zoomed.map_image_to_global_f64(0, 0).unwrap(),
+            (339.25, 140.25)
+        );
+
+        let moved = zoomed
+            .at_window_bounds([500.0, 0.0, 1800.0, 1200.0])
+            .unwrap();
+        assert_eq!(
+            moved.map_image_to_global_f64(200, 150).unwrap(),
+            (800.25, 175.25)
+        );
+        assert!(observed.same_window_projection(&moved));
+        assert!(zoomed
+            .at_window_bounds([500.0, 0.0, 1700.0, 1200.0])
+            .is_err());
+
+        let other_window = PointerMap::full_window(
+            CaptureGeometry::new(
+                900,
+                600,
+                &super::ComputerUseImageContentRect {
+                    left: 0,
+                    top: 0,
+                    width: 900,
+                    height: 600,
+                },
+                &super::ComputerUseImageGlobalBounds {
+                    left: 139.0,
+                    top: 40.0,
+                    width: 1700.0,
+                    height: 1200.0,
+                },
+            )
+            .unwrap(),
+        );
+        assert!(!zoomed.same_window_projection(&other_window));
+    }
+
+    #[test]
+    fn zoom_output_is_legible_without_exceeding_model_image_limits() {
+        assert_eq!(super::zoom_scale(512.0, 300.0, 1.0), 2.0);
+        assert_eq!(super::zoom_scale(10.0, 10.0, 1.0), 8.0);
+        assert_eq!(super::zoom_scale(600.0, 200.0, 2.0), 2.0);
+        assert!((super::zoom_scale(1800.0, 1200.0, 2.0) - 1568.0 / 1800.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn zoom_crop_snaps_to_source_pixels_and_keeps_their_content() {
+        // A 2x backing-scale frame of a 180x120 window; red encodes x, green y.
+        let source = image::RgbaImage::from_fn(360, 240, |x, y| {
+            image::Rgba([x.min(255) as u8, y as u8, 0, 255])
+        });
+        let crop = super::zoom_crop(&source, [180.0, 120.0], [10.25, 20.5, 40.0, 30.0]).unwrap();
+        assert_eq!(crop.region, [10.0, 20.5, 40.5, 30.0]);
+        assert_eq!(crop.image.dimensions(), (324, 240));
+        let corner = crop.image.get_pixel(0, 0);
+        assert!(
+            corner[0].abs_diff(20) <= 1 && corner[1].abs_diff(41) <= 1,
+            "{corner:?}"
+        );
+        let far = crop.image.get_pixel(323, 239);
+        assert!(
+            far[0].abs_diff(100) <= 1 && far[1].abs_diff(100) <= 1,
+            "{far:?}"
+        );
+
+        assert!(super::zoom_crop(&source, [180.0, 120.0], [180.0, 0.0, 10.0, 10.0]).is_err());
     }
 }

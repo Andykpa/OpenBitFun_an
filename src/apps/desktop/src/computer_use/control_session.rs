@@ -169,6 +169,7 @@ fn projected(r: &Resource) -> ControlSnapshot {
             "window-capture",
             "window-target-v1",
             "activate-app-v1",
+            "app-zoom-v1",
             "background-ax-semantic-input",
             "background-directed-keyboard",
             "background-directed-scroll",
@@ -183,6 +184,7 @@ fn projected(r: &Resource) -> ControlSnapshot {
             "window-capture",
             "window-target-v1",
             "activate-app-v1",
+            "app-zoom-v1",
             "background-uia-semantic-input",
             "background-window-messages",
             "foreground-seat-input",
@@ -352,6 +354,23 @@ pub(crate) fn bind_target(target: String) -> Result<(), String> {
         }
         #[cfg(target_os = "windows")]
         super::windows_pointer_feedback::hide_pointer();
+    }
+    Ok(())
+}
+/// Rejects a window that window-only sharing does not admit, without binding
+/// it, so foreground recovery can check before changing a window's state.
+pub(crate) fn target_admissible(target: &str) -> Result<(), String> {
+    let r = locked()?;
+    check_context(&r)?;
+    if r.admission
+        .snapshot
+        .sharing
+        .as_ref()
+        .is_some_and(|sharing| {
+            sharing.phase != openbitfun_agent_tools::computer_use_control::SharingPhase::Selecting
+        })
+    {
+        r.admission.shared_target_allowed(target)?;
     }
     Ok(())
 }

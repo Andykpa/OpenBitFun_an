@@ -1028,6 +1028,69 @@ impl ComputerUseHost for DesktopComputerUseHost {
             .map_err(|e| OpenBitFunError::tool(e.to_string()))?
     }
 
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    async fn zoom_observation(
+        &self,
+        app: AppSelector,
+        region: openbitfun_core::agentic::tools::computer_use_host::ComputerUseZoomRegion,
+    ) -> OpenBitFunResult<ComputerScreenshot> {
+        self.zoom_observation_impl(app, region).await
+    }
+
+    async fn restore_window(&self, app: AppSelector) -> OpenBitFunResult<bool> {
+        app.validate_window_target()
+            .map_err(OpenBitFunError::tool)?;
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        let bound_window = |pid: i32| {
+            app.window_id.or_else(|| {
+                crate::computer_use::control_session::snapshot()
+                    .target
+                    .as_deref()
+                    .and_then(foreground::parse_native_target)
+                    .filter(|(bound_pid, _)| *bound_pid == pid)
+                    .map(|(_, window)| window)
+            })
+        };
+        #[cfg(target_os = "macos")]
+        {
+            let pid = resolve_pid_macos(self, &app).await?;
+            let window = bound_window(pid)
+                .map(u32::try_from)
+                .transpose()
+                .map_err(|_| {
+                    OpenBitFunError::tool(
+                        "[INVALID_PARAMS] window_id exceeds the macOS window ID range",
+                    )
+                })?;
+            crate::computer_use::control_session::spawn_blocking(move || {
+                crate::computer_use::macos_ax_ui::restore_window(pid, window)
+            })
+            .await
+            .map_err(|e| OpenBitFunError::tool(e.to_string()))?
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let pid = resolve_pid(self, &app).await?;
+            let window = bound_window(pid)
+                .map(usize::try_from)
+                .transpose()
+                .map_err(|_| {
+                    OpenBitFunError::tool(
+                        "[INVALID_PARAMS] window_id exceeds the native window handle range",
+                    )
+                })?;
+            crate::computer_use::control_session::spawn_blocking(move || {
+                crate::computer_use::windows_list_apps::restore_window(pid as u32, window)
+            })
+            .await
+            .map_err(|e| OpenBitFunError::tool(e.to_string()))?
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            Ok(false)
+        }
+    }
+
     async fn start_control(
         &self,
         owner: &str,

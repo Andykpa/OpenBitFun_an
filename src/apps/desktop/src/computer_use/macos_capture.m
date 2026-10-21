@@ -6,6 +6,8 @@
 #import <CoreVideo/CoreVideo.h>
 #import <CoreImage/CoreImage.h>
 #import <objc/message.h>
+#import <ApplicationServices/ApplicationServices.h>
+#include <dlfcn.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdatomic.h>
@@ -324,13 +326,78 @@ static SCWindow *obf_select_window(SCShareableContent *content, int32_t pid, uin
     return selected;
 }
 
-// Occlusion is supported by desktop-independent capture. Hidden/minimized or
-// another-Space windows can have no live surface; never suggest activation as
-// automatic recovery, since that takes the human's foreground focus.
-static NSString *obf_unavailable_surface(int32_t pid) {
+typedef AXError (*OBFAXGetWindowFn)(AXUIElementRef, CGWindowID *);
+
+// Minimized and other-Space windows both lack a live surface; Accessibility
+// tells them apart. Returns 1 minimized, 0 not minimized, -1 unknown.
+static int obf_window_minimized(int32_t pid, uint32_t windowID) {
+    static OBFAXGetWindowFn getWindow = NULL;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        getWindow = (OBFAXGetWindowFn)dlsym(RTLD_DEFAULT, "_AXUIElementGetWindow");
+    });
+    if (!getWindow || !windowID || !AXIsProcessTrusted()) return -1;
+    AXUIElementRef app = AXUIElementCreateApplication(pid);
+    if (!app) return -1;
+    AXUIElementSetMessagingTimeout(app, 0.5);
+    int result = -1;
+    CFTypeRef windows = NULL;
+    if (AXUIElementCopyAttributeValue(app, kAXWindowsAttribute, &windows) == kAXErrorSuccess &&
+        windows && CFGetTypeID(windows) == CFArrayGetTypeID()) {
+        for (CFIndex index = 0; index < CFArrayGetCount(windows); index++) {
+            AXUIElementRef element = (AXUIElementRef)CFArrayGetValueAtIndex(windows, index);
+            CGWindowID candidate = 0;
+            if (!element || getWindow(element, &candidate) != kAXErrorSuccess || candidate != windowID) continue;
+            CFTypeRef minimized = NULL;
+            if (AXUIElementCopyAttributeValue(element, kAXMinimizedAttribute, &minimized) == kAXErrorSuccess &&
+                minimized && CFGetTypeID(minimized) == CFBooleanGetTypeID()) {
+                result = CFBooleanGetValue(minimized) ? 1 : 0;
+            }
+            if (minimized) CFRelease(minimized);
+            break;
+        }
+    }
+    if (windows) CFRelease(windows);
+    CFRelease(app);
+    return result;
+}
+
+// A per-window query omits windows without a live surface, so a minimized or
+// other-Space window is looked up in the full list before it counts as closed.
+static BOOL obf_window_info(int32_t pid, uint32_t windowID, CGRect *frame, BOOL *onScreen) {
+    CFArrayRef info = CGWindowListCopyWindowInfo(kCGWindowListOptionIncludingWindow, windowID);
+    NSDictionary *window = nil;
+    for (NSDictionary *candidate in (__bridge NSArray *)info) {
+        if ([candidate[(id)kCGWindowNumber] unsignedIntValue] == windowID) { window = candidate; break; }
+    }
+    if (!window) {
+        if (info) CFRelease(info);
+        info = CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID);
+        for (NSDictionary *candidate in (__bridge NSArray *)info) {
+            if ([candidate[(id)kCGWindowNumber] unsignedIntValue] == windowID) { window = candidate; break; }
+        }
+    }
+    BOOL valid = window && [window[(id)kCGWindowOwnerPID] intValue] == pid &&
+        CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)window[(id)kCGWindowBounds], frame);
+    *onScreen = valid && [window[(id)kCGWindowIsOnscreen] boolValue];
+    if (info) CFRelease(info);
+    return valid;
+}
+
+// Occlusion is supported by desktop-independent capture. Hidden, minimized or
+// another-Space windows have no live surface. The message states the fact
+// only; recovery depends on the control mode and is chosen by the caller.
+static NSString *obf_unavailable_surface(int32_t pid, uint32_t windowID) {
     NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
-    if (app.hidden) return @"TARGET_APP_HIDDEN: The app is hidden; a live window surface is unavailable. Background control does not activate or unhide applications";
-    return @"TARGET_SURFACE_UNAVAILABLE: Window is minimized, off the current Space, or ordered out; no live surface is available. Occluded windows are supported. Background control does not activate windows";
+    if (app.hidden) return [NSString stringWithFormat:@"TARGET_APP_HIDDEN: The application (process %d) is hidden, so window %u has no live surface", pid, windowID];
+    switch (obf_window_minimized(pid, windowID)) {
+        case 1:
+            return [NSString stringWithFormat:@"TARGET_SURFACE_UNAVAILABLE: Window %u of process %d is minimized; no live surface is available", windowID, pid];
+        case 0:
+            return [NSString stringWithFormat:@"TARGET_SURFACE_UNAVAILABLE: Window %u of process %d is not minimized but is off the current Space or ordered out; no live surface is available. Occluded windows are supported", windowID, pid];
+        default:
+            return [NSString stringWithFormat:@"TARGET_SURFACE_UNAVAILABLE: Window %u of process %d is minimized, off the current Space, or ordered out; no live surface is available. Occluded windows are supported", windowID, pid];
+    }
 }
 
 static NSString *obf_no_window_matches(int32_t pid, uint32_t requestedWindow) {
@@ -361,7 +428,7 @@ uint32_t obf_capture_validate_target(int32_t pid, uint32_t requestedWindow, char
             [condition lock];
             failure = contentError.localizedDescription;
             if (!failure && !selected) failure = obf_no_window_matches(pid, requestedWindow);
-            if (!failure && !selected.isOnScreen) failure = obf_unavailable_surface(pid);
+            if (!failure && !selected.isOnScreen) failure = obf_unavailable_surface(pid, selected.windowID);
             resolvedWindow = selected.windowID;
             completed = YES;
             [condition broadcast];
@@ -404,7 +471,7 @@ void *obf_capture_start(int32_t pid, uint32_t requestedWindow, uint64_t generati
                 if (contentError) { [session fail:contentError.localizedDescription]; return; }
                 SCWindow *selected = obf_select_window(content, pid, requestedWindow);
                 if (!selected) { [session fail:obf_no_window_matches(pid, requestedWindow)]; return; }
-                if (!selected.isOnScreen) { [session fail:obf_unavailable_surface(pid)]; return; }
+                if (!selected.isOnScreen) { [session fail:obf_unavailable_surface(pid, selected.windowID)]; return; }
                 [session.condition lock];
                 if (session.stopped) { [session.condition unlock]; return; }
                 session.windowID = selected.windowID;
@@ -473,25 +540,21 @@ int obf_capture_status(void *handle, char *error, size_t capacity) {
         obf_error(error, capacity, session.failure);
         return 0;
     }
-    CFArrayRef info = CGWindowListCopyWindowInfo(kCGWindowListOptionIncludingWindow, session.windowID);
-    NSDictionary *window = [(__bridge NSArray *)info firstObject];
     CGRect frame = CGRectZero;
-    BOOL valid = window && [window[(id)kCGWindowOwnerPID] intValue] == session.pid &&
-        CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)window[(id)kCGWindowBounds], &frame);
-    BOOL onScreen = [window[(id)kCGWindowIsOnscreen] boolValue];
-    if (info) CFRelease(info);
+    BOOL onScreen = NO;
+    BOOL valid = obf_window_info(session.pid, session.windowID, &frame, &onScreen);
     [session.condition lock];
     BOOL wasStopped = session.stopped;
     [session.condition unlock];
     if (!wasStopped && !valid) {
-        [session fail:@"TARGET_WINDOW_UNAVAILABLE: Original target window is no longer capturable (closed or hidden)"];
+        [session fail:@"TARGET_WINDOW_UNAVAILABLE: Original target window was closed"];
         obf_control_native_stopped(session.generation, session.targetRevision, session.pid, session.windowID, session.failure.UTF8String);
         [session.stream stopCaptureWithCompletionHandler:^(NSError *e) { (void)e; }];
     }
     [session.condition lock];
     BOOL stopped = session.stopped;
     if (!stopped && !onScreen) {
-        obf_error(error, capacity, obf_unavailable_surface(session.pid));
+        obf_error(error, capacity, obf_unavailable_surface(session.pid, session.windowID));
         [session.condition unlock];
         return 0;
     }
@@ -505,13 +568,11 @@ int obf_capture_status(void *handle, char *error, size_t capacity) {
 int obf_capture_bounds(void *handle, double *bounds, char *error, size_t capacity) {
     if (!obf_capture_status(handle, error, capacity)) return 0;
     OBFWindowCapture *session = (__bridge OBFWindowCapture *)handle;
-    CFArrayRef info = CGWindowListCopyWindowInfo(kCGWindowListOptionIncludingWindow, session.windowID);
-    NSDictionary *window = [(__bridge NSArray *)info firstObject];
     CGRect frame = CGRectZero;
-    BOOL valid = window && [window[(id)kCGWindowOwnerPID] intValue] == session.pid &&
-        CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)window[(id)kCGWindowBounds], &frame);
-    if (info) CFRelease(info);
-    if (!valid) { obf_error(error, capacity, @"TARGET_WINDOW_UNAVAILABLE: Bound window no longer exists"); return 0; }
+    BOOL onScreen = NO;
+    if (!obf_window_info(session.pid, session.windowID, &frame, &onScreen)) {
+        obf_error(error, capacity, @"TARGET_WINDOW_UNAVAILABLE: Bound window no longer exists"); return 0;
+    }
     bounds[0] = frame.origin.x; bounds[1] = frame.origin.y;
     bounds[2] = frame.size.width; bounds[3] = frame.size.height;
     return 1;
@@ -597,13 +658,11 @@ int obf_capture_frame(void *handle, uint8_t **bytes, size_t *length, uint32_t *w
                       uint64_t *sequence, char *error, size_t capacity) {
     if (!obf_capture_status(handle, error, capacity)) return 0;
     OBFWindowCapture *session = (__bridge OBFWindowCapture *)handle;
-    CFArrayRef info = CGWindowListCopyWindowInfo(kCGWindowListOptionIncludingWindow, session.windowID);
-    NSDictionary *window = [(__bridge NSArray *)info firstObject];
     CGRect frame = CGRectZero;
-    BOOL valid = window && [window[(id)kCGWindowOwnerPID] intValue] == session.pid &&
-        CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)window[(id)kCGWindowBounds], &frame);
-    if (info) CFRelease(info);
-    if (!valid) [session fail:@"TARGET_WINDOW_UNAVAILABLE: Original target window is no longer capturable (closed or hidden)"];
+    BOOL onScreen = NO;
+    if (!obf_window_info(session.pid, session.windowID, &frame, &onScreen)) {
+        [session fail:@"TARGET_WINDOW_UNAVAILABLE: Original target window was closed"];
+    }
     [session.condition lock];
     if (session.stopped) {
         obf_error(error, capacity, session.failure ?: @"CAPTURE_STOPPED");
@@ -649,29 +708,37 @@ int obf_capture_frame(void *handle, uint8_t **bytes, size_t *length, uint32_t *w
 }
 void obf_capture_free(void *bytes) { free(bytes); }
 
-// One-shot capture of a same-process transient window (menu, popup) at 1x
-// logical size, matching the bound stream's pixel basis. SCScreenshotManager
-// is resolved at runtime; it exists on macOS 14 and newer only.
+// One-shot captures through SCScreenshotManager, resolved at runtime; it
+// exists on macOS 14 and newer only. A popup (menu, suggestion list) is taken
+// at 1x logical size, matching the bound stream's pixel basis. A detail
+// capture takes the bound content window at its backing scale for zooming.
 typedef void (^OBFScreenshotHandler)(CGImageRef image, NSError *error);
 typedef void (*OBFCaptureImageFn)(id, SEL, SCContentFilter *, SCStreamConfiguration *, OBFScreenshotHandler);
 
-int obf_capture_window_snapshot(int32_t pid, uint32_t windowID, uint8_t **bytes, size_t *length,
-                                uint32_t *width, uint32_t *height, char *error, size_t capacity) {
+static const size_t OBF_SNAPSHOT_MAX_EDGE = 8192;
+
+static int obf_window_screenshot(int32_t pid, uint32_t windowID, BOOL detail, uint8_t **bytes,
+                                 size_t *length, uint32_t *width, uint32_t *height, double *bounds,
+                                 char *error, size_t capacity) {
     @autoreleasepool {
         if ([NSThread isMainThread]) {
-            obf_error(error, capacity, @"CAPTURE_WRONG_THREAD: Capture popups on a worker thread");
+            obf_error(error, capacity, @"CAPTURE_WRONG_THREAD: Capture windows on a worker thread");
             return 0;
         }
         Class manager = NSClassFromString(@"SCScreenshotManager");
         SEL selector = NSSelectorFromString(@"captureImageWithFilter:configuration:completionHandler:");
         if (!obf_os_at_least(14, 0) || !manager || ![manager respondsToSelector:selector]) {
-            obf_error(error, capacity, @"AUXILIARY_CAPTURE_UNSUPPORTED: Capturing popup windows requires macOS 14 or newer");
+            obf_error(error, capacity, detail
+                ? @"DETAIL_CAPTURE_UNSUPPORTED: Capturing at backing resolution requires macOS 14 or newer"
+                : @"AUXILIARY_CAPTURE_UNSUPPORTED: Capturing popup windows requires macOS 14 or newer");
             return 0;
         }
+        NSString *failed = detail ? @"DETAIL_CAPTURE_FAILED" : @"AUXILIARY_CAPTURE_FAILED";
         NSCondition *condition = [[NSCondition alloc] init];
         __block BOOL completed = NO;
         __block BOOL abandoned = NO;
         __block CGImageRef captured = NULL;
+        __block CGRect capturedFrame = CGRectZero;
         __block NSString *failure = nil;
         void (^finish)(CGImageRef, NSString *) = ^(CGImageRef image, NSString *reason) {
             [condition lock];
@@ -688,37 +755,55 @@ int obf_capture_window_snapshot(int32_t pid, uint32_t windowID, uint8_t **bytes,
                 if (window.windowID == windowID && window.owningApplication.processID == pid) { target = window; break; }
             }
             if (!target) {
-                finish(NULL, contentError.localizedDescription ?: @"AUXILIARY_WINDOW_UNAVAILABLE: The popup closed or is not capturable");
+                finish(NULL, contentError.localizedDescription ?: (detail
+                    ? obf_unavailable_surface(pid, windowID)
+                    : @"AUXILIARY_WINDOW_UNAVAILABLE: The popup closed or is not capturable"));
                 return;
             }
-            // A desktop-independent filter on an AppKit child window renders its
-            // whole window group from the root, so the popup is captured through
-            // a display filter that includes only the popup window instead.
-            SCDisplay *display = nil;
-            CGFloat overlap = 0;
-            for (SCDisplay *candidate in content.displays) {
-                CGRect shared = CGRectIntersection(candidate.frame, target.frame);
-                CGFloat area = CGRectIsNull(shared) ? 0 : shared.size.width * shared.size.height;
-                if (area > overlap) { overlap = area; display = candidate; }
-            }
-            if (!display) {
-                finish(NULL, @"AUXILIARY_WINDOW_UNAVAILABLE: The popup is not on any display");
-                return;
-            }
-            SCContentFilter *filter = [[SCContentFilter alloc] initWithDisplay:display includingWindows:@[target]];
+            SCContentFilter *filter = nil;
             SCStreamConfiguration *config = [[SCStreamConfiguration alloc] init];
-            config.sourceRect = CGRectMake(target.frame.origin.x - display.frame.origin.x,
-                                           target.frame.origin.y - display.frame.origin.y,
-                                           target.frame.size.width, target.frame.size.height);
-            config.width = (size_t)MAX(1.0, ceil(target.frame.size.width));
-            config.height = (size_t)MAX(1.0, ceil(target.frame.size.height));
+            if (detail) {
+                // The same desktop-independent filter as the bound stream, so
+                // occluded windows keep working and pixels match its content.
+                filter = [[SCContentFilter alloc] initWithDesktopIndependentWindow:target];
+                CGFloat scale = MAX(1.0, filter.pointPixelScale);
+                CGFloat longest = MAX(target.frame.size.width, target.frame.size.height);
+                if (longest * scale > OBF_SNAPSHOT_MAX_EDGE) scale = MAX(1.0, OBF_SNAPSHOT_MAX_EDGE / longest);
+                config.width = (size_t)MAX(1.0, ceil(target.frame.size.width * scale));
+                config.height = (size_t)MAX(1.0, ceil(target.frame.size.height * scale));
+                config.ignoreShadowsSingleWindow = YES;
+            } else {
+                // A desktop-independent filter on an AppKit child window renders its
+                // whole window group from the root, so the popup is captured through
+                // a display filter that includes only the popup window instead.
+                SCDisplay *display = nil;
+                CGFloat overlap = 0;
+                for (SCDisplay *candidate in content.displays) {
+                    CGRect shared = CGRectIntersection(candidate.frame, target.frame);
+                    CGFloat area = CGRectIsNull(shared) ? 0 : shared.size.width * shared.size.height;
+                    if (area > overlap) { overlap = area; display = candidate; }
+                }
+                if (!display) {
+                    finish(NULL, @"AUXILIARY_WINDOW_UNAVAILABLE: The popup is not on any display");
+                    return;
+                }
+                filter = [[SCContentFilter alloc] initWithDisplay:display includingWindows:@[target]];
+                config.sourceRect = CGRectMake(target.frame.origin.x - display.frame.origin.x,
+                                               target.frame.origin.y - display.frame.origin.y,
+                                               target.frame.size.width, target.frame.size.height);
+                config.width = (size_t)MAX(1.0, ceil(target.frame.size.width));
+                config.height = (size_t)MAX(1.0, ceil(target.frame.size.height));
+                config.ignoreShadowsDisplay = YES;
+            }
             config.showsCursor = NO;
             config.pixelFormat = kCVPixelFormatType_32BGRA;
             config.capturesAudio = NO;
             config.backgroundColor = CGColorGetConstantColor(kCGColorClear);
-            config.ignoreShadowsDisplay = YES;
+            [condition lock];
+            capturedFrame = target.frame;
+            [condition unlock];
             ((OBFCaptureImageFn)objc_msgSend)(manager, selector, filter, config, ^(CGImageRef image, NSError *captureError) {
-                finish(image, image ? nil : (captureError.localizedDescription ?: @"AUXILIARY_CAPTURE_FAILED: No popup image"));
+                finish(image, image ? nil : (captureError.localizedDescription ?: [failed stringByAppendingString:@": No window image"]));
             });
         }];
         [condition lock];
@@ -727,16 +812,19 @@ int obf_capture_window_snapshot(int32_t pid, uint32_t windowID, uint8_t **bytes,
         if (!completed) abandoned = YES;
         CGImageRef image = captured;
         captured = NULL;
-        NSString *reason = completed ? failure : @"AUXILIARY_CAPTURE_TIMEOUT: Popup capture timed out";
+        CGRect frame = capturedFrame;
+        NSString *reason = completed ? failure : (detail
+            ? @"DETAIL_CAPTURE_TIMEOUT: Window capture timed out"
+            : @"AUXILIARY_CAPTURE_TIMEOUT: Popup capture timed out");
         [condition unlock];
         if (!image) {
-            obf_error(error, capacity, reason ?: @"AUXILIARY_CAPTURE_FAILED: No popup image");
+            obf_error(error, capacity, reason ?: [failed stringByAppendingString:@": No window image"]);
             return 0;
         }
         size_t w = CGImageGetWidth(image), h = CGImageGetHeight(image);
-        if (!w || !h || w > 8192 || h > 8192) {
+        if (!w || !h || w > OBF_SNAPSHOT_MAX_EDGE || h > OBF_SNAPSHOT_MAX_EDGE) {
             CGImageRelease(image);
-            obf_error(error, capacity, @"AUXILIARY_CAPTURE_FAILED: Popup dimensions out of range");
+            obf_error(error, capacity, [failed stringByAppendingString:@": Window image dimensions out of range"]);
             return 0;
         }
         uint8_t *pixels = calloc(w * h, 4);
@@ -752,7 +840,7 @@ int obf_capture_window_snapshot(int32_t pid, uint32_t windowID, uint8_t **bytes,
         if (!context) {
             free(pixels);
             CGImageRelease(image);
-            obf_error(error, capacity, @"AUXILIARY_CAPTURE_FAILED: Bitmap context unavailable");
+            obf_error(error, capacity, [failed stringByAppendingString:@": Bitmap context unavailable"]);
             return 0;
         }
         CGContextDrawImage(context, CGRectMake(0, 0, w, h), image);
@@ -762,8 +850,25 @@ int obf_capture_window_snapshot(int32_t pid, uint32_t windowID, uint8_t **bytes,
         *length = w * h * 4;
         *width = (uint32_t)w;
         *height = (uint32_t)h;
+        if (bounds) {
+            bounds[0] = frame.origin.x; bounds[1] = frame.origin.y;
+            bounds[2] = frame.size.width; bounds[3] = frame.size.height;
+        }
         return 1;
     }
+}
+
+int obf_capture_window_snapshot(int32_t pid, uint32_t windowID, uint8_t **bytes, size_t *length,
+                                uint32_t *width, uint32_t *height, char *error, size_t capacity) {
+    return obf_window_screenshot(pid, windowID, NO, bytes, length, width, height, NULL, error, capacity);
+}
+
+// Premultiplied RGBA of the bound content window at its backing scale, with
+// the window's global frame in points at capture time.
+int obf_capture_window_detail(int32_t pid, uint32_t windowID, uint8_t **bytes, size_t *length,
+                              uint32_t *width, uint32_t *height, double *bounds, char *error,
+                              size_t capacity) {
+    return obf_window_screenshot(pid, windowID, YES, bytes, length, width, height, bounds, error, capacity);
 }
 void obf_capture_stop(void *handle) {
     if (!handle) return;
