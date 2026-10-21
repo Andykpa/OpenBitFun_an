@@ -1733,6 +1733,9 @@ Use ExecCommand for genuine shell work, never ad hoc GUI capture, clipboard or i
 
 /// What a foreground restore established about a window without a live
 /// surface; it decides which recovery the error can still offer.
+/// How long activate_app waits for a restored window's surface to appear.
+const RESTORED_SURFACE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(3);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SurfaceRecovery {
     NotAttempted,
@@ -1805,17 +1808,22 @@ impl ComputerUseTool {
                 let OpenBitFunError::Tool(message) = error else {
                     return Err((error, SurfaceRecovery::RestoreFailed));
                 };
+                let restore_error = match restore_error {
+                    OpenBitFunError::Tool(detail) => detail,
+                    other => other.to_string(),
+                };
                 return Err((
                     OpenBitFunError::Tool(format!(
-                        "{}. Restoring the window failed: {restore_error}",
-                        message.trim_end_matches('.')
+                        "{}. Restoring the window failed: {}",
+                        message.trim_end_matches('.'),
+                        restore_error.trim_end_matches('.')
                     )),
                     SurfaceRecovery::RestoreFailed,
                 ));
             }
         }
         // The window manager animates un-minimize; the surface appears after it.
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(3000);
+        let deadline = tokio::time::Instant::now() + RESTORED_SURFACE_DEADLINE;
         loop {
             tokio::select! {
                 biased;
@@ -1837,6 +1845,15 @@ impl ComputerUseTool {
                         && tokio::time::Instant::now() < deadline => {}
                 Err(error) if Self::surface_unavailable(&error) => {
                     return Err((error, SurfaceRecovery::StillUnavailable))
+                }
+                Err(OpenBitFunError::Tool(message)) => {
+                    return Err((
+                        OpenBitFunError::Tool(format!(
+                            "{}. The window was already restored (unhidden or un-minimized) before this failure",
+                            message.trim_end_matches('.')
+                        )),
+                        SurfaceRecovery::NotAttempted,
+                    ))
                 }
                 Err(error) => return Err((error, SurfaceRecovery::NotAttempted)),
             }
@@ -1927,12 +1944,12 @@ impl ComputerUseTool {
             let foreground = host.control_snapshot().mode
                 == crate::agentic::tools::computer_use_host::ControlMode::Foreground;
             notes.push(match (foreground, recovery) {
-                (false, _) => "Background control does not restore windows: select an on-screen window, or, if this one is minimized or its application hidden, switch with start_control(mode=foreground) and use activate_app with it to restore it, unless the user required background-only/no-disruption.",
-                (true, SurfaceRecovery::NotAttempted) => "If it is minimized or its application hidden, activate_app with this window restores it (unhide, un-minimize) and returns a new observation; a window on another Space or virtual desktop must be brought to the current one by the user.",
-                (true, SurfaceRecovery::NothingToRestore) => "activate_app found nothing to restore: the window is not minimized and its application is not hidden, so it is likely on another Space or virtual desktop. Select an on-screen window, or ask the user to bring this one to the current desktop.",
-                (true, SurfaceRecovery::RestoreFailed) => "Select an on-screen window, or ask the user to restore this one.",
-                (true, SurfaceRecovery::StillUnavailable) => "The window was restored but showed no live surface within 3 seconds; observe it with get_app_state before retrying activate_app.",
-            }.to_string());
+                (false, _) => "Background control does not restore windows: select an on-screen window, or, if this one is minimized or its application hidden, switch with start_control(mode=foreground) and use activate_app with it to restore it, unless the user required background-only/no-disruption.".to_string(),
+                (true, SurfaceRecovery::NotAttempted) => "If it is minimized or its application hidden, activate_app with this window restores it (unhide, un-minimize) and returns a new observation; a window on another Space or virtual desktop must be brought to the current one by the user.".to_string(),
+                (true, SurfaceRecovery::NothingToRestore) => "activate_app found nothing to restore: the window is not minimized and its application is not hidden, so it is likely on another Space or virtual desktop, or ordered out by the application. Select an on-screen window, or ask the user to bring this one back.".to_string(),
+                (true, SurfaceRecovery::RestoreFailed) => "Select an on-screen window, or ask the user to restore this one.".to_string(),
+                (true, SurfaceRecovery::StillUnavailable) => format!("The window was restored but showed no live surface within {} seconds. Observe it again with get_app_state; if it still has none, select an on-screen window or ask the user.", RESTORED_SURFACE_DEADLINE.as_secs()),
+            });
         }
         OpenBitFunError::Tool(format!(
             "{}. {}",
@@ -2063,7 +2080,9 @@ impl ComputerUseTool {
                     }
                 };
                 if let Err(error) = prepared {
-                    if observed_wait {
+                    // The wait still happens when only the target is
+                    // unavailable; control and authorization failures fail it.
+                    if observed_wait && Self::capture_failure_allows_ax_observation(&error) {
                         return Self::wait_then_observe(
                             host.as_ref(),
                             input,
@@ -4169,6 +4188,10 @@ mod tests {
         restorable: bool,
         /// restore_window reports a change but the surface never appears.
         restore_without_surface: bool,
+        /// restore_window fails with this error.
+        restore_error: Option<&'static str>,
+        /// Preparation fails with this error once the window was restored.
+        error_after_restore: Option<&'static str>,
         restored: std::sync::atomic::AtomicBool,
         /// Window inventory installed when app input is dispatched.
         windows_after_input: Option<Vec<crate::agentic::tools::computer_use_host::AppWindowInfo>>,
@@ -4194,6 +4217,8 @@ mod tests {
                 windows: Mutex::new(None),
                 restorable: false,
                 restore_without_surface: false,
+                restore_error: None,
+                error_after_restore: None,
                 restored: std::sync::atomic::AtomicBool::new(false),
                 windows_after_input: None,
             }
@@ -4330,6 +4355,12 @@ mod tests {
             &self,
             app: crate::agentic::tools::computer_use_host::AppSelector,
         ) -> OpenBitFunResult<()> {
+            if let Some(error) = self
+                .error_after_restore
+                .filter(|_| self.restored.load(std::sync::atomic::Ordering::SeqCst))
+            {
+                return Err(OpenBitFunError::tool(error));
+            }
             if self.fail_capture && !self.restored.load(std::sync::atomic::Ordering::SeqCst) {
                 self.events
                     .lock()
@@ -4367,6 +4398,9 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push(format!("restore:{:?}:{:?}", app.pid, app.window_id));
+            if let Some(error) = self.restore_error {
+                return Err(OpenBitFunError::tool(error));
+            }
             if self.restorable {
                 self.restored
                     .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -4827,10 +4861,7 @@ mod tests {
             error.contains("restored but showed no live surface within 3 seconds"),
             "{error}"
         );
-        assert!(
-            !error.contains("activate_app with this window restores it"),
-            "{error}"
-        );
+        assert!(!error.contains("activate_app"), "{error}");
         let events = host.events.lock().unwrap();
         assert_eq!(
             events
@@ -4848,6 +4879,66 @@ mod tests {
             "{events:?}"
         );
         assert!(!events.iter().any(|event| event.starts_with("activate:")));
+    }
+
+    #[tokio::test]
+    async fn failed_restores_are_reported_without_offering_activation_again() {
+        let host = Arc::new(ControlRecordingHost {
+            restore_error: Some(
+                "[RESTORE_UNAVAILABLE] The minimized state of window 99 could not be read over Accessibility, so it was not restored",
+            ),
+            ..Arc::try_unwrap(minimized_window_host(ControlMode::Foreground, false)).unwrap()
+        });
+        let context = control_context(host.clone());
+        let error = ComputerUseTool::new()
+            .call_impl(
+                &json!({"action":"activate_app","app":{"pid":421,"window_id":99}}),
+                &context,
+            )
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("is minimized"), "{error}");
+        assert!(
+            error.contains("Restoring the window failed: [RESTORE_UNAVAILABLE]"),
+            "{error}"
+        );
+        assert!(
+            error.contains("ask the user to restore this one"),
+            "{error}"
+        );
+        assert!(!error.contains("activate_app"), "{error}");
+        assert!(!host
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|event| event.starts_with("activate:")));
+    }
+
+    #[tokio::test]
+    async fn failures_after_a_restore_say_the_window_was_restored() {
+        let host = Arc::new(ControlRecordingHost {
+            error_after_restore: Some("[SHARED_TARGET_ONLY] Window was not shared by the user"),
+            ..Arc::try_unwrap(minimized_window_host(ControlMode::Foreground, true)).unwrap()
+        });
+        let context = control_context(host.clone());
+        let error = ComputerUseTool::new()
+            .call_impl(
+                &json!({"action":"activate_app","app":{"pid":421,"window_id":99}}),
+                &context,
+            )
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("SHARED_TARGET_ONLY"), "{error}");
+        assert!(error.contains("already restored"), "{error}");
+        assert!(!host
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|event| event.starts_with("activate:")));
     }
 
     #[tokio::test]
@@ -4896,6 +4987,61 @@ mod tests {
         assert!(events.iter().any(|event| event == "wait"), "{events:?}");
         assert!(!events.iter().any(|event| event.starts_with("observe:")));
         assert!(!events.iter().any(|event| event.starts_with("restore:")));
+    }
+
+    #[tokio::test]
+    async fn foreground_wait_reports_a_minimized_window_without_restoring_it() {
+        let host = minimized_window_host(ControlMode::Foreground, true);
+        let context = control_context(host.clone());
+        let result = ComputerUseTool::new()
+            .call_impl(
+                &json!({"action":"wait","app":{"pid":421,"window_id":99},"ms":0}),
+                &context,
+            )
+            .await
+            .unwrap();
+        let error = result[0].content()["observation_error"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            error.contains("activate_app with this window restores it"),
+            "{error}"
+        );
+        let events = host.events.lock().unwrap();
+        assert!(events.iter().any(|event| event == "wait"), "{events:?}");
+        assert!(!events.iter().any(|event| event.starts_with("restore:")));
+        assert!(!events.iter().any(|event| event.starts_with("observe:")));
+    }
+
+    #[tokio::test]
+    async fn wait_fails_when_control_rejects_its_target() {
+        let host = Arc::new(ControlRecordingHost {
+            fail_capture: true,
+            capture_error: "[SHARED_TARGET_ONLY] Window was not shared by the user",
+            ..Default::default()
+        });
+        host.state
+            .lock()
+            .unwrap()
+            .capabilities
+            .push("window-target-v1".into());
+        let context = control_context(host.clone());
+        let error = ComputerUseTool::new()
+            .call_impl(
+                &json!({"action":"wait","app":{"pid":421,"window_id":99},"ms":0}),
+                &context,
+            )
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("SHARED_TARGET_ONLY"), "{error}");
+        assert!(!host
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|event| event == "wait"));
     }
 
     #[tokio::test]

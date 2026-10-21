@@ -165,13 +165,16 @@ still require compositor-owned consent.
 `list_windows` is read-only discovery independent of the active capture and AX
 tree. macOS returns WindowServer top-level windows including off-screen entries;
 Windows returns visible titled top-level windows, with minimized and cloaked ones
-reported as off-screen. Every entry carries an explicit `is_on_screen`; a
-missing macOS on-screen key means off-screen. Titles and owner PIDs reveal
+reported as off-screen and without `bounds`, since a minimized window's
+rectangle is a DWM placeholder. Every entry carries an explicit `is_on_screen`;
+a missing macOS on-screen key means off-screen. Titles and owner PIDs reveal
 multi-window and helper-process UIs that an application list cannot. `query`
 matches application names, bundle identifiers and titles case-insensitively
 across processes. An unfiltered listing returns on-screen windows and summarizes
-off-screen ones per application (`offscreen_by_application`); `app` or `query`
-listings include off-screen windows unless `include_offscreen: false`.
+off-screen ones per application (`offscreen_by_application`, at most 40
+applications, with `offscreen_applications_omitted` counting the rest); `app`
+or `query` listings include off-screen windows unless `include_offscreen:
+false`, and `app: null` is unfiltered.
 
 App input actions compare the on-screen window inventory before and after the
 input and report windows that appeared in any process as `opened_windows`,
@@ -265,17 +268,21 @@ Windows reports display-affinity exclusion as `CAPTURE_TARGET_UNAVAILABLE`. The
 tool appends the process's other on-screen windows as exact selectors and a
 mode-aware recovery. Only a foreground `activate_app` recovers such a window,
 and only when it is minimized or its application hidden: the host unhides the
-application and un-minimizes the window the error named (the explicit or bound
-window, else the one capture selects; macOS `AXMinimized`, Windows
-`SW_RESTORE`), within the admitted sharing scope, then prepares the target
-again and reports `restored_window: true`. Activation also sets the capture
-input barrier, so the returned observation comes from a frame delivered after
-it. A window on another Space or virtual desktop cannot be restored; once a
-restore found nothing to change, failed, or left no live surface, the recovery
-note says so instead of offering `activate_app` again. Background actions never
+application and un-minimizes the explicit or bound window, else on macOS the
+window capture selects (the one the error named) and on Windows the process's
+first minimized window (macOS `AXMinimized`, Windows `SW_RESTORE`), within the
+admitted sharing scope, then prepares the target again and reports
+`restored_window: true`. On macOS activation also sets the capture input
+barrier, so the returned observation comes from a frame delivered after it. A
+window on another Space or virtual desktop cannot be restored; once a restore
+found nothing to change, could not read the window's state, failed, or left no
+live surface, the recovery note says so instead of offering `activate_app`
+again. A failure after a successful restore says the window was already
+restored. Background actions never
 restore, unhide or activate a window, and no other window or desktop pixels are
-substituted. A `wait` whose target cannot be prepared still waits and reports
-that error as `observation_error` instead of observing another window.
+substituted. A `wait` whose target is unavailable still waits and reports that
+error as `observation_error` instead of observing another window; control and
+authorization failures fail the wait.
 
 A `wait` that names `app`, or runs with a bound window, returns that window's
 observation after the duration, with the same `include_image` choice. A bare
@@ -566,9 +573,10 @@ so `image_xy` on it maps into that region and survives pure window movement; a
 resize invalidates it like any other observation. Full and zoomed observations
 of the same window remain usable together while its size is unchanged. The map
 marks itself as zoomed rather than being inferred from its region, so a zoom of
-the whole window is still a zoom. While a zoom is the latest image, image
-coordinates without a `screenshot_id` are rejected with
-`SCREENSHOT_ID_REQUIRED` instead of being guessed. Popups composited into the
+the whole window is still a zoom. While a zoom is the latest image, `image_xy`
+targets without a `screenshot_id` are rejected with `SCREENSHOT_ID_REQUIRED`
+instead of being guessed; legacy global image-coordinate actions, which take
+no `screenshot_id`, keep addressing the latest image. Popups composited into the
 zoom are listed in its `auxiliary_windows`, clipped to the region. A zoom
 is vision-only, refreshes no AX tree or `observation_id`, never falls back to an
 accessibility-only read, and never captures outside the bound window. Linux and

@@ -1116,7 +1116,7 @@ impl ComputerUseActions {
                         "has_screenshot": true,
                         "screenshot_meta": screenshot_meta_json(&shot),
                     },
-                    "zoom_note": "A fresh, higher-detail capture of the requested region of the bound window. image_xy with this screenshot_id maps into that region, so pick targets here precisely; while this zoom is the latest image, image coordinates need an explicit screenshot_id. Open popups are composited and listed as in a full observation, but the AX tree and observation_id were not refreshed: node_idx targets still refer to the last full get_app_state.",
+                    "zoom_note": "A fresh, higher-detail capture of the requested region of the bound window. image_xy with this screenshot_id maps into that region, so pick targets here precisely; while this zoom is the latest image, image_xy targets need an explicit screenshot_id. Open popups are composited and listed as in a full observation, but the AX tree and observation_id were not refreshed: node_idx targets still refer to the last full get_app_state.",
                 });
                 Ok(vec![result_with_optional_screenshot(
                     data,
