@@ -105,7 +105,7 @@ fn default_window_captures_main_beside_topmost_companion() {
     let foreground = unsafe { GetForegroundWindow() };
     let fixture = Fixture::start();
     let pid = std::process::id();
-    let inventory = super::enumerate_windows();
+    let inventory = super::enumerate_windows(false);
     let position = |handle| {
         inventory
             .iter()

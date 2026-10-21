@@ -29,6 +29,11 @@ unsafe extern "C" {
     ) -> i32;
     fn AXUIElementCopyActionNames(element: AXUIElementRef, names: *mut CFArrayRef) -> i32;
     fn AXUIElementPerformAction(element: AXUIElementRef, action: CFStringRef) -> i32;
+    fn AXUIElementSetAttributeValue(
+        element: AXUIElementRef,
+        attribute: CFStringRef,
+        value: CFTypeRef,
+    ) -> i32;
     fn AXUIElementSetMessagingTimeout(element: AXUIElementRef, timeout: f32) -> i32;
     fn AXUIElementCopyElementAtPosition(
         element: AXUIElementRef,
@@ -1246,6 +1251,123 @@ pub(super) fn raise_window(pid: i32, window: u32) -> OpenBitFunResult<()> {
         }
     }
     Ok(())
+}
+
+/// Whether an AX window is minimized (`None` when unknown).
+unsafe fn ax_window_minimized(element: AXUIElementRef) -> Option<bool> {
+    // SAFETY: the caller owns a live AX element; the copied attribute is
+    // type-checked before wrapping and released exactly once.
+    unsafe {
+        let value = ax_copy_attr(element, "AXMinimized")?;
+        let minimized = (CFGetTypeID(value) == core_foundation::boolean::CFBoolean::type_id())
+            .then(|| {
+                bool::from(core_foundation::boolean::CFBoolean::wrap_under_get_rule(
+                    value as _,
+                ))
+            });
+        ax_release(value);
+        minimized
+    }
+}
+
+/// Foreground recovery of a window without a live surface: unhide its
+/// application and un-minimize the exact window. Window-only sharing must
+/// admit the window. Returns whether any state changed; the caller prepares
+/// capture again.
+pub(super) fn restore_window(pid: i32, window: u32) -> OpenBitFunResult<bool> {
+    use objc2_app_kit::NSRunningApplication;
+    super::control_session::foreground_allowed().map_err(OpenBitFunError::tool)?;
+    super::control_session::target_admissible(&format!("pid:{pid}/window:{window}"))
+        .map_err(OpenBitFunError::tool)?;
+    // SAFETY: every AX element created or copied here is null-checked and
+    // released exactly once on each return path.
+    unsafe {
+        let app = AXUIElementCreateApplication(pid);
+        if app.is_null() {
+            return Err(OpenBitFunError::tool(
+                "[AX_STALE_TARGET] Application is unavailable",
+            ));
+        }
+        AXUIElementSetMessagingTimeout(app, 0.5);
+        let element = try_window_element_by_id(app, window);
+        ax_release(app);
+        let mut changed = false;
+        if let Some(running) = NSRunningApplication::runningApplicationWithProcessIdentifier(pid) {
+            if running.isHidden() && running.unhide() {
+                changed = true;
+            }
+        }
+        let minimized = match element {
+            Some(element) => {
+                let minimized = ax_window_minimized(element);
+                if minimized == Some(true) {
+                    let attribute = CFString::new("AXMinimized");
+                    let status = AXUIElementSetAttributeValue(
+                        element,
+                        attribute.as_concrete_TypeRef(),
+                        core_foundation::boolean::CFBoolean::false_value().as_CFTypeRef(),
+                    );
+                    ax_release(element as CFTypeRef);
+                    if status != 0 {
+                        return Err(OpenBitFunError::tool(format!(
+                            "[FOREGROUND_ACTIVATION_DENIED] Un-minimizing window {window} failed ({status})"
+                        )));
+                    }
+                    changed = true;
+                } else {
+                    ax_release(element as CFTypeRef);
+                }
+                minimized
+            }
+            None => None,
+        };
+        log::info!(
+            "Computer Use window restore: pid={pid}, window={window}, minimized={minimized:?}, changed={changed}"
+        );
+        // "Nothing to restore" is a claim about the window's state; without a
+        // readable state it would misdirect the user.
+        if !changed && minimized.is_none() {
+            return Err(OpenBitFunError::tool(format!(
+                "[RESTORE_UNAVAILABLE] The minimized state of window {window} could not be read over Accessibility, so it was not restored"
+            )));
+        }
+        Ok(changed)
+    }
+}
+
+/// Native fixtures only: minimize an exact window of a disposable test process.
+#[cfg(feature = "devtools")]
+pub(super) fn minimize_window_for_fixture(pid: i32, window: u32) -> Result<(), String> {
+    // SAFETY: the created and copied AX elements are null-checked and released
+    // exactly once.
+    unsafe {
+        let app = AXUIElementCreateApplication(pid);
+        if app.is_null() {
+            return Err("fixture application is unavailable".into());
+        }
+        let element = try_window_element_by_id(app, window);
+        ax_release(app);
+        let element = element.ok_or("fixture window is unavailable")?;
+        let attribute = CFString::new("AXMinimized");
+        let status = AXUIElementSetAttributeValue(
+            element,
+            attribute.as_concrete_TypeRef(),
+            core_foundation::boolean::CFBoolean::true_value().as_CFTypeRef(),
+        );
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        let mut minimized = ax_window_minimized(element) == Some(true);
+        while status == 0 && !minimized && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            minimized = ax_window_minimized(element) == Some(true);
+        }
+        ax_release(element as CFTypeRef);
+        if status != 0 || !minimized {
+            return Err(format!(
+                "fixture window did not minimize (status {status}); it must be miniaturizable"
+            ));
+        }
+        Ok(())
+    }
 }
 
 pub(super) unsafe fn try_frontmost_window_element(app: AXUIElementRef) -> Option<AXUIElementRef> {

@@ -235,7 +235,7 @@ async fn portal_input(input: AppInputAction) -> OpenBitFunResult<()> {
         } = target
         {
             host()
-                .observed_pointer_map(None, Some(&id))?
+                .observed_pointer_map(None, Some(&id), true)?
                 .map_image_to_global_f64(x, y)
         } else {
             Err(OpenBitFunError::tool(

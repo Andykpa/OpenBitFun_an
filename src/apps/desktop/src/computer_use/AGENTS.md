@@ -84,6 +84,31 @@ decision, never a native retry or implicit escalation. macOS/Windows
 global input must validate the foreground destination. Linux retains its separate
 portal consent/surface identity. Preserve user Stop, cancellation and OS denial.
 
+Surface errors name the state the host established (minimized, hidden, cloaked,
+off-Space, display affinity) for the exact window; keep the codes stable and
+the wording free of recovery advice, which the tool adds per mode. A bound
+stream that loses its surface reports that state too, never "closed": macOS
+per-window `CGWindowList` queries omit minimized and other-Space windows, so a
+window counts as closed only when the full list lacks it, and Windows checks
+the bound HWND's surface state before reusing its stream. Native status reports
+a lost surface as status 2 without querying Accessibility; describe it with
+`obf_capture_describe_surface` only after releasing `CAPTURE`, so Stop never
+waits on the target. Target validation and stream start hold `CAPTURE` by
+design.
+`restore_window` (unhide, un-minimize) runs only for foreground `activate_app`,
+requires `foreground_allowed` and `target_admissible`, and restores the window
+the surface error named: the requested or bound one, else the window capture
+selects for the process (Windows: its first minimized window). An unreadable
+minimized state is a restore failure, never "nothing to restore". On macOS
+activation sets the capture input barrier so the next observation is a
+post-activation frame.
+`app-zoom-v1` re-captures the bound window only: macOS 14+ uses a one-shot
+desktop-independent window filter at backing scale, older macOS and Windows
+crop the live frame. Zoomed pointer maps are marked zoomed and keep their
+window offset and size; never re-anchor them on raw region bounds, infer zoom
+from region size, or let a zoom read pixels outside the bound window. Only
+inputs that can name a screenshot_id require one after a zoom.
+
 ## Target-local macOS focus acceptance
 
 The directed-input route can change a target application's internal

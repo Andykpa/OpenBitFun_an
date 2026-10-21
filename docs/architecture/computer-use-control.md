@@ -164,8 +164,22 @@ still require compositor-owned consent.
 
 `list_windows` is read-only discovery independent of the active capture and AX
 tree. macOS returns WindowServer top-level windows including off-screen entries;
-Windows returns visible, non-minimized titled top-level windows. Titles and owner
-PIDs reveal multi-window and helper-process UIs that an application list cannot.
+Windows returns visible titled top-level windows, with minimized and cloaked ones
+reported as off-screen and without `bounds`, since a minimized window's
+rectangle is a DWM placeholder. Every entry carries an explicit `is_on_screen`;
+a missing macOS on-screen key means off-screen. Titles and owner PIDs reveal
+multi-window and helper-process UIs that an application list cannot. `query`
+matches application names, bundle identifiers and titles case-insensitively
+across processes. An unfiltered listing returns on-screen windows and summarizes
+off-screen ones per application (`offscreen_by_application`, at most 40
+applications, with `offscreen_applications_omitted` counting the rest); `app`
+or `query` listings include off-screen windows unless `include_offscreen:
+false`, and `app: null` is unfiltered.
+
+App input actions compare the on-screen window inventory before and after the
+input and report windows that appeared in any process as `opened_windows`,
+excluding the bound window, its popups and OpenBitFun's own windows. The report
+never rebinds the session; the Agent observes the window it chooses.
 Hosts advertising `window-target-v1` accept `app: {pid, window_id}` to select an
 exact native window. Both IDs must be positive, and native capture validates the
 window's ownership before binding it. Omitted window IDs retain an existing
@@ -246,6 +260,33 @@ surface. App-directed actions retain their semantic/directed route in either mod
 In a background session `activate_app` and global pointer/keyboard actions are
 rejected at admission with an action-specific `FOREGROUND_REQUIRED` message that
 names the background `app_*` alternative; nothing is activated or sent.
+
+A selected window without a live surface fails with the precise state the host
+can establish: `TARGET_APP_HIDDEN` for a hidden macOS application, and
+`TARGET_SURFACE_UNAVAILABLE` naming a minimized, cloaked or off-Space window.
+Windows reports display-affinity exclusion as `CAPTURE_TARGET_UNAVAILABLE`. The
+tool appends the process's other on-screen windows as exact selectors and a
+mode-aware recovery. Only a foreground `activate_app` recovers such a window,
+and only when it is minimized or its application hidden: the host unhides the
+application and un-minimizes the explicit or bound window, else on macOS the
+window capture selects (the one the error named) and on Windows the process's
+first minimized window (macOS `AXMinimized`, Windows `SW_RESTORE`), within the
+admitted sharing scope, then prepares the target again and reports
+`restored_window: true`. On macOS activation also sets the capture input
+barrier, so the returned observation comes from a frame delivered after it. A
+window on another Space or virtual desktop cannot be restored; once a restore
+found nothing to change, could not read the window's state, failed, or left no
+live surface, the recovery note says so instead of offering `activate_app`
+again. A failure after a successful restore says the window was already
+restored. Background actions never
+restore, unhide or activate a window, and no other window or desktop pixels are
+substituted. A `wait` whose target is unavailable still waits and reports that
+error as `observation_error` instead of observing another window; control and
+authorization failures fail the wait.
+
+A `wait` that names `app`, or runs with a bound window, returns that window's
+observation after the duration, with the same `include_image` choice. A bare
+`wait` with no bound window stays a receipt.
 
 Manual preview input joins the same exclusive action lease as the Agent. Pointer
 gestures retain their screenshot until release; resizing or revocation cancels
@@ -483,8 +524,9 @@ popups. Sibling main windows and other processes never qualify; titles, classes
 and application names are never consulted.
 
 Each observation composites those windows over the bound capture, back to front
-(macOS 14+ `SCScreenshotManager` with a desktop-independent window filter;
-Windows one-shot WGC on the capture worker) and reports them in
+(macOS 14+ `SCScreenshotManager` with a display filter that includes only the
+popup, because a desktop-independent filter on a child window renders its whole
+window group; Windows one-shot WGC on the capture worker) and reports them in
 `auxiliary_windows` with image rectangle, global bounds, and `composited`. A
 popup whose pixels cannot be captured is still reported with
 `composited: false` and a reason, never filled with desktop pixels. macOS adds
@@ -508,6 +550,37 @@ desktop capture fallback. Preview encoding supplies its known dimensions rather
 than decoding its own JPEG. Unchanged legitimate dark frames are preserved.
 Explicit action waits subscribe to session changes; Stop, revocation or target
 replacement interrupts them immediately, including waits between batch steps.
+
+### Zoomed observations
+
+Window observations are taken at the window's logical size (macOS points,
+Windows physical pixels), so small text, icons and game tiles can be ambiguous.
+Hosts advertising `app-zoom-v1` (macOS and Windows) accept
+`get_app_state` with `zoom: {screenshot_id, x, y, width, height}` in that
+screenshot's image pixels. The rectangle must lie inside the image content; the
+referenced screenshot must still match the bound window's size and projection.
+The host takes a fresh capture of the bound window at the most detail it offers
+(macOS 14+ `SCScreenshotManager` with the stream's desktop-independent window
+filter at the display's backing scale, the live stream frame on older macOS,
+the WGC frame on Windows), composites popups as in a full observation, crops
+the region snapped to whole source pixels, and enlarges it toward a legible
+size below the vision-model downscale limit (long edge 1024 to 1568 pixels, at
+most eight output pixels per window unit).
+
+The zoomed image is an image observation with its own `screenshot_id`. Its
+pointer map records the region's offset inside the window and the window size,
+so `image_xy` on it maps into that region and survives pure window movement; a
+resize invalidates it like any other observation. Full and zoomed observations
+of the same window remain usable together while its size is unchanged. The map
+marks itself as zoomed rather than being inferred from its region, so a zoom of
+the whole window is still a zoom. While a zoom is the latest image, `image_xy`
+targets without a `screenshot_id` are rejected with `SCREENSHOT_ID_REQUIRED`
+instead of being guessed; legacy global image-coordinate actions, which take
+no `screenshot_id`, keep addressing the latest image. Popups composited into the
+zoom are listed in its `auxiliary_windows`, clipped to the region. A zoom
+is vision-only, refreshes no AX tree or `observation_id`, never falls back to an
+accessibility-only read, and never captures outside the bound window. Linux and
+older hosts report the capability as unsupported.
 
 ### Host clipboard text
 
@@ -798,6 +871,12 @@ use conservative defaults; old payloads remain readable. Do not delete/reset
 persisted sessions, settings or profiles to repair incompatibility. Internal Rust
 port cleanup does not authorize changing persisted or cross-version wire shapes.
 Local fixtures and unsupported-host unit tests are not remote end-to-end evidence.
+
+Window discovery filters, `opened_windows`, `restored_window`, the `wait`
+observation and `zoom` are additive tool fields. A host without `app-zoom-v1`
+gets an explicit unsupported error before any capture; a host provider without
+window restore keeps the original surface error. Older `list_windows` providers
+that omit `is_on_screen` are treated as on-screen, as before.
 
 ## Verification and acceptance
 

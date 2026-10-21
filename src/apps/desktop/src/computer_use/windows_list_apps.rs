@@ -44,10 +44,12 @@ struct WindowEntry {
     hwnd: usize,
     pid: u32,
     title: String,
+    minimized: bool,
 }
 
 struct EnumState {
     windows: Vec<WindowEntry>,
+    include_minimized: bool,
 }
 
 /// List running applications that own at least one visible, titled top-level
@@ -55,7 +57,7 @@ struct EnumState {
 /// macOS host; on Windows there is no per-app hidden flag, so every windowed
 /// process is returned regardless.
 pub(super) fn list_running_apps(_include_hidden: bool) -> OpenBitFunResult<Vec<AppInfo>> {
-    let windows = enumerate_windows();
+    let windows = enumerate_windows(false);
 
     // Group by pid: keep the first non-empty title as a fallback display name.
     let mut by_pid: HashMap<u32, String> = HashMap::new();
@@ -85,7 +87,7 @@ pub(super) fn list_running_apps(_include_hidden: bool) -> OpenBitFunResult<Vec<A
 
 pub(super) fn list_share_targets() -> Vec<openbitfun_agent_tools::computer_use_control::ShareTarget>
 {
-    enumerate_windows()
+    enumerate_windows(false)
         .into_iter()
         .map(
             |window| openbitfun_agent_tools::computer_use_control::ShareTarget {
@@ -106,28 +108,47 @@ pub(super) fn list_share_targets() -> Vec<openbitfun_agent_tools::computer_use_c
         .collect()
 }
 
-/// Available visible, non-minimized titled top-level windows. Unlike the app
-/// list this preserves every window of a process and its exact native handle.
+/// Visible titled top-level windows, including minimized ones reported as
+/// off-screen so discovery can name them. Unlike the app list this preserves
+/// every window of a process and its exact native handle.
 pub(super) fn list_windows() -> Vec<AppWindowInfo> {
-    enumerate_windows()
+    use openbitfun_core::agentic::tools::computer_use_host::ComputerUseImageGlobalBounds;
+    // Many windows share a process; open each process once for its name.
+    let mut executables = HashMap::<u32, String>::new();
+    enumerate_windows(true)
         .into_iter()
-        .map(|window| AppWindowInfo {
-            pid: window.pid as i32,
-            window_id: window.hwnd as u64,
-            application: exe_basename_for_pid(window.pid).unwrap_or_default(),
-            title: window.title,
-            bundle_id: None,
-            is_on_screen: Some(true),
-            bounds: super::windows_capture::window_bounds(HWND(window.hwnd as *mut c_void))
-                .ok()
-                .map(|[left, top, width, height]| {
-                    openbitfun_core::agentic::tools::computer_use_host::ComputerUseImageGlobalBounds {
-                        left,
-                        top,
-                        width,
-                        height,
-                    }
+        .map(|window| {
+            let hwnd = HWND(window.hwnd as *mut c_void);
+            // A cloaked window sits on another virtual desktop: visible to
+            // Win32 but without a live surface, like a minimized one.
+            let cloaked = super::windows_window_target::inspect_window(hwnd)
+                .cloaked
+                .is_some_and(|value| value != 0);
+            let application = executables
+                .entry(window.pid)
+                .or_insert_with(|| exe_basename_for_pid(window.pid).unwrap_or_default())
+                .clone();
+            // A minimized window's rectangle is the DWM placeholder, not its
+            // size or position.
+            let bounds = if window.minimized {
+                None
+            } else {
+                super::windows_capture::window_bounds(hwnd).ok()
+            };
+            AppWindowInfo {
+                pid: window.pid as i32,
+                window_id: window.hwnd as u64,
+                application,
+                title: window.title,
+                bundle_id: None,
+                is_on_screen: Some(!window.minimized && !cloaked),
+                bounds: bounds.map(|[left, top, width, height]| ComputerUseImageGlobalBounds {
+                    left,
+                    top,
+                    width,
+                    height,
                 }),
+            }
         })
         .collect()
 }
@@ -141,16 +162,52 @@ fn sort_apps_by_name(apps: &mut [AppInfo]) {
 /// Explicit HWNDs and existing control bindings do not use this default.
 pub(super) fn find_default_window_for_pid(pid: u32) -> Option<HWND> {
     use super::windows_window_target::{inspect_window, select_default_window};
-    let candidates = enumerate_windows()
+    let candidates = enumerate_windows(false)
         .into_iter()
         .filter(|window| window.pid == pid)
         .map(|window| inspect_window(HWND(window.hwnd as *mut c_void)));
     select_default_window(pid, candidates).map(|handle| HWND(handle as *mut c_void))
 }
 
-fn enumerate_windows() -> Vec<WindowEntry> {
+/// First titled minimized window of `pid`, for selectors without a window id.
+pub(super) fn minimized_window_for_pid(pid: u32) -> Option<usize> {
+    enumerate_windows(true)
+        .into_iter()
+        .find(|window| window.pid == pid && window.minimized)
+        .map(|window| window.hwnd)
+}
+
+/// Foreground recovery of a minimized window: restore the exact window (for
+/// an application selector, its first minimized titled window). Window-only
+/// sharing must admit it. Returns whether a window was restored.
+pub(super) fn restore_window(pid: u32, window: Option<usize>) -> OpenBitFunResult<bool> {
+    use openbitfun_core::util::errors::OpenBitFunError;
+    use windows::Win32::UI::WindowsAndMessaging::{IsWindow, ShowWindow, SW_RESTORE};
+    crate::computer_use::control_session::foreground_allowed().map_err(OpenBitFunError::tool)?;
+    let Some(handle) = window.or_else(|| minimized_window_for_pid(pid)) else {
+        return Ok(false);
+    };
+    let hwnd = HWND(handle as *mut c_void);
+    let mut owner = 0;
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut owner)) };
+    if !unsafe { IsWindow(Some(hwnd)) }.as_bool() || owner != pid {
+        return Err(OpenBitFunError::tool("[TARGET_WINDOW_UNAVAILABLE] The requested window no longer belongs to this process; refresh list_windows and select the intended window"));
+    }
+    crate::computer_use::control_session::target_admissible(&format!("pid:{pid}/window:{handle}"))
+        .map_err(OpenBitFunError::tool)?;
+    if !unsafe { IsIconic(hwnd) }.as_bool() {
+        return Ok(false);
+    }
+    // The return value reports prior visibility, not success.
+    let _ = unsafe { ShowWindow(hwnd, SW_RESTORE) };
+    log::info!("Computer Use window restore: pid={pid}, window={handle}");
+    Ok(true)
+}
+
+fn enumerate_windows(include_minimized: bool) -> Vec<WindowEntry> {
     let state = Mutex::new(EnumState {
         windows: Vec::new(),
+        include_minimized,
     });
     let state_ptr = &state as *const Mutex<EnumState> as isize;
     unsafe {
@@ -164,8 +221,12 @@ unsafe extern "system" fn enum_windows_cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
     // synchronous `EnumWindows` call in `enumerate_windows`.
     let state = unsafe { &*(lparam.0 as *const Mutex<EnumState>) };
 
-    // Skip invisible or minimized windows.
-    if unsafe { IsWindowVisible(hwnd) }.0 == 0 || unsafe { IsIconic(hwnd) }.0 != 0 {
+    // Skip invisible windows, and minimized ones unless the caller lists them.
+    if unsafe { IsWindowVisible(hwnd) }.0 == 0 {
+        return TRUE;
+    }
+    let minimized = unsafe { IsIconic(hwnd) }.0 != 0;
+    if minimized && !state.lock().is_ok_and(|s| s.include_minimized) {
         return TRUE;
     }
 
@@ -194,6 +255,7 @@ unsafe extern "system" fn enum_windows_cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
             hwnd: hwnd.0 as usize,
             pid,
             title,
+            minimized,
         });
     }
     TRUE
