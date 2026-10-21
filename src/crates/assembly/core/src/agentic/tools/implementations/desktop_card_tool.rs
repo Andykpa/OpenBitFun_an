@@ -74,6 +74,17 @@ const PULL_REQUEST_STATUS_COMMAND_POWERSHELL: &str = r#"gh pr view 123 --repo ow
 /// command works in /bin/sh and Windows PowerShell.
 const REPOSITORY_STATS_COMMAND: &str = r#"gh api graphql -f owner=owner -f name=repo -f query='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { stargazerCount forkCount issues(states: OPEN) { totalCount } pullRequests(states: OPEN) { totalCount } } }' --jq '.data.repository | {stars: .stargazerCount, forks: .forkCount, openIssues: .issues.totalCount, openPRs: .pullRequests.totalCount}'"#;
 
+/// No double quotes, so the same command works in /bin/sh and Windows PowerShell.
+const PULL_REQUEST_LIST_COMMAND: &str =
+    "gh pr list --repo owner/repo --state open --limit 10 --json number,title,author,url";
+
+/// Builds rows with textContent so fetched titles are never parsed as HTML.
+const PULL_REQUEST_LIST_HTML: &str = r##"<ul class="openbitfun-card-list" id="list"></ul><div class="openbitfun-card-muted" id="empty" hidden>No open pull requests</div><script>openbitfunCard.onData(function (payload) { var list = document.getElementById('list'); var prs = Array.isArray(payload.data) ? payload.data : []; list.replaceChildren(); prs.forEach(function (pr) { var row = document.createElement('li'); row.className = 'openbitfun-card-item'; row.setAttribute('role', 'link'); row.title = pr.title; row.onclick = function () { openbitfunCard.openLink(pr.url); }; var number = document.createElement('span'); number.className = 'openbitfun-card-muted'; number.textContent = '#' + pr.number; var title = document.createElement('span'); title.className = 'openbitfun-card-truncate'; title.textContent = pr.title; var author = document.createElement('span'); author.className = 'openbitfun-card-muted'; author.textContent = pr.author ? pr.author.login : ''; row.append(number, title, author); list.append(row); }); document.getElementById('empty').hidden = prs.length > 0; });</script>"##;
+
+/// Every class and variable named here must exist in the card widget frame;
+/// `DesktopCardCustomFrame.test.ts` checks this against the frame's CSS.
+const CUSTOM_WIDGET_STYLE_GUIDANCE: &str = "Styling: the widget is transparent over the themed card, which already draws the surface, border, title, refresh time, and fetch errors, so do not set a page or body background, do not repeat the title or update time, and never hard-code colors (they break light, dark, and custom themes). Compose these classes first: openbitfun-card-stack, openbitfun-card-row, openbitfun-card-list with openbitfun-card-item rows (give clickable rows role=\"link\"), openbitfun-card-value, openbitfun-card-muted, openbitfun-card-truncate, openbitfun-card-good, openbitfun-card-warn, openbitfun-card-bad. Extra CSS may use only theme variables: var(--openbitfun-color-content-primary), var(--openbitfun-color-content-secondary), var(--openbitfun-color-content-muted), var(--openbitfun-color-accent-default), var(--openbitfun-color-border-subtle), var(--openbitfun-color-surface-subtle) for inset blocks, var(--openbitfun-color-action-quiet-hover), var(--openbitfun-color-status-success-content), var(--openbitfun-color-status-warning-content), var(--openbitfun-color-status-danger-content), var(--openbitfun-color-status-info-content), var(--openbitfun-space-1) to var(--openbitfun-space-4), var(--openbitfun-radius-sm), var(--openbitfun-radius-md), var(--openbitfun-font-family-mono). Insert fetched text with textContent, not innerHTML. Keep the layout compact for a small window and write visible text in the user's language.";
+
 const WINDOWS_COMMAND_GUIDANCE: &str = "On this Windows computer: `curl` is an alias of Invoke-WebRequest (use curl.exe -sS or Invoke-RestMethod); Windows PowerShell 5.1 strips double quotes inside arguments passed to native programs such as gh, jq, or git, so keep double quotes out of those arguments (use GraphQL variables, or pipe to ConvertFrom-Json and build the result with [pscustomobject]@{...} | ConvertTo-Json -Compress); only the last statement decides the exit code, so a failed earlier call shows up as null values plus a stderr warning instead of an error.";
 
 const POSIX_COMMAND_GUIDANCE: &str = "The command runs without your login profile; prefer absolute paths or CLIs on the system PATH, and use curl -sS so the progress meter stays off stderr.";
@@ -640,6 +651,27 @@ fn presets() -> Value {
             }
         },
         {
+            "id": "pull-request-list",
+            "useWhen": "The user wants a short list of open pull requests (or issues, deployments) that opens each item on click.",
+            "call": {
+                "action": "create",
+                "card": {
+                    "title": "Open PRs",
+                    "subtitle": "owner/repo",
+                    "icon": "git-pull-request",
+                    "link": "https://github.com/owner/repo/pulls",
+                    "dataSource": {
+                        "kind": "command",
+                        "command": PULL_REQUEST_LIST_COMMAND,
+                        "intervalSeconds": 300,
+                        "parse": "json"
+                    },
+                    "template": { "kind": "custom", "html": PULL_REQUEST_LIST_HTML }
+                }
+            },
+            "notes": "A custom list that follows the app theme: it only composes openbitfun-card-* classes and sets no colors or background. gh prints a JSON array, so payload.data is the array itself. Translate the empty-state text into the user's language."
+        },
+        {
             "id": "custom-html",
             "useWhen": "No template fits. Write a small self-contained widget.",
             "call": {
@@ -651,7 +683,7 @@ fn presets() -> Value {
                     "template": { "kind": "custom", "html": "<div class=\"openbitfun-card-stack\"><div class=\"openbitfun-card-value\" id=\"count\">-</div><div class=\"openbitfun-card-muted\">jobs waiting</div></div><script>openbitfunCard.onData(function (payload) { document.getElementById('count').textContent = payload.data && payload.data.waiting != null ? payload.data.waiting : '-'; });</script>" }
                 }
             },
-            "notes": "Runs in an isolated sandbox without access to OpenBitFun. openbitfunCard.onData(cb) receives {data, card, error}; openbitfunCard.openLink(url) opens an http(s) link. Theme classes: openbitfun-card-stack, openbitfun-card-value, openbitfun-card-muted, openbitfun-card-row, openbitfun-card-good, openbitfun-card-bad; CSS variables follow the app theme."
+            "notes": format!("Runs in an isolated sandbox without access to OpenBitFun. openbitfunCard.onData(cb) receives {{data, card, error}}; openbitfunCard.openLink(url) opens an http(s) link. {CUSTOM_WIDGET_STYLE_GUIDANCE}")
         }
     ])
 }
@@ -669,7 +701,7 @@ impl Tool for DesktopCardTool {
 Use a card whenever the user would otherwise have to come back and check on something: a reminder after some time, a scheduled job, a pull request's review/CI state, a deployment or long task's progress, weather, a stock price, a checklist of manual steps, or reference info needed again soon. Create one when the user asks, and also proactively when a task naturally produces something worth glancing at later. Prefer updating an existing card (list first) over creating near-duplicates, and delete cards that are no longer useful.
 
 Actions:
-- presets: return ready-to-use recipes (countdown, scheduled job, PR status, repository stats, weather, stock, progress, checklist, note, custom HTML). Call it when unsure how to build a card; preset commands are already written for the shell on this computer.
+- presets: return ready-to-use recipes (countdown, scheduled job, PR status, PR list, repository stats, weather, stock, progress, checklist, note, custom HTML). Call it when unsure how to build a card; preset commands are already written for the shell on this computer.
 - create: requires card. Shows the card and returns its cardId. With a dataSource, the result already contains the first fetch: the value, any fetch error, stderr output, and template paths that resolved to nothing. Read it instead of calling get or refresh again.
 - update: requires cardId and patch. Only provided fields change; null clears optional fields. patch.dataMerge shallow-merges into data (null removes a key). A changed dataSource is fetched before the result returns.
 - list / get: inspect cards, including the latest fetched data or fetch error and checklist state.
@@ -686,7 +718,7 @@ Templates (template.kind). Every template field, including items and layout, goe
 - progress: value/max or valuePath/maxPath, optional status/statusPath.
 - metrics: items (1-12) [{{label, value | path, format (text|number|percent|currency|datetime|relativeTime), digits, currency, prefix, suffix, tone, toneMap {{"VALUE": tone}}, signTone, hint | hintPath, emphasis}}], layout list|grid.
 - cronJob: jobId of a Cron job; shows next run and last result live.
-- custom: html for a sandboxed widget; openbitfunCard.onData(cb) receives {{data, card, error}}.
+- custom: html (body markup with inline <style> and <script>) for a sandboxed widget; openbitfunCard.onData(cb) receives {{data, card, error}} and openbitfunCard.openLink(url) opens an http(s) link. Use it only when no template above fits (lists of links, small tables, mini charts): the other templates follow the app theme by themselves. {custom_widget_guidance}
 Paths are JSON Pointers (e.g. /current/temperature_2m) into the card data. With a dataSource, data is the latest fetched value.
 
 Data sources (dataSource.kind):
@@ -703,6 +735,7 @@ Cards are shown only on this desktop. They are unavailable for remote mobile or 
             icons = DESKTOP_CARD_ICONS.join(", "),
             shell = desktop_card_command_shell_label(),
             command_test_guidance = command_test_guidance().await,
+            custom_widget_guidance = CUSTOM_WIDGET_STYLE_GUIDANCE,
             command_guidance = if cfg!(windows) {
                 WINDOWS_COMMAND_GUIDANCE
             } else {
@@ -761,7 +794,7 @@ Cards are shown only on this desktop. They are unavailable for remote mobile or 
                 "status": { "type": "string", "description": "progress: static status line." },
                 "statusPath": { "type": "string", "description": "progress: JSON Pointer to the status line." },
                 "jobId": { "type": "string", "description": "cronJob: id returned by Cron." },
-                "html": { "type": "string", "description": "custom: self-contained widget HTML." }
+                "html": { "type": "string", "description": "custom: widget body markup with inline <style>/<script>. It sits transparently on the themed card: set no page background or hard-coded colors; use the openbitfun-card-* classes and var(--openbitfun-*) theme variables listed in the tool description." }
             },
             "required": ["kind"]
         });
@@ -1396,7 +1429,46 @@ mod tests {
     }
 
     #[test]
+    fn custom_widget_presets_follow_the_app_theme() {
+        let presets = presets();
+        let mut custom = 0;
+        for preset in presets.as_array().unwrap() {
+            let Some(html) = preset
+                .pointer("/call/card/template/html")
+                .and_then(Value::as_str)
+            else {
+                continue;
+            };
+            custom += 1;
+            for forbidden in ["color:", "background", "innerHTML", "<style"] {
+                assert!(
+                    !html.contains(forbidden),
+                    "{} uses {forbidden}",
+                    preset["id"]
+                );
+            }
+            assert!(html.contains("openbitfun-card-"), "{}", preset["id"]);
+            let notes = preset["notes"].as_str().unwrap_or_default();
+            assert!(
+                preset["id"] != "custom-html" || notes.contains(CUSTOM_WIDGET_STYLE_GUIDANCE),
+                "{notes}"
+            );
+        }
+        assert_eq!(custom, 2);
+        let schema = DesktopCardTool::new().input_schema();
+        let html = schema["properties"]["card"]["properties"]["template"]["properties"]["html"]
+            ["description"]
+            .as_str()
+            .unwrap();
+        assert!(
+            html.contains("no page background or hard-coded colors"),
+            "{html}"
+        );
+    }
+
+    #[test]
     fn cross_shell_commands_avoid_double_quotes() {
+        assert!(!PULL_REQUEST_LIST_COMMAND.contains('"'));
         assert!(!REPOSITORY_STATS_COMMAND.contains('"'));
         assert!(!PULL_REQUEST_STATUS_COMMAND_POWERSHELL.contains('"'));
         let preset = presets()
