@@ -321,6 +321,10 @@ pub struct DesktopCardDataSnapshot {
     pub value: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// stderr of a command that still exited successfully; partial failures
+    /// inside a script often surface only here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -518,6 +522,66 @@ pub async fn invoke_desktop_card_host(request: DesktopCardHostRequest) -> Result
         return Err("Desktop cards are available only in the OpenBitFun desktop app".to_string());
     };
     handler(request).await
+}
+
+/// Shell that runs command data sources on this computer, as shown to the model.
+pub fn desktop_card_command_shell_label() -> &'static str {
+    if cfg!(windows) {
+        "Windows PowerShell 5.1 (powershell.exe -NoProfile -NonInteractive -Command)"
+    } else {
+        "/bin/sh -c (no login profile)"
+    }
+}
+
+/// argv for a command data source. Profiles are skipped so an unattended
+/// refresh never runs content the user did not approve; PowerShell output is
+/// forced to UTF-8 like ExecCommand so non-ASCII output survives.
+pub fn desktop_card_command_argv(command: &str) -> Vec<String> {
+    use tool_runtime::exec_command::{exec_command_argv_for_isolated_shell, ExecCommandShellKind};
+    if cfg!(windows) {
+        exec_command_argv_for_isolated_shell(
+            "powershell.exe",
+            ExecCommandShellKind::PowerShell,
+            command,
+        )
+    } else {
+        exec_command_argv_for_isolated_shell("/bin/sh", ExecCommandShellKind::Sh, command)
+    }
+}
+
+/// JSON Pointers a template reads from the card data, with the field that declares each.
+pub fn desktop_card_template_paths(template: &DesktopCardTemplateKind) -> Vec<(String, String)> {
+    let mut paths = Vec::new();
+    match template {
+        DesktopCardTemplateKind::Progress {
+            value_path,
+            max_path,
+            status_path,
+            ..
+        } => {
+            for (field, path) in [
+                ("valuePath", value_path),
+                ("maxPath", max_path),
+                ("statusPath", status_path),
+            ] {
+                if let Some(path) = path {
+                    paths.push((field.to_string(), path.clone()));
+                }
+            }
+        }
+        DesktopCardTemplateKind::Metrics { items, .. } => {
+            for item in items {
+                if let Some(path) = &item.path {
+                    paths.push((format!("metric `{}` path", item.label), path.clone()));
+                }
+                if let Some(path) = &item.hint_path {
+                    paths.push((format!("metric `{}` hintPath", item.label), path.clone()));
+                }
+            }
+        }
+        _ => {}
+    }
+    paths
 }
 
 fn char_len(value: &str) -> usize {
@@ -933,6 +997,7 @@ mod tests {
             fetched_at_ms: 1,
             value: json!({}),
             error: None,
+            warning: None,
         });
         let mut merge = Map::new();
         merge.insert("b".to_string(), Value::Null);
@@ -979,6 +1044,89 @@ mod tests {
             layout: None,
         })
         .is_err());
+    }
+
+    #[test]
+    fn snapshots_written_before_warnings_still_load_and_round_trip() {
+        let legacy = json!({ "fetchedAtMs": 5, "value": { "n": 1 }, "error": "boom" });
+        let snapshot: DesktopCardDataSnapshot = serde_json::from_value(legacy.clone()).unwrap();
+        assert_eq!(snapshot.warning, None);
+        assert_eq!(serde_json::to_value(&snapshot).unwrap(), legacy);
+
+        let with_warning = DesktopCardDataSnapshot {
+            warning: Some("rate limited".to_string()),
+            ..snapshot
+        };
+        assert_eq!(
+            serde_json::to_value(&with_warning).unwrap()["warning"],
+            "rate limited"
+        );
+    }
+
+    #[test]
+    fn command_argv_skips_profiles_on_every_platform() {
+        let argv = desktop_card_command_argv("echo hi");
+        if cfg!(windows) {
+            assert_eq!(
+                argv[..4],
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command"
+                ]
+            );
+            assert!(argv[4].starts_with("[Console]::OutputEncoding"));
+            assert!(argv[4].ends_with("echo hi"));
+        } else {
+            assert_eq!(argv, ["/bin/sh", "-c", "echo hi"]);
+        }
+        assert!(
+            desktop_card_command_shell_label().contains(if cfg!(windows) {
+                "PowerShell"
+            } else {
+                "/bin/sh"
+            })
+        );
+    }
+
+    #[test]
+    fn template_paths_cover_metrics_and_progress_bindings() {
+        let metrics = DesktopCardTemplateKind::Metrics {
+            items: vec![
+                DesktopCardMetricItem {
+                    label: "Stars".to_string(),
+                    path: Some("/stars".to_string()),
+                    hint_path: Some("/updated".to_string()),
+                    ..Default::default()
+                },
+                DesktopCardMetricItem {
+                    label: "Static".to_string(),
+                    value: Some(json!(1)),
+                    ..Default::default()
+                },
+            ],
+            layout: None,
+        };
+        let paths = desktop_card_template_paths(&metrics)
+            .into_iter()
+            .map(|(_, path)| path)
+            .collect::<Vec<_>>();
+        assert_eq!(paths, ["/stars", "/updated"]);
+
+        let progress = DesktopCardTemplateKind::Progress {
+            value: None,
+            max: None,
+            value_path: Some("/done".to_string()),
+            max_path: Some("/total".to_string()),
+            status: None,
+            status_path: None,
+        };
+        assert_eq!(desktop_card_template_paths(&progress).len(), 2);
+        assert!(desktop_card_template_paths(&DesktopCardTemplateKind::Note {
+            text: "x".to_string()
+        })
+        .is_empty());
     }
 
     #[test]

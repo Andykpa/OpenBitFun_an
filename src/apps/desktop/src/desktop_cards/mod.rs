@@ -36,6 +36,9 @@ pub const DESKTOP_CARD_CHANGED_EVENT: &str = "desktop-card://changed";
 pub const DESKTOP_CARD_STATE_EVENT: &str = "desktop-card://state";
 const DESKTOP_CARDS_CONFIG_PATH: &str = "app.ai_experience.enable_desktop_cards";
 const GEOMETRY_SAVE_DELAY: Duration = Duration::from_millis(600);
+/// How long create/update wait for the first fetch so the tool result can
+/// report real data; slower sources keep loading in the background.
+const FIRST_FETCH_WAIT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,6 +76,9 @@ pub struct DesktopCards {
     store: tokio::sync::Mutex<CardStore>,
     enabled: AtomicBool,
     timers: Mutex<HashMap<String, CardTimers>>,
+    /// One fetch per card at a time, so a command source never runs
+    /// concurrently with itself (refresh loop, create, and manual refresh).
+    fetch_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     geometry_save_pending: AtomicBool,
     self_ref: Weak<DesktopCards>,
 }
@@ -140,6 +146,7 @@ impl DesktopCards {
             store: tokio::sync::Mutex::new(store),
             enabled: AtomicBool::new(false),
             timers: Mutex::new(HashMap::new()),
+            fetch_locks: Mutex::new(HashMap::new()),
             geometry_save_pending: AtomicBool::new(false),
             self_ref: self_ref.clone(),
         })
@@ -245,7 +252,41 @@ impl DesktopCards {
         );
         let card = self.sync_card_runtime(card).await;
         self.emit_changed(&card.id, Some(&card), false);
-        Ok(card)
+        Ok(self.await_first_fetch(card).await)
+    }
+
+    /// Waits (bounded) for the first fetch of a card whose source has no data
+    /// yet. The refresh loop usually runs it; the per-card fetch lock makes
+    /// this reuse that result instead of starting a second command.
+    async fn await_first_fetch(&self, card: DesktopCardRecord) -> DesktopCardRecord {
+        if card.last_data.is_some() || !self.is_enabled() {
+            return card;
+        }
+        let Some(source) = card
+            .data_source
+            .as_ref()
+            .and_then(DesktopCardDataSource::known)
+            .cloned()
+        else {
+            return card;
+        };
+        let requested_at_ms = now_ms();
+        match tokio::time::timeout(
+            FIRST_FETCH_WAIT,
+            self.run_fetch(&card.id, &source, Some(requested_at_ms)),
+        )
+        .await
+        {
+            Ok(Some(fetched)) => fetched,
+            Ok(None) => card,
+            Err(_) => {
+                log::debug!(
+                    "Desktop card first fetch still running after wait: card_id={}",
+                    card.id
+                );
+                self.get(&card.id).await.unwrap_or(card)
+            }
+        }
     }
 
     pub async fn update(
@@ -273,7 +314,7 @@ impl DesktopCards {
         }
         let card = self.sync_card_runtime(card).await;
         self.emit_changed(card_id, Some(&card), false);
-        Ok(card)
+        Ok(self.await_first_fetch(card).await)
     }
 
     pub async fn set_visible(
@@ -318,7 +359,7 @@ impl DesktopCards {
         };
         match source {
             Some(source) => self
-                .run_fetch(card_id, &source)
+                .run_fetch(card_id, &source, Some(now_ms()))
                 .await
                 .ok_or_else(|| not_found(card_id)),
             None => self.get(card_id).await,
@@ -505,13 +546,39 @@ impl DesktopCards {
         if let Some(mut entry) = timers.remove(card_id) {
             entry.abort_all();
         }
+        drop(timers);
+        match self.fetch_locks.lock() {
+            Ok(mut locks) => locks.remove(card_id),
+            Err(poisoned) => poisoned.into_inner().remove(card_id),
+        };
     }
 
+    fn fetch_lock(&self, card_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut locks = match self.fetch_locks.lock() {
+            Ok(locks) => locks,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        Arc::clone(locks.entry(card_id.to_string()).or_default())
+    }
+
+    /// Fetches the source and stores the snapshot. With `not_before_ms`, a
+    /// fetch of the same source that finished at or after that time while this
+    /// call waited for the card's fetch lock is reused instead of repeated.
     async fn run_fetch(
         &self,
         card_id: &str,
         source: &DesktopCardDataSourceKind,
+        not_before_ms: Option<i64>,
     ) -> Option<DesktopCardRecord> {
+        let lock = self.fetch_lock(card_id);
+        let _guard = lock.lock().await;
+        if let Some(not_before_ms) = not_before_ms {
+            let store = self.store.lock().await;
+            let card = store.get(card_id)?;
+            if has_fresh_snapshot(card, source, not_before_ms) {
+                return Some(card.clone());
+            }
+        }
         let result = refresh::fetch(source).await;
         let card = {
             let mut store = self.store.lock().await;
@@ -530,10 +597,11 @@ impl DesktopCards {
                 .map(|snapshot| snapshot.value.clone())
                 .unwrap_or(Value::Null);
             card.last_data = Some(match result {
-                Ok(value) => DesktopCardDataSnapshot {
+                Ok(output) => DesktopCardDataSnapshot {
                     fetched_at_ms: now_ms(),
-                    value,
+                    value: output.value,
                     error: None,
+                    warning: output.warning,
                 },
                 Err(error) => {
                     log::debug!(
@@ -545,6 +613,7 @@ impl DesktopCards {
                         fetched_at_ms: now_ms(),
                         value: previous,
                         error: Some(error),
+                        warning: None,
                     }
                 }
             });
@@ -693,6 +762,21 @@ impl DesktopCards {
     }
 }
 
+fn has_fresh_snapshot(
+    card: &DesktopCardRecord,
+    source: &DesktopCardDataSourceKind,
+    not_before_ms: i64,
+) -> bool {
+    card.data_source
+        .as_ref()
+        .and_then(DesktopCardDataSource::known)
+        == Some(source)
+        && card
+            .last_data
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.fetched_at_ms >= not_before_ms)
+}
+
 fn initial_refresh_delay(card: &DesktopCardRecord, source: &DesktopCardDataSourceKind) -> Duration {
     let interval_ms = (source.interval_seconds() as i64).saturating_mul(1000);
     match &card.last_data {
@@ -716,7 +800,11 @@ async fn refresh_loop(
         let Some(service) = service.upgrade() else {
             return;
         };
-        if service.run_fetch(&card_id, &source).await.is_none() {
+        if service
+            .run_fetch(&card_id, &source, Some(now_ms()))
+            .await
+            .is_none()
+        {
             return;
         }
         drop(service);
@@ -865,5 +953,58 @@ pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
             });
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn command_card(command: &str, last_data: Value) -> DesktopCardRecord {
+        serde_json::from_value(json!({
+            "id": "card-1",
+            "title": "Repo",
+            "template": {"kind": "note", "text": "x"},
+            "dataSource": {"kind": "command", "command": command, "intervalSeconds": 300},
+            "lastData": last_data
+        }))
+        .unwrap()
+    }
+
+    fn source(command: &str) -> DesktopCardDataSourceKind {
+        serde_json::from_value(
+            json!({"kind": "command", "command": command, "intervalSeconds": 300}),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn concurrent_fetch_results_are_reused_only_when_fresh_and_for_the_same_source() {
+        let card = command_card("gh api", json!({"fetchedAtMs": 1_000, "value": {"n": 1}}));
+        assert!(has_fresh_snapshot(&card, &source("gh api"), 1_000));
+        assert!(has_fresh_snapshot(&card, &source("gh api"), 900));
+        assert!(!has_fresh_snapshot(&card, &source("gh api"), 1_001));
+        assert!(!has_fresh_snapshot(
+            &card,
+            &source("gh api --paginate"),
+            900
+        ));
+
+        let pending = command_card("gh api", Value::Null);
+        assert!(!has_fresh_snapshot(&pending, &source("gh api"), 0));
+    }
+
+    #[test]
+    fn failed_or_missing_snapshots_refresh_immediately() {
+        let source = source("gh api");
+        let pending = command_card("gh api", Value::Null);
+        assert_eq!(initial_refresh_delay(&pending, &source), Duration::ZERO);
+        let failed = command_card(
+            "gh api",
+            json!({"fetchedAtMs": now_ms(), "error": "Command exited with 1: boom"}),
+        );
+        assert_eq!(initial_refresh_delay(&failed, &source), Duration::ZERO);
+        let fresh = command_card("gh api", json!({"fetchedAtMs": now_ms(), "value": 1}));
+        assert!(initial_refresh_delay(&fresh, &source) > Duration::from_secs(290));
     }
 }
