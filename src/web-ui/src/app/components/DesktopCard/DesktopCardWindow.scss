@@ -305,8 +305,8 @@ body.openbitfun-desktop-card-window-body #root {
     gap: var(--openbitfun-space-2);
   }
 
-  // Borderless WebView2/WebKitGTK windows have no native resize border, so
-  // these edges hand the pointer to the OS resize loop. macOS keeps its own.
+  // Dependable edge targets for the OS resize loop on Windows and Linux,
+  // where the native undecorated-window border is too thin or unreachable.
   &__resize {
     --openbitfun-desktop-card-resize-edge: 5px;
     --openbitfun-desktop-card-resize-corner: 10px;

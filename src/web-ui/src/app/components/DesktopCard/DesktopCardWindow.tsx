@@ -42,8 +42,10 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
 }
 
 /**
- * Borderless card windows have no native resize border on Windows and Linux,
- * where the webview also swallows edge hit-testing; macOS resizes natively.
+ * Tauri's own resize border for undecorated windows is only a few pixels wide
+ * and does not reliably reach these transparent card windows on Windows, so
+ * these regions start the same OS resize loop. On Linux they overlap Tauri's
+ * GTK edge handler harmlessly; macOS resizes natively.
  */
 function DesktopCardResizeRegions({ cardId }: { cardId: string | null }) {
   const enabled = useMemo(() => supportsNativeWindowControls() && !isMacOSDesktopRuntime(), []);
