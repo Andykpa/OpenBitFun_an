@@ -4,7 +4,7 @@ import {
   DialogHeader, DialogHeading, DialogTitle, Icon, IconButton, Input, OverflowText, Tooltip,
 } from '@openbitfun/ui';
 import { FolderPlus, Server } from 'lucide-react';
-import React, { useState, useCallback, useEffect, useId, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useId, useMemo, useRef } from 'react';
 import { useI18n } from '@/infrastructure/i18n';
 import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
 import type { WorkspaceConnectionTarget } from '@/features/ssh-remote/types';
@@ -66,9 +66,10 @@ export const NewProjectDialog: React.FC<NewProjectDialogProps> = ({
   const selectedHost = hostOptions.options.find(option => option.id === selectedHostOption);
   const environmentOptions = useWorkspaceSourceOptions(source, optionsEnabled && source !== 'host' && source !== 'ssh', selectedHost?.preset);
   const sourceOptions = source === 'ssh' ? hostOptions : environmentOptions;
-  const connectionPreset: WorkspaceConnectionPreset | undefined = source === 'ssh' ? selectedHost?.preset
+  const connectionPreset = useMemo<WorkspaceConnectionPreset | undefined>(() => source === 'ssh' ? selectedHost?.preset
     : sourceOptions.options.find(option => option.id === selectedOption)?.preset
-      ?? (source === 'remoteDocker' && selectedHost ? { kind: 'new', host: workspacePresetHost(selectedHost.preset), credentialConnectionId: selectedHost.preset.credentialConnectionId } : undefined);
+      ?? (source === 'remoteDocker' && selectedHost ? { kind: 'new', host: workspacePresetHost(selectedHost.preset), credentialConnectionId: selectedHost.preset.credentialConnectionId } : undefined),
+  [source, selectedHost, sourceOptions.options, selectedOption]);
   const showEnvironment = location === 'current' || Boolean(selectedHost);
   const sourceReady = hasFolders || (showEnvironment && (source === 'host' || (source === 'ssh' ? Boolean(selectedHost) : Boolean(selectedOption && sourceOptions.options.some(option => option.id === selectedOption)) || Boolean(connectedRemote))));
   const environmentLabel = environment === 'wsl' ? t('workspaceSource.wsl')

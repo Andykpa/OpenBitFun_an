@@ -146,12 +146,12 @@ export const SSHConnectionDialog: React.FC<SSHConnectionDialogProps> = ({
   const parentHost = initialPreset?.kind === 'new' ? initialPreset.host : undefined;
   const hostIsFixed = inheritedHost && (Boolean(parentHost) || editOnly);
   const error = localError || (connectionError ? t('workspaceSource.connectionFailed') : null);
-  const connectAndFinish = async (config: SSHConnectionConfig) => {
+  const connectAndFinish = useCallback(async (config: SSHConnectionConfig) => {
     const result = await connect(config.id, config, { browseAfterConnect });
     scope.assertCurrent('finish connecting workspace source');
     onConnected?.(config, result?.connectionId || config.id);
     onClose();
-  };
+  }, [connect, browseAfterConnect, scope, onConnected, onClose]);
   // Host and container SSH endpoints have separate addresses and credentials.
   const endpointDrafts = useRef<Partial<Record<'host' | 'container', ReturnType<typeof emptySshEndpoint>>>>({});
   const usesSshEndpoint = sshEndpointOwner(formData.targetType) !== null;
@@ -180,7 +180,7 @@ export const SSHConnectionDialog: React.FC<SSHConnectionDialogProps> = ({
     });
   }, []);
 
-  async function loadSavedConnections() {
+  const loadSavedConnections = useCallback(async () => {
     const requestId = ++savedRequestId.current;
     setLocalError(null);
     try {
@@ -189,7 +189,7 @@ export const SSHConnectionDialog: React.FC<SSHConnectionDialogProps> = ({
     } catch (_error) {
       if (requestId === savedRequestId.current && scope.isCurrent()) setLocalError(t('workspaceSource.hostDiscoveryFailed'));
     }
-  }
+  }, [scope, t]);
 
   // Clear errors when dialog opens
   useEffect(() => {
@@ -217,7 +217,7 @@ export const SSHConnectionDialog: React.FC<SSHConnectionDialogProps> = ({
       }));
       void loadSavedConnections();
     }
-  }, [open, clearError, initialTargetType]);
+  }, [open, clearError, initialTargetType, loadSavedConnections]);
 
   useEffect(() => {
     if (!open || !usesSshEndpoint || inheritedHost) {
@@ -550,6 +550,9 @@ export const SSHConnectionDialog: React.FC<SSHConnectionDialogProps> = ({
     };
   };
 
+  const isWslTarget = formData.targetType === 'wsl';
+  const isLocalProcessTarget = formData.targetType === 'localDocker' || isWslTarget;
+
   const handleConnect = async () => {
     setIsConnecting(true);
     setLocalError(null);
@@ -593,7 +596,7 @@ export const SSHConnectionDialog: React.FC<SSHConnectionDialogProps> = ({
       const config = await buildConnectionConfig(true);
       if (!config) return;
       setConnectionTest(await sshApi.testConnection(config));
-    } catch (error) {
+    } catch (_error) {
       setLocalError(t('ssh.remote.testFailed'));
     } finally {
       setIsTesting(false);
@@ -634,26 +637,26 @@ export const SSHConnectionDialog: React.FC<SSHConnectionDialogProps> = ({
     return () => { cancelled = true; };
   }, [open, inheritedHost, containerHost, scope, t, initialPreset?.credentialConnectionId]);
 
-  const handleSavedConnectionFailure = (conn: SavedConnection, error: unknown) => {
+  const handleSavedConnectionFailure = useCallback((conn: SavedConnection, error: unknown) => {
     // Native targets have no SSH authentication to repair. Show an
     // environment-specific status instead of asking for SSH credentials.
     if (conn.wsl || conn.container?.local) {
       setLocalError(t(workspaceSourceErrorKey(savedConnectionTarget(conn), error)));
     } else if (isSshAuthenticationError(error)) setCredentialsPrompt(conn);
     else setLocalError(t('workspaceSource.connectionFailed'));
-  };
+  }, [t]);
 
-  const handleQuickConnect = async (conn: SavedConnection) => {
+  const handleQuickConnect = useCallback(async (conn: SavedConnection) => {
     setLocalError(null);
     if (conn.authType.type === 'KeyboardInteractive') { setCredentialsPrompt(conn); return; }
     setIsConnecting(true);
     try { await connectAndFinish(savedConnectionConfig(conn)); }
     catch (cause) { handleSavedConnectionFailure(conn, cause); }
     finally { setIsConnecting(false); }
-  };
+  }, [connectAndFinish, handleSavedConnectionFailure]);
 
   // Fill the manual connection form from an ~/.ssh/config host entry
-  const handleFillFromConfig = (configHost: SSHConfigEntry) => {
+  const handleFillFromConfig = useCallback((configHost: SSHConfigEntry) => {
     const port = configHost.port ? String(configHost.port) : '22';
     const username = configHost.user || '';
     const keyPath = configHost.identityFile?.trim() || '~/.ssh/id_rsa';
@@ -682,7 +685,7 @@ export const SSHConnectionDialog: React.FC<SSHConnectionDialogProps> = ({
     setShowAdvancedSettings(Boolean(configHost.proxyJump || configHost.certificateFile));
     // Config list sits above the form; scroll so the filled fields are visible.
     requestAnimationFrame(() => scrollToConnectionForm());
-  };
+  }, [scrollToConnectionForm]);
 
   const handleCredentialsPromptSubmit = async (payload: SSHAuthPromptSubmitPayload) => {
     if (!credentialsPrompt) return;
@@ -720,7 +723,7 @@ export const SSHConnectionDialog: React.FC<SSHConnectionDialogProps> = ({
     if (initialPreset?.kind === 'saved' && !editOnly) onClose();
   };
 
-  const handleEditConnection = (e: React.MouseEvent | null, conn: SavedConnection) => {
+  const handleEditConnection = useCallback((e: React.MouseEvent | null, conn: SavedConnection) => {
     e?.stopPropagation();
     setEditingProfile(conn);
     if (savedConnectionTarget(conn) === 'remoteDocker') setContainerHost({ ...conn, container: undefined });
@@ -788,7 +791,7 @@ export const SSHConnectionDialog: React.FC<SSHConnectionDialogProps> = ({
       || (conn.options?.connectAttempts ?? 1) !== 1
     );
     requestAnimationFrame(() => scrollToConnectionForm());
-  };
+  }, [scrollToConnectionForm]);
 
   const handleDeleteConnection = async (e: React.MouseEvent, connectionId: string) => {
     e.stopPropagation();
@@ -832,8 +835,6 @@ export const SSHConnectionDialog: React.FC<SSHConnectionDialogProps> = ({
     }
     return `${t('ssh.remote.testStageConfiguration')} · ${stage.label}`;
   };
-  const isWslTarget = formData.targetType === 'wsl';
-  const isLocalProcessTarget = formData.targetType === 'localDocker' || isWslTarget;
   const usesDockerTarget = formData.targetType === 'localDocker' || formData.targetType === 'remoteDocker';
   const isRemoteContainer = formData.targetType === 'remoteDocker' || formData.targetType === 'containerSshd';
   const sourceBusy = isConnecting || status === 'connecting' || isTesting;
@@ -872,7 +873,7 @@ export const SSHConnectionDialog: React.FC<SSHConnectionDialogProps> = ({
         setShowAdvancedSettings(false);
       }
     }
-  }, [open, initialPreset]);
+  }, [open, initialPreset, initialTargetType, editOnly, handleEditConnection, handleFillFromConfig, handleQuickConnect]);
   const showNewConnection = editOnly || initialPreset?.kind === 'new' || initialPreset?.kind === 'sshConfig' || availableSavedConnections.length === 0 || connectionView === 'new';
   const showSshConfig = !isLocalProcessTarget && !inheritedHost && !initialPreset;
   const filteredSavedConnections = availableSavedConnections.filter((conn) => {
