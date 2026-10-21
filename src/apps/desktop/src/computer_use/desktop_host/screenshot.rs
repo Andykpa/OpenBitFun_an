@@ -54,11 +54,12 @@ impl PointerMap {
     }
 
     /// The observed map that image coordinates address, valid only while it
-    /// shares the window projection of the latest image.
+    /// shares the window projection of the latest image. `implicit_needs_full`
+    /// marks coordinates that omitted a screenshot_id they could have named.
     pub(super) fn for_coordinates(
         selected: Self,
         latest: Option<Self>,
-        explicit_screenshot: bool,
+        implicit_needs_full: bool,
     ) -> OpenBitFunResult<Self> {
         if !latest.is_some_and(|current| current.same_window_projection(&selected)) {
             return Err(OpenBitFunError::tool(
@@ -67,7 +68,7 @@ impl PointerMap {
         }
         // After a zoom, coordinates may come from either image; guessing the
         // region would move the pointer silently.
-        if !explicit_screenshot && selected.zoomed {
+        if implicit_needs_full && selected.zoomed {
             return Err(OpenBitFunError::tool(
                 "[SCREENSHOT_ID_REQUIRED] The latest image is a zoomed region; pass the screenshot_id of the image these coordinates come from, or observe the full window again",
             ));
@@ -1124,8 +1125,8 @@ mod window_projection_tests {
         assert!(!observed.geometry.same_projection(&whole.geometry));
         assert!(observed.same_window_projection(&whole));
         assert!(whole.same_window_projection(&observed));
-        assert!(PointerMap::for_coordinates(observed, Some(whole), false).is_ok());
-        let implicit = PointerMap::for_coordinates(whole, Some(whole), false).unwrap_err();
+        assert!(PointerMap::for_coordinates(observed, Some(whole), true).is_ok());
+        let implicit = PointerMap::for_coordinates(whole, Some(whole), true).unwrap_err();
         assert!(
             implicit.to_string().contains("SCREENSHOT_ID_REQUIRED"),
             "{implicit}"
@@ -1136,27 +1137,27 @@ mod window_projection_tests {
     fn coordinates_after_a_zoom_name_their_image() {
         let observed = capture_map();
         let zoomed = zoomed_map();
-        let implicit = PointerMap::for_coordinates(zoomed, Some(zoomed), false).unwrap_err();
+        let implicit = PointerMap::for_coordinates(zoomed, Some(zoomed), true).unwrap_err();
         assert!(
             implicit.to_string().contains("SCREENSHOT_ID_REQUIRED"),
             "{implicit}"
         );
         assert_eq!(
-            PointerMap::for_coordinates(zoomed, Some(zoomed), true).unwrap(),
+            PointerMap::for_coordinates(zoomed, Some(zoomed), false).unwrap(),
             zoomed
         );
         assert_eq!(
-            PointerMap::for_coordinates(observed, Some(zoomed), true).unwrap(),
+            PointerMap::for_coordinates(observed, Some(zoomed), false).unwrap(),
             observed
         );
         assert_eq!(
-            PointerMap::for_coordinates(observed, Some(observed), false).unwrap(),
+            PointerMap::for_coordinates(observed, Some(observed), true).unwrap(),
             observed
         );
         let resized = zoomed
             .at_window_bounds([139.0, 40.0, 1800.0, 1200.0])
             .unwrap();
-        assert!(PointerMap::for_coordinates(observed, Some(resized), true).is_ok());
+        assert!(PointerMap::for_coordinates(observed, Some(resized), false).is_ok());
         for latest in [
             None,
             Some(PointerMap {
@@ -1164,7 +1165,7 @@ mod window_projection_tests {
                 ..zoomed
             }),
         ] {
-            let stale = PointerMap::for_coordinates(observed, latest, true).unwrap_err();
+            let stale = PointerMap::for_coordinates(observed, latest, false).unwrap_err();
             assert!(stale.to_string().contains("STALE_CAPTURE"), "{stale}");
         }
     }

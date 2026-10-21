@@ -294,11 +294,14 @@ impl DesktopComputerUseHost {
     }
 
     /// Resolve image/normalized input against the observation scope and live
-    /// native bounds, including legacy foreground actions.
+    /// native bounds, including legacy foreground actions. Inputs that accept
+    /// a screenshot_id set `zoom_needs_id`; legacy actions without one keep
+    /// addressing the latest image, zoomed or not.
     pub(super) fn observed_pointer_map(
         &self,
         expected_pid: Option<i32>,
         screenshot_id: Option<&str>,
+        zoom_needs_id: bool,
     ) -> OpenBitFunResult<PointerMap> {
         let scope = crate::computer_use::control_session::observation_scope()
             .map_err(OpenBitFunError::tool)?;
@@ -321,7 +324,7 @@ impl DesktopComputerUseHost {
             PointerMap::for_coordinates(
                 selected,
                 state.observations.latest_image(),
-                screenshot_id.is_some(),
+                zoom_needs_id && screenshot_id.is_none(),
             )?
         };
         #[cfg(target_os = "macos")]
@@ -365,7 +368,7 @@ impl DesktopComputerUseHost {
         y: i32,
         screenshot_id: Option<&str>,
     ) -> OpenBitFunResult<(f64, f64)> {
-        self.observed_pointer_map(Some(pid), screenshot_id)?
+        self.observed_pointer_map(Some(pid), screenshot_id, true)?
             .map_image_to_global_f64(x, y)
     }
 
@@ -603,7 +606,7 @@ impl DesktopComputerUseHost {
         x: i32,
         y: i32,
     ) -> OpenBitFunResult<(f64, f64)> {
-        self.observed_pointer_map(None, None)?
+        self.observed_pointer_map(None, None, false)?
             .map_image_to_global_f64(x, y)
     }
 
@@ -612,7 +615,7 @@ impl DesktopComputerUseHost {
         x: i32,
         y: i32,
     ) -> OpenBitFunResult<(f64, f64)> {
-        self.observed_pointer_map(None, None)?
+        self.observed_pointer_map(None, None, false)?
             .map_normalized_to_global_f64(x, y)
     }
 
@@ -679,7 +682,7 @@ impl DesktopComputerUseHost {
             // pixel height — not the same space as `CGEvent` / our screenshot mapping. Use Quartz
             // position + scale from the last capture (display points per screenshot pixel).
             let (dpt_x, dpt_y) = self
-                .observed_pointer_map(None, None)?
+                .observed_pointer_map(None, None, false)?
                 .image_delta_to_global(dx, dy)?;
 
             crate::computer_use::control_session::spawn_blocking(move || {

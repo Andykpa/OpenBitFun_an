@@ -1297,26 +1297,40 @@ pub(super) fn restore_window(pid: i32, window: u32) -> OpenBitFunResult<bool> {
                 changed = true;
             }
         }
-        if let Some(element) = element {
-            if ax_window_minimized(element) == Some(true) {
-                let attribute = CFString::new("AXMinimized");
-                let status = AXUIElementSetAttributeValue(
-                    element,
-                    attribute.as_concrete_TypeRef(),
-                    core_foundation::boolean::CFBoolean::false_value().as_CFTypeRef(),
-                );
-                ax_release(element as CFTypeRef);
-                if status != 0 {
-                    return Err(OpenBitFunError::tool(format!(
-                        "[FOREGROUND_ACTIVATION_DENIED] Un-minimizing window {window} failed ({status})"
-                    )));
+        let minimized = match element {
+            Some(element) => {
+                let minimized = ax_window_minimized(element);
+                if minimized == Some(true) {
+                    let attribute = CFString::new("AXMinimized");
+                    let status = AXUIElementSetAttributeValue(
+                        element,
+                        attribute.as_concrete_TypeRef(),
+                        core_foundation::boolean::CFBoolean::false_value().as_CFTypeRef(),
+                    );
+                    ax_release(element as CFTypeRef);
+                    if status != 0 {
+                        return Err(OpenBitFunError::tool(format!(
+                            "[FOREGROUND_ACTIVATION_DENIED] Un-minimizing window {window} failed ({status})"
+                        )));
+                    }
+                    changed = true;
+                } else {
+                    ax_release(element as CFTypeRef);
                 }
-                changed = true;
-            } else {
-                ax_release(element as CFTypeRef);
+                minimized
             }
+            None => None,
+        };
+        log::info!(
+            "Computer Use window restore: pid={pid}, window={window}, minimized={minimized:?}, changed={changed}"
+        );
+        // "Nothing to restore" is a claim about the window's state; without a
+        // readable state it would misdirect the user.
+        if !changed && minimized.is_none() {
+            return Err(OpenBitFunError::tool(format!(
+                "[RESTORE_UNAVAILABLE] The minimized state of window {window} could not be read over Accessibility, so it was not restored"
+            )));
         }
-        log::info!("Computer Use window restore: pid={pid}, window={window}, changed={changed}");
         Ok(changed)
     }
 }

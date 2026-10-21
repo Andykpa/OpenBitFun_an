@@ -20,6 +20,7 @@ unsafe extern "C" {
     ) -> u32;
     fn obf_capture_default_window(pid: i32, error: *mut c_char, capacity: usize) -> u32;
     fn obf_capture_status(handle: *mut c_void, error: *mut c_char, capacity: usize) -> i32;
+    fn obf_capture_describe_surface(pid: i32, window: u32, error: *mut c_char, capacity: usize);
     fn obf_capture_bounds(
         handle: *mut c_void,
         bounds: *mut f64,
@@ -115,6 +116,43 @@ fn error_string(error: &[c_char]) -> String {
             .into_owned()
     }
 }
+/// Native status 2: the bound window has no live surface.
+const NO_LIVE_SURFACE: i32 = 2;
+
+/// Describing a lost surface queries the target over Accessibility, so it
+/// happens only after CAPTURE is released; Stop must never wait on it.
+enum StreamError {
+    Failed(String),
+    NoSurface { pid: i32, window_id: u32 },
+}
+impl StreamError {
+    fn from_status(status: i32, pid: i32, window_id: u32, error: &[c_char]) -> Self {
+        if status == NO_LIVE_SURFACE {
+            Self::NoSurface { pid, window_id }
+        } else {
+            Self::Failed(error_string(error))
+        }
+    }
+    fn describe(self) -> String {
+        match self {
+            Self::Failed(error) => error,
+            Self::NoSurface { pid, window_id } => {
+                let mut error = [0; 1024];
+                // SAFETY: the error buffer outlives the call and its capacity is passed.
+                unsafe {
+                    obf_capture_describe_surface(pid, window_id, error.as_mut_ptr(), error.len())
+                };
+                error_string(&error)
+            }
+        }
+    }
+}
+impl From<&str> for StreamError {
+    fn from(error: &str) -> Self {
+        Self::Failed(error.into())
+    }
+}
+
 impl CaptureSession {
     fn start(pid: i32, window_id: Option<u32>) -> Result<Self, String> {
         let mut error = [0; 1024];
@@ -136,18 +174,26 @@ impl CaptureSession {
             generation,
             target_revision: u64::MAX,
         };
-        session.window_id = session.frame()?.window_id;
+        session.window_id = session.frame().map_err(StreamError::describe)?.window_id;
         Ok(session)
     }
-    fn check(&self) -> Result<(), String> {
+    fn check(&self) -> Result<(), StreamError> {
         let mut error = [0; 1024];
-        if unsafe { obf_capture_status(self.handle.as_ptr(), error.as_mut_ptr(), error.len()) } == 0
-        {
-            return Err(error_string(&error));
+        // SAFETY: the handle is live while this session exists, and the error
+        // buffer outlives the call with its capacity passed.
+        let status =
+            unsafe { obf_capture_status(self.handle.as_ptr(), error.as_mut_ptr(), error.len()) };
+        if status != 1 {
+            return Err(StreamError::from_status(
+                status,
+                self.pid,
+                self.window_id,
+                &error,
+            ));
         }
         Ok(())
     }
-    fn frame(&self) -> Result<CaptureFrame, String> {
+    fn frame(&self) -> Result<CaptureFrame, StreamError> {
         let mut error = [0; 1024];
         let mut bytes = std::ptr::null_mut();
         let mut length = 0;
@@ -167,8 +213,13 @@ impl CaptureSession {
                 error.len(),
             )
         };
-        if ok == 0 {
-            return Err(error_string(&error));
+        if ok != 1 {
+            return Err(StreamError::from_status(
+                ok,
+                self.pid,
+                self.window_id,
+                &error,
+            ));
         }
         if bytes.is_null() || length != width as usize * height as usize * 4 {
             unsafe { obf_capture_free(bytes.cast()) };
@@ -229,7 +280,9 @@ pub(super) fn ensure_capture(pid: i32, mut window_id: Option<u32>) -> Result<(),
             );
         }
         if session.pid == pid && reuse_bound_window(session.window_id, window_id) {
-            return session.check();
+            let status = session.check();
+            drop(active);
+            return status.map_err(StreamError::describe);
         }
         // A bad target request must not destroy a healthy stream. Resolve the
         // new target before releasing the previous one; never overlap streams.
@@ -255,7 +308,11 @@ pub(super) fn ensure_capture(pid: i32, mut window_id: Option<u32>) -> Result<(),
     super::control_session::bind_target(format!("pid:{pid}/window:{}", session.window_id))?;
     session.target_revision = super::control_session::observation_scope()?.target_revision;
     unsafe { obf_capture_bind_revision(session.handle.as_ptr(), session.target_revision) };
-    session.check()?;
+    if let Err(error) = session.check() {
+        drop(active);
+        drop(session);
+        return Err(error.describe());
+    }
     *active = Some(session);
     Ok(())
 }
@@ -281,13 +338,15 @@ pub(super) fn default_window(pid: i32) -> Result<u32, String> {
 
 pub(super) fn bound_window_id(pid: i32) -> Result<u32, String> {
     super::control_session::capture_allowed()?;
-    let active = capture().lock().map_err(|_| "Capture lock poisoned")?;
-    let session = active.as_ref().ok_or("CAPTURE_STOPPED")?;
-    if session.pid != pid {
-        return Err("CAPTURE_TARGET_CHANGED: Re-observe the intended app".into());
-    }
-    session.check()?;
-    Ok(session.window_id)
+    let status = {
+        let active = capture().lock().map_err(|_| "Capture lock poisoned")?;
+        let session = active.as_ref().ok_or("CAPTURE_STOPPED")?;
+        if session.pid != pid {
+            return Err("CAPTURE_TARGET_CHANGED: Re-observe the intended app".into());
+        }
+        session.check().map(|()| session.window_id)
+    };
+    status.map_err(StreamError::describe)
 }
 
 pub(super) fn capture_frame(pid: i32, window_id: Option<u32>) -> Result<CaptureFrame, String> {
@@ -298,8 +357,9 @@ pub(super) fn capture_frame(pid: i32, window_id: Option<u32>) -> Result<CaptureF
     if session.pid != pid || window_id.is_some_and(|id| session.window_id != id) {
         return Err("CAPTURE_TARGET_CHANGED: Re-observe the intended target".into());
     }
-    let mut frame = session.frame()?;
+    let frame = session.frame();
     drop(active);
+    let mut frame = frame.map_err(StreamError::describe)?;
     composite_overlays(pid, &mut frame);
     super::control_session::validate_observation_scope(&frame.scope)?;
     super::control_session::publish_rgba(
@@ -356,13 +416,15 @@ pub(super) fn detail_frame(pid: i32, window_id: u32) -> Result<CaptureFrame, Str
         if session.pid != pid || session.window_id != window_id {
             return Err("CAPTURE_TARGET_CHANGED: Re-observe the intended target".into());
         }
-        session.check()?;
-        openbitfun_agent_tools::computer_use_control::ObservationScope {
-            generation: session.generation,
-            target_revision: session.target_revision,
-            target: Some(format!("pid:{pid}/window:{window_id}")),
-        }
+        session.check().map(
+            |()| openbitfun_agent_tools::computer_use_control::ObservationScope {
+                generation: session.generation,
+                target_revision: session.target_revision,
+                target: Some(format!("pid:{pid}/window:{window_id}")),
+            },
+        )
     };
+    let scope = scope.map_err(StreamError::describe)?;
     let mut error = [0; 1024];
     let mut bytes = std::ptr::null_mut();
     let (mut length, mut width, mut height) = (0, 0, 0);
@@ -484,24 +546,31 @@ pub(super) fn routing_bounds(pid: i32, window_id: u32) -> Result<[f64; 4], Strin
 }
 
 pub(super) fn window_bounds(pid: i32, window_id: u32) -> Result<[f64; 4], String> {
-    let active = capture().lock().map_err(|_| "Capture lock poisoned")?;
-    let session = active.as_ref().ok_or("CAPTURE_STOPPED")?;
-    if session.pid != pid || session.window_id != window_id {
-        return Err("CAPTURE_TARGET_CHANGED".into());
-    }
     let mut bounds = [0.0; 4];
-    let mut error = [0; 1024];
-    if unsafe {
-        obf_capture_bounds(
-            session.handle.as_ptr(),
-            bounds.as_mut_ptr(),
-            error.as_mut_ptr(),
-            error.len(),
-        )
-    } == 0
-    {
-        return Err(error_string(&error));
-    }
+    let status = {
+        let active = capture().lock().map_err(|_| "Capture lock poisoned")?;
+        let session = active.as_ref().ok_or("CAPTURE_STOPPED")?;
+        if session.pid != pid || session.window_id != window_id {
+            return Err("CAPTURE_TARGET_CHANGED".into());
+        }
+        let mut error = [0; 1024];
+        // SAFETY: the handle is live while CAPTURE is locked, `bounds` holds
+        // four values, and the error buffer's capacity is passed.
+        let status = unsafe {
+            obf_capture_bounds(
+                session.handle.as_ptr(),
+                bounds.as_mut_ptr(),
+                error.as_mut_ptr(),
+                error.len(),
+            )
+        };
+        if status == 1 {
+            Ok(())
+        } else {
+            Err(StreamError::from_status(status, pid, window_id, &error))
+        }
+    };
+    status.map_err(StreamError::describe)?;
     Ok(bounds)
 }
 /// Called only after input was dispatched. Failure to find an old/stopped
@@ -550,13 +619,15 @@ pub(super) fn wait_settled(
                 "The live window stream belongs to another target",
             ));
         }
-        session.check()?;
-        RetainedCapture(
-            // SAFETY: the session handle is live while CAPTURE is locked.
-            NonNull::new(unsafe { obf_capture_retain(session.handle.as_ptr()) })
-                .ok_or("CAPTURE_STOPPED")?,
-        )
+        session.check().and_then(|()| {
+            Ok(RetainedCapture(
+                // SAFETY: the session handle is live while CAPTURE is locked.
+                NonNull::new(unsafe { obf_capture_retain(session.handle.as_ptr()) })
+                    .ok_or("CAPTURE_STOPPED")?,
+            ))
+        })
     };
+    let retained = retained.map_err(StreamError::describe)?;
     let interrupted = |reason: String| AppInputSettle {
         status: AppInputSettleStatus::Interrupted,
         waited_ms: started.elapsed().as_millis() as u64,

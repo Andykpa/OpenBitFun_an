@@ -573,19 +573,27 @@ int obf_capture_status(void *handle, char *error, size_t capacity) {
         obf_error(error, capacity, failure ?: @"CAPTURE_STOPPED");
         return 0;
     }
-    // Classification queries the target over Accessibility; frame delivery
-    // and Stop must not wait on it.
+    // 2 reports a bound window without a live surface. Describing why queries
+    // the target over Accessibility, so callers do it with
+    // obf_capture_describe_surface after releasing their capture lock.
     if (!onScreen) {
-        obf_error(error, capacity, obf_unavailable_surface(session.pid, session.windowID));
-        return 0;
+        obf_error(error, capacity, [NSString stringWithFormat:@"TARGET_SURFACE_UNAVAILABLE: Window %u of process %d has no live surface", session.windowID, session.pid]);
+        return 2;
     }
     return 1;
+}
+
+void obf_capture_describe_surface(int32_t pid, uint32_t windowID, char *error, size_t capacity) {
+    @autoreleasepool {
+        obf_error(error, capacity, obf_unavailable_surface(pid, windowID));
+    }
 }
 
 // Cheap authoritative geometry read for input. It must not copy pixels or
 // encode a preview, and movement must not leave input using cached origins.
 int obf_capture_bounds(void *handle, double *bounds, char *error, size_t capacity) {
-    if (!obf_capture_status(handle, error, capacity)) return 0;
+    int status = obf_capture_status(handle, error, capacity);
+    if (status != 1) return status;
     OBFWindowCapture *session = (__bridge OBFWindowCapture *)handle;
     CGRect frame = CGRectZero;
     BOOL onScreen = NO;
@@ -675,7 +683,8 @@ void obf_capture_release(void *handle) {
 int obf_capture_frame(void *handle, uint8_t **bytes, size_t *length, uint32_t *width,
                       uint32_t *height, uint32_t *windowID, double *bounds,
                       uint64_t *sequence, char *error, size_t capacity) {
-    if (!obf_capture_status(handle, error, capacity)) return 0;
+    int status = obf_capture_status(handle, error, capacity);
+    if (status != 1) return status;
     OBFWindowCapture *session = (__bridge OBFWindowCapture *)handle;
     CGRect frame = CGRectZero;
     BOOL onScreen = NO;
