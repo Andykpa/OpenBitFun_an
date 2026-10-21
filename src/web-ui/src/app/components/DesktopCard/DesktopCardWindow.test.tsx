@@ -185,12 +185,26 @@ describe('DesktopCardWindow', () => {
     expect(regions()).toHaveLength(8);
   });
 
-  it('flags a successful fetch that wrote to stderr', async () => {
-    mocks.card = noteCard({ fetchedAtMs: 1, value: { stars: null }, warning: 'gh: rate limited' });
+  function footer() {
+    return container.querySelector<HTMLElement>('[data-openbitfun-part="footer"]')!;
+  }
+
+  it('flags stderr output when it explains missing values', async () => {
+    mocks.card = {
+      ...noteCard({ fetchedAtMs: 1, value: { stars: null }, warning: 'gh: rate limited' }),
+      template: { kind: 'metrics', items: [{ label: 'Stars', path: '/stars' }] },
+    };
     await render();
-    const footer = container.querySelector<HTMLElement>('[data-openbitfun-part="footer"]')!;
-    expect(footer.dataset.openbitfunState).toBe('warning');
-    expect(footer.getAttribute('title')).toBe('gh: rate limited');
-    expect(footer.textContent).toBe('desktopCard.updatedWithWarning');
+    expect(footer().dataset.openbitfunState).toBe('warning');
+    expect(footer().getAttribute('title')).toBe('gh: rate limited');
+    expect(footer().textContent).toBe('desktopCard.updatedWithWarning');
+  });
+
+  it('keeps harmless stderr output in the tooltip only', async () => {
+    mocks.card = noteCard({ fetchedAtMs: 1, value: { stars: 3 }, warning: 'Downloading...' });
+    await render();
+    expect(footer().dataset.openbitfunState).toBeUndefined();
+    expect(footer().getAttribute('title')).toBe('Downloading...');
+    expect(footer().textContent).toBe('desktopCard.updated');
   });
 });

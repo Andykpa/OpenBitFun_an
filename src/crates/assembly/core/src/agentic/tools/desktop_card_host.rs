@@ -535,14 +535,15 @@ pub fn desktop_card_command_shell_label() -> &'static str {
 
 /// argv for a command data source. Profiles are skipped so an unattended
 /// refresh never runs content the user did not approve; PowerShell output is
-/// forced to UTF-8 like ExecCommand so non-ASCII output survives.
+/// forced to UTF-8 like ExecCommand so non-ASCII output survives, and progress
+/// records are silenced because they would otherwise reach stderr as CLIXML.
 pub fn desktop_card_command_argv(command: &str) -> Vec<String> {
     use tool_runtime::exec_command::{exec_command_argv_for_isolated_shell, ExecCommandShellKind};
     if cfg!(windows) {
         exec_command_argv_for_isolated_shell(
             "powershell.exe",
             ExecCommandShellKind::PowerShell,
-            command,
+            &format!("$ProgressPreference='SilentlyContinue';\n{command}"),
         )
     } else {
         exec_command_argv_for_isolated_shell("/bin/sh", ExecCommandShellKind::Sh, command)
@@ -1080,6 +1081,7 @@ mod tests {
                 ]
             );
             assert!(argv[4].starts_with("[Console]::OutputEncoding"));
+            assert!(argv[4].contains("$ProgressPreference='SilentlyContinue';"));
             assert!(argv[4].ends_with("echo hi"));
         } else {
             assert_eq!(argv, ["/bin/sh", "-c", "echo hi"]);

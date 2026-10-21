@@ -27,6 +27,7 @@ import { desktopCardIcon } from './desktopCardIcons';
 import {
   effectiveCardData,
   hasDataSource,
+  hasUnresolvedTemplatePaths,
   isSafeWebLink,
   knownTemplate,
   normalizeTone,
@@ -103,7 +104,9 @@ function DesktopCardFooter({ card, formatRelativeTime }: {
   useNow(30_000);
   if (!hasDataSource(card) || !card.lastData) return null;
   const { error, warning, fetchedAtMs } = card.lastData;
-  const state = error ? 'error' : warning ? 'warning' : undefined;
+  // Commands often write progress or notices to stderr; only flag it when values are missing.
+  const stderrExplainsGaps = Boolean(warning) && hasUnresolvedTemplatePaths(card);
+  const state = error ? 'error' : stderrExplainsGaps ? 'warning' : undefined;
   const time = formatRelativeTime(fetchedAtMs);
   return (
     <footer className="openbitfun-desktop-card__footer" data-state={state} title={error ?? warning}
@@ -112,7 +115,7 @@ function DesktopCardFooter({ card, formatRelativeTime }: {
       <OverflowText>
         {error
           ? t('desktopCard.refreshFailed', { error })
-          : warning
+          : stderrExplainsGaps
             ? t('desktopCard.updatedWithWarning', { time })
             : t('desktopCard.updated', { time })}
       </OverflowText>

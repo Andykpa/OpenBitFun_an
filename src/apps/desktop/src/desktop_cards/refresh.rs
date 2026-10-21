@@ -24,7 +24,8 @@ fn truncate_chars(value: &str, max: usize) -> String {
 }
 
 fn parse_output(raw: &str, parse: DesktopCardDataParse) -> Result<Value, String> {
-    let trimmed = raw.trim();
+    // Windows PowerShell and some HTTP servers prefix UTF-8 output with a BOM.
+    let trimmed = raw.trim_start_matches('\u{feff}').trim();
     match parse {
         DesktopCardDataParse::Json => serde_json::from_str(trimmed).map_err(|error| {
             format!(
@@ -212,6 +213,14 @@ mod tests {
             .contains("not valid JSON"));
         assert_eq!(
             parse_output("  hi \n", DesktopCardDataParse::Text).unwrap(),
+            json!("hi")
+        );
+        assert_eq!(
+            parse_output("\u{feff}{\"a\": 1}\r\n", DesktopCardDataParse::Json).unwrap(),
+            json!({"a": 1})
+        );
+        assert_eq!(
+            parse_output("\u{feff}hi", DesktopCardDataParse::Text).unwrap(),
             json!("hi")
         );
     }
