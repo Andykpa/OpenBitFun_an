@@ -3,10 +3,12 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { aiApi } from '@/infrastructure/api';
-import { configManager } from '@/infrastructure/config/services/ConfigManager';
+import { aiApi, systemAPI } from '@/infrastructure/api';
+import { ConfigConflictError, configManager } from '@/infrastructure/config/services/ConfigManager';
+import { cancelPendingSettingsNavigation, getSettingsDraftSnapshot, requestAllSettingsDraftsExit } from '@/infrastructure/config/settingsDraftRegistry';
 import type { AIModelConfig } from '@/infrastructure/config/types';
 import { i18nService } from '@/infrastructure/i18n';
+import { notificationService } from '@/shared/notification-system';
 import ModelSettingsPage from './ModelSettingsPage';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -77,6 +79,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -93,6 +96,167 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(selectors()[0].disabled).toBe(false);
     expect(configManager.getOptionalConfig).not.toHaveBeenCalled();
     expect(configManager.getConfig).not.toHaveBeenCalled();
+  });
+
+  it.each(['add', 'remove', 'reorder', 'manual'] as const)('protects a channel-only %s edit and saves its original model snapshot', async operation => {
+    const primary: AIModelConfig = {
+      ...model, api_key: 'fixture-key', context_window: 128_000, max_tokens: 8_000,
+      capabilities: ['text_chat', 'function_calling'],
+      metadata: { provider_instance_id: 'primary-provider' },
+      ...(operation === 'add' ? {} : { channel_routing: {
+        version: 1, fallback_model_ids: operation === 'reorder' ? ['backup', 'second'] : ['backup'],
+      } }),
+    };
+    const backup: AIModelConfig = { ...primary, id: 'backup', name: 'Backup', model_name: 'backup-model',
+      channel_routing: undefined, metadata: { provider_instance_id: 'backup-provider' } };
+    const second: AIModelConfig = { ...backup, id: 'second', name: 'Second', model_name: 'second-model',
+      metadata: { provider_instance_id: 'second-provider' } };
+    const models = [primary, backup, second];
+    const baseline = structuredClone(models);
+    const values: Record<string, unknown> = {
+      'ai.models': models, 'ai.default_models': { primary: primary.id },
+      'ai.proxy': { enabled: false, url: '', username: '', password: '' },
+      'ai.stream_idle_timeout_secs': 120, 'ai.stream_ttft_timeout_secs': 60,
+    };
+    vi.spyOn(configManager, 'hasCachedConfig').mockImplementation(path => path in values);
+    vi.spyOn(configManager, 'getCachedConfig').mockImplementation(<T,>(path: string) => values[path] as T);
+    const update = vi.spyOn(configManager, 'updateConfig').mockImplementation(
+      async <T,>(_path: string, transform: (current: T) => T) => transform(models as T),
+    );
+    vi.spyOn(aiApi, 'testAIConfigConnection').mockImplementation(() => new Promise(() => {}));
+    await act(async () => root.render(<ModelSettingsPage />));
+    await act(async () => container.querySelector<HTMLButtonElement>(
+      `[data-config-id="${primary.id}"] button[aria-label="${copy('actions.edit')}"]`,
+    )!.click());
+    const editor = () => document.querySelector<HTMLElement>('.openbitfun-model-settings__editor-dialog')!;
+    const editorButton = (key: string) => [...editor().querySelectorAll<HTMLButtonElement>('button')]
+      .find(element => element.textContent === copy(key))!;
+    const draft = () => getSettingsDraftSnapshot().resources.find(resource => resource.id === 'model-provider-editor')!;
+    expect(draft().dirty).toBe(false);
+    if (operation === 'add' || operation === 'manual') {
+      const label = copy(operation === 'add' ? 'channelRouting.add' : 'channelRouting.mode');
+      await act(async () => editor().querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!.click());
+      await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+        .find(option => option.textContent?.includes('backup-model'))!.click());
+    } else {
+      const label = copy(operation === 'remove' ? 'channelRouting.remove' : 'subscriptionAuth.pool.moveDown');
+      await act(async () => editor().querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!.click());
+    }
+    expect(draft().dirty).toBe(true);
+    const leave = vi.fn();
+    expect(requestAllSettingsDraftsExit(leave)).toBe(false);
+    expect(leave).not.toHaveBeenCalled();
+    cancelPendingSettingsNavigation();
+    await act(async () => editorButton('actions.cancel').click());
+    const confirmation = document.querySelector<HTMLElement>('[role="alertdialog"]')!;
+    expect(confirmation.textContent).toContain(copy('draftClose.title'));
+    await act(async () => [...confirmation.querySelectorAll<HTMLButtonElement>('button')]
+      .find(element => element.textContent === copy('draftClose.continueEditing'))!.click());
+    // A refresh/mutation of the cached object must not change the edit baseline.
+    models[0].description = 'Concurrent change';
+    if (operation === 'add') {
+      const error = vi.spyOn(notificationService, 'error');
+      update.mockRejectedValueOnce(new ConfigConflictError());
+      await act(async () => editorButton('actions.save').click());
+      expect(error).toHaveBeenCalledWith(copy('messages.configChanged'), undefined);
+      expect(draft().dirty).toBe(true);
+      expect(editor()).not.toBeNull();
+      update.mockClear();
+    }
+    await act(async () => editorButton('actions.save').click());
+    expect(update).toHaveBeenCalledOnce();
+    expect(update.mock.calls[0][2]).toEqual({ expectedValue: baseline });
+    const saved = await update.mock.results[0].value as AIModelConfig[];
+    expect(saved[0].channel_routing).toEqual({
+      add: { version: 1, fallback_model_ids: ['backup'] },
+      remove: undefined,
+      reorder: { version: 1, fallback_model_ids: ['second', 'backup'] },
+      manual: { version: 1, fallback_model_ids: ['backup'], manual_channel: 'backup' },
+    }[operation]);
+  });
+
+  it.each([false, true])('cancelling a new WorkBuddy account preserves the settings draft state (model editor: %s)', async inModelEditor => {
+    const account = {
+      provider: 'workbuddy' as const, display_label: 'WorkBuddy', connected: true,
+      account: 'Existing account', suggested_format: 'openai',
+      suggested_base_url: 'https://copilot.tencent.com/v2', suggested_model: 'auto', api_offerings: [],
+    };
+    vi.spyOn(aiApi, 'listSubscriptionAccounts').mockResolvedValue([account]);
+    vi.spyOn(aiApi, 'listSubscriptionAccountInstances').mockResolvedValue([{
+      account_id: 'workbuddy', is_default: true, account, enabled: true, supports_multiple_accounts: true,
+    }]);
+    vi.spyOn(aiApi, 'getSubscriptionAccountQuota').mockImplementation(() => new Promise(() => {}));
+    const started = deferred();
+    const start = vi.spyOn(aiApi, 'startSubscriptionAccountLogin').mockImplementation(() => started.promise as never);
+    const cancel = vi.spyOn(aiApi, 'cancelSubscriptionLogin').mockResolvedValue(undefined);
+    vi.spyOn(systemAPI, 'openExternal').mockResolvedValue(undefined);
+    vi.spyOn(aiApi, 'getSubscriptionLoginStatus').mockImplementation(async (provider, sessionId) => ({
+      provider, session_id: sessionId!, status: 'pending',
+    }));
+    const update = vi.spyOn(configManager, 'updateConfig');
+    const warning = vi.spyOn(notificationService, 'warning');
+    const values: Record<string, unknown> = {
+      'ai.models': [model], 'ai.default_models': { primary: model.id },
+      'ai.proxy': { enabled: false, url: '', username: '', password: '' },
+      'ai.stream_idle_timeout_secs': 120, 'ai.stream_ttft_timeout_secs': 60,
+    };
+    vi.spyOn(configManager, 'hasCachedConfig').mockImplementation(path => path in values);
+    vi.spyOn(configManager, 'getCachedConfig').mockImplementation(<T,>(path: string) => values[path] as T);
+    await act(async () => root.render(<ModelSettingsPage />));
+    await act(async () => button('acquisition.import').click());
+    const dialog = () => [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].at(-1)!;
+    const dialogButton = (key: string) => [...dialog().querySelectorAll<HTMLButtonElement>('button')]
+      .find(element => element.textContent === copy(key))!;
+    if (inModelEditor) {
+      await act(async () => dialogButton('subscriptionAuth.import').click());
+      await act(async () => dialogButton('subscriptionAuth.manageAccount').click());
+    }
+    await act(async () => dialogButton('subscriptionAuth.pool.addAccount').click());
+    expect(start).toHaveBeenCalledOnce();
+    if (inModelEditor) {
+      vi.useFakeTimers();
+      await act(async () => started.resolve({ session_id: start.mock.calls[0][2], authorization_url: 'https://example.test/login' }));
+    }
+    await act(async () => dialogButton('subscriptionAuth.cancel').click());
+    if (inModelEditor) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+      vi.useRealTimers();
+    } else {
+      await act(async () => started.resolve({ session_id: start.mock.calls[0][2], authorization_url: '' }));
+    }
+    expect(cancel).toHaveBeenCalled();
+    expect(dialog().textContent).not.toContain(copy('subscriptionAuth.newAccount'));
+    expect([...dialog().querySelectorAll<HTMLButtonElement>('button')].some(
+      element => element.textContent === copy('subscriptionAuth.pool.addAccount') && !element.disabled,
+    )).toBe(true);
+    if (inModelEditor) {
+      await act(async () => dialogButton('actions.done').click());
+      await act(async () => dialogButton('actions.save').click());
+      const missingModels = i18nService.getI18nInstance().t('messages.missingFields', {
+        ns: 'settings/models', fields: copy('form.modelName'),
+      });
+      expect(warning).not.toHaveBeenCalled();
+      expect(dialog().querySelector('[role="alert"]')?.textContent).toContain(missingModels);
+      expect(update).not.toHaveBeenCalled();
+      vi.spyOn(aiApi, 'listModelsByConfig').mockResolvedValue([{ id: 'fixture-workbuddy-model' }]);
+      vi.spyOn(aiApi, 'testAIConfigConnection').mockImplementation(() => new Promise(() => {}));
+      update.mockImplementation(async <T,>(_path: string, transform: (current: T) => T) => transform([model] as T));
+      await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="settings-model-select"]')!.click());
+      await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="settings-model-option"]')!.click());
+      await act(async () => dialogButton('actions.done').click());
+      expect(document.querySelector('.openbitfun-model-settings__editor-dialog [role="alert"]')).toBeNull();
+      await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="settings-model-save-btn"]')!.click());
+      expect(update).toHaveBeenCalledOnce();
+      const saved = update.mock.calls[0][1]([model]) as AIModelConfig[];
+      expect(saved.at(-1)?.auth).toEqual({ type: 'subscription', provider: 'workbuddy' });
+      expect(saved.at(-1)?.model_name).toBe('fixture-workbuddy-model');
+    } else {
+      expect(getSettingsDraftSnapshot().resources.every(resource => !resource.dirty && !resource.saving)).toBe(true);
+      const leave = vi.fn();
+      expect(requestAllSettingsDraftsExit(leave)).toBe(true);
+      expect(leave).toHaveBeenCalledOnce();
+      expect(update).not.toHaveBeenCalled();
+    }
   });
 
   it('shows stable content immediately and releases models without waiting for catalogs or network settings', async () => {
