@@ -8,6 +8,7 @@ use crate::agentic::tools::desktop_card_host::{
     DesktopCardPatch, DesktopCardSize, DesktopCardTemplateKind, DESKTOP_CARD_ICONS,
 };
 use crate::agentic::tools::framework::{PermissionIntent, Tool, ToolResult, ToolUseContext};
+use crate::agentic::tools::implementations::ExecCommandTool;
 use crate::service::config::global::GlobalConfigManager;
 use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 use async_trait::async_trait;
@@ -71,11 +72,38 @@ const PULL_REQUEST_STATUS_COMMAND_POWERSHELL: &str = r#"gh pr view 123 --repo ow
 
 /// GraphQL variables keep string literals out of the query, so the same
 /// command works in /bin/sh and Windows PowerShell.
-const REPOSITORY_STATS_COMMAND: &str = r#"gh api graphql -F owner=owner -F name=repo -f query='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { stargazerCount forkCount issues(states: OPEN) { totalCount } pullRequests(states: OPEN) { totalCount } } }' --jq '.data.repository | {stars: .stargazerCount, forks: .forkCount, openIssues: .issues.totalCount, openPRs: .pullRequests.totalCount}'"#;
+const REPOSITORY_STATS_COMMAND: &str = r#"gh api graphql -f owner=owner -f name=repo -f query='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { stargazerCount forkCount issues(states: OPEN) { totalCount } pullRequests(states: OPEN) { totalCount } } }' --jq '.data.repository | {stars: .stargazerCount, forks: .forkCount, openIssues: .issues.totalCount, openPRs: .pullRequests.totalCount}'"#;
 
-const WINDOWS_COMMAND_GUIDANCE: &str = "On this Windows computer: `curl` is an alias of Invoke-WebRequest (use curl.exe or Invoke-RestMethod); Windows PowerShell 5.1 strips double quotes inside arguments passed to native programs such as gh, jq, or git, so keep double quotes out of those arguments (use GraphQL variables, or pipe to ConvertFrom-Json and build the result with [pscustomobject]@{...} | ConvertTo-Json -Compress); only the last statement decides the exit code, so a failed earlier call shows up as null values plus a stderr warning instead of an error.";
+const WINDOWS_COMMAND_GUIDANCE: &str = "On this Windows computer: `curl` is an alias of Invoke-WebRequest (use curl.exe -sS or Invoke-RestMethod); Windows PowerShell 5.1 strips double quotes inside arguments passed to native programs such as gh, jq, or git, so keep double quotes out of those arguments (use GraphQL variables, or pipe to ConvertFrom-Json and build the result with [pscustomobject]@{...} | ConvertTo-Json -Compress); only the last statement decides the exit code, so a failed earlier call shows up as null values plus a stderr warning instead of an error.";
 
-const POSIX_COMMAND_GUIDANCE: &str = "The command runs without your login profile; prefer absolute paths or CLIs on the system PATH.";
+const POSIX_COMMAND_GUIDANCE: &str = "The command runs without your login profile; prefer absolute paths or CLIs on the system PATH, and use curl -sS so the progress meter stays off stderr.";
+
+async fn command_test_guidance() -> String {
+    let shell = ExecCommandTool::local_shell_prompt_info().await;
+    command_test_guidance_for(&shell.shell_type, &shell.display_name)
+}
+
+/// ExecCommand follows the configured terminal shell, which can differ from
+/// the fixed shell of command sources; PowerShell 7 and Git Bash, for example,
+/// keep the double quotes that Windows PowerShell 5.1 strips.
+fn command_test_guidance_for(exec_shell_type: &str, exec_shell_name: &str) -> String {
+    let card_shell_type = if cfg!(windows) { "powershell" } else { "sh" };
+    if exec_shell_type == card_shell_type {
+        "ExecCommand uses the same shell as card commands.".to_string()
+    } else if cfg!(windows) && exec_shell_type == "pwsh" {
+        format!(
+            "ExecCommand uses {exec_shell_name}, not Windows PowerShell 5.1, so a command can pass there and still fail on the card. Test it through the card's shell instead: run powershell.exe -NoProfile -NonInteractive -Command {{ <command> }} with ExecCommand."
+        )
+    } else if cfg!(windows) {
+        format!(
+            "ExecCommand uses {exec_shell_name}, not Windows PowerShell 5.1, so a command can pass there and still fail on the card. Test it through the card's shell instead: write it to a temporary .ps1 file and run powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <file> with ExecCommand."
+        )
+    } else {
+        format!(
+            "ExecCommand uses {exec_shell_name}, not /bin/sh, so avoid shell-specific syntax such as arrays, [[ ]], or brace expansion, and test with ExecCommand as /bin/sh -c '<command>'."
+        )
+    }
+}
 
 fn pull_request_status_command() -> &'static str {
     if cfg!(windows) {
@@ -116,6 +144,26 @@ fn with_misplaced_field_hint(error: String, container: &Map<String, Value>, labe
             "{error}. Found {} outside the template: template fields such as items and layout belong inside {label}.template.",
             misplaced.join(", ")
         )
+    }
+}
+
+/// Template fields on the card/patch itself would otherwise be dropped silently.
+fn reject_misplaced_template_fields(
+    container: &Map<String, Value>,
+    label: &str,
+) -> Result<(), String> {
+    let misplaced = MISPLACEABLE_TEMPLATE_FIELDS
+        .iter()
+        .filter(|field| container.contains_key(**field))
+        .map(|field| format!("{label}.{field}"))
+        .collect::<Vec<_>>();
+    if misplaced.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} would be ignored: template fields such as items and layout belong inside {label}.template.",
+            misplaced.join(", ")
+        ))
     }
 }
 
@@ -259,6 +307,7 @@ fn parse_draft(raw: &Value, now: i64) -> Result<DesktopCardDraft, String> {
         .ok_or_else(|| "card.template is required".to_string())
         .and_then(|template| normalize_template_input(template, now))
         .map_err(|error| with_misplaced_field_hint(error, card, "card"))?;
+    reject_misplaced_template_fields(card, "card")?;
     let data = card.get("data").cloned().unwrap_or(Value::Null);
     validate_data(&data)?;
     let data_source = match card.get("dataSource") {
@@ -342,6 +391,7 @@ fn parse_patch(raw: &Value, now: i64) -> Result<DesktopCardPatch, String> {
                 .map_err(|error| with_misplaced_field_hint(error, patch, "patch"))?,
         );
     }
+    reject_misplaced_template_fields(patch, "patch")?;
     if let Some(data) = patch.get("data") {
         validate_data(data)?;
         result.data = Some(data.clone());
@@ -492,7 +542,7 @@ fn presets() -> Value {
                     }
                 }
             },
-            "notes": "GraphQL variables (-F owner=... -F name=...) keep double quotes out of the query, so the same command works in /bin/sh and Windows PowerShell. Fetch several numbers in one call like this instead of chaining commands."
+            "notes": "GraphQL variables (-f owner=... -f name=...) keep double quotes out of the query, so the same command works in /bin/sh and Windows PowerShell. Fetch several numbers in one call like this instead of chaining commands."
         },
         {
             "id": "weather",
@@ -625,6 +675,7 @@ Actions:
 - list / get: inspect cards, including the latest fetched data or fetch error and checklist state.
 - show / hide: hiding keeps the card for later. delete: remove permanently.
 - refresh: fetch the data source now and return the result.
+Data sources are fetched on their interval only while the card is shown.
 
 Card fields: title (required), subtitle, icon ({icons}), accent (neutral|accent|info|success|warning|danger), template (required), data, dataSource, link (http/https opened from the card), width/height (logical px), alwaysOnTop (default true).
 
@@ -643,14 +694,15 @@ Data sources (dataSource.kind):
 - command: shell command run locally on this computer with {shell}, intervalSeconds (30-86400), optional cwd (defaults to the local workspace) and timeoutSeconds (default 20, max 120), parse json|text. Requires user approval; not allowed for remote workspaces. Prefer CLIs that already hold credentials (gh, kubectl) over putting secrets in http headers. {command_guidance}
 
 Workflow for command sources:
-1. Run the exact command once with ExecCommand and confirm it prints the JSON you plan to bind (card commands additionally skip shell profiles).
+1. Run the exact command once with ExecCommand and confirm it prints the JSON you plan to bind (card commands additionally skip shell profiles). {command_test_guidance}
 2. Prefer one call that prints one JSON object (for example gh api graphql --jq, or ConvertTo-Json -Compress) over several chained commands.
 3. Bind template paths to the keys you saw in that output, then create the card.
-4. If the result reports a fetch error, stderr output, or unresolved paths, fix the command or the paths with update instead of creating another card.
+4. If the result reports a fetch error or unresolved paths, fix the command or the paths with update instead of creating another card. Reported stderr output alone is often harmless progress text; use it to explain missing values.
 
 Cards are shown only on this desktop. They are unavailable for remote mobile or bot control turns because that user cannot see them."#,
             icons = DESKTOP_CARD_ICONS.join(", "),
             shell = desktop_card_command_shell_label(),
+            command_test_guidance = command_test_guidance().await,
             command_guidance = if cfg!(windows) {
                 WINDOWS_COMMAND_GUIDANCE
             } else {
@@ -965,7 +1017,7 @@ fn card_line(card: &Value) -> String {
         .pointer("/lastData/warning")
         .is_some_and(Value::is_string)
     {
-        line.push_str(", last fetch wrote to stderr (see get)");
+        line.push_str(", last fetch also wrote to stderr (see get)");
     }
     let unresolved = unresolved_template_paths(card).len();
     if unresolved > 0 {
@@ -1015,11 +1067,19 @@ fn unresolved_template_paths(card: &Value) -> Vec<String> {
 
 fn data_status(card: &Value) -> Vec<String> {
     let mut lines = Vec::new();
-    if card
+    let has_source = card
         .get("dataSource")
-        .is_some_and(|source| !source.is_null())
-    {
+        .is_some_and(|source| !source.is_null());
+    if has_source {
+        let visible = card
+            .get("visible")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         match card.get("lastData").filter(|snapshot| !snapshot.is_null()) {
+            None if !visible => lines.push(
+                "Data: the card is hidden, so its source is not fetched until it is shown."
+                    .to_string(),
+            ),
             None => lines.push(
                 "Data: the first fetch has not finished yet; call get in a few seconds to see its result."
                     .to_string(),
@@ -1030,7 +1090,7 @@ fn data_status(card: &Value) -> Vec<String> {
                 }
                 if let Some(warning) = snapshot.get("warning").and_then(Value::as_str) {
                     lines.push(format!(
-                        "Data: the command exited successfully but wrote to stderr, which often means part of it failed: {warning}"
+                        "Data: the command exited successfully and wrote to stderr (often progress output or notices; if values are missing, it may explain why): {warning}"
                     ));
                 }
                 if let Some(value) = snapshot.get("value").filter(|value| !value.is_null()) {
@@ -1047,8 +1107,13 @@ fn data_status(card: &Value) -> Vec<String> {
     }
     let unresolved = unresolved_template_paths(card);
     if !unresolved.is_empty() {
+        let fix = if has_source {
+            "Run the source once with ExecCommand (or open the URL) to see its real output, then fix the command or the paths with update."
+        } else {
+            "The card has no dataSource, so set these values with update + patch.dataMerge (or card.data on create), or fix the paths."
+        };
         lines.push(format!(
-            "Data: these template paths are missing or null, so the card shows placeholders: {}. Run the source once with ExecCommand (or open the URL) to see its real output, then fix the command or the paths with update.",
+            "Data: these template paths are missing or null, so the card shows placeholders: {}. {fix}",
             unresolved.join(", ")
         ));
     }
@@ -1227,6 +1292,19 @@ mod tests {
 
         let error = parse_patch(&json!({"items": []}), 0).unwrap_err();
         assert!(error.contains("patch.items"), "{error}");
+
+        let error = parse_draft(
+            &json!({"title": "N", "layout": "grid", "template": {"kind": "note", "text": "x"}}),
+            0,
+        )
+        .unwrap_err();
+        assert!(error.contains("card.layout would be ignored"), "{error}");
+        let error = parse_patch(&json!({"title": "N", "valuePath": "/done"}), 0).unwrap_err();
+        assert!(
+            error.contains("patch.valuePath would be ignored"),
+            "{error}"
+        );
+        assert!(parse_patch(&json!({"dataMerge": {"items": 3}}), 0).is_ok());
     }
 
     #[test]
@@ -1288,6 +1366,33 @@ mod tests {
         let patch = &schema["properties"]["patch"]["properties"];
         assert!(patch["template"]["properties"].get("items").is_some());
         assert!(patch.get("dataMerge").is_some());
+    }
+
+    #[test]
+    fn command_test_guidance_flags_a_different_exec_shell() {
+        let same = if cfg!(windows) { "powershell" } else { "sh" };
+        assert_eq!(
+            command_test_guidance_for(same, "Shell"),
+            "ExecCommand uses the same shell as card commands."
+        );
+        let guidance = command_test_guidance_for("pwsh", "My Shell");
+        assert!(guidance.contains("ExecCommand uses My Shell"), "{guidance}");
+        let bash = command_test_guidance_for("bash", "Git Bash");
+        assert!(bash.contains("ExecCommand uses Git Bash"), "{bash}");
+        if cfg!(windows) {
+            assert!(
+                guidance
+                    .contains("powershell.exe -NoProfile -NonInteractive -Command { <command> }"),
+                "{guidance}"
+            );
+            assert!(
+                bash.contains("-ExecutionPolicy Bypass -File <file>"),
+                "{bash}"
+            );
+        } else {
+            assert!(guidance.contains("/bin/sh -c"), "{guidance}");
+            assert!(bash.contains("/bin/sh -c"), "{bash}");
+        }
     }
 
     #[test]
@@ -1373,6 +1478,12 @@ mod tests {
             &metrics_card(json!({"fetchedAtMs": 1, "value": {"stars": 1, "forks": 2}})),
         );
         assert!(!healthy.contains("missing or null"), "{healthy}");
+
+        let mut hidden = metrics_card(Value::Null);
+        hidden["card"]["visible"] = json!(false);
+        let hidden = render_result_for_assistant("create", &hidden);
+        assert!(hidden.contains("not fetched until it is shown"), "{hidden}");
+        assert!(!hidden.contains("first fetch has not finished"), "{hidden}");
     }
 
     #[test]
@@ -1387,6 +1498,8 @@ mod tests {
         });
         let text = render_result_for_assistant("create", &result);
         assert!(text.contains("/total (maxPath)"), "{text}");
+        assert!(text.contains("patch.dataMerge"), "{text}");
+        assert!(!text.contains("ExecCommand"), "{text}");
         assert!(!text.contains("first fetch"), "{text}");
         let list = render_result_for_assistant(
             "list",
