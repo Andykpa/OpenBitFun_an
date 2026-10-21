@@ -87,15 +87,23 @@ impl DesktopComputerUseHost {
             })?;
             // Activation is asynchronous on some hosts. Poll ownership only;
             // never repeat activation or send a speculative input.
+            let mut activated = Self::ensure_foreground_target();
             for _ in 0..10 {
+                if activated.is_ok() {
+                    break;
+                }
                 crate::computer_use::control_session::foreground_allowed()
                     .map_err(OpenBitFunError::tool)?;
-                if Self::ensure_foreground_target().is_ok() {
-                    return Ok(());
-                }
                 std::thread::sleep(std::time::Duration::from_millis(50));
+                activated = Self::ensure_foreground_target();
             }
-            Self::ensure_foreground_target()
+            // A raised or restored window must be observed from frames that
+            // arrive after activation, never from a frame cached before it.
+            #[cfg(target_os = "macos")]
+            if activated.is_ok() {
+                crate::computer_use::macos_capture::note_input(pid);
+            }
+            activated
         }
         #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         Err(OpenBitFunError::tool(

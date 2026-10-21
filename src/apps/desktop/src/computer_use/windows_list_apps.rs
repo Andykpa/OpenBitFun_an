@@ -112,6 +112,8 @@ pub(super) fn list_share_targets() -> Vec<openbitfun_agent_tools::computer_use_c
 /// off-screen so discovery can name them. Unlike the app list this preserves
 /// every window of a process and its exact native handle.
 pub(super) fn list_windows() -> Vec<AppWindowInfo> {
+    // Many windows share a process; open each process once for its name.
+    let mut executables = std::collections::HashMap::<u32, String>::new();
     enumerate_windows(true)
         .into_iter()
         .map(|window| {
@@ -121,14 +123,23 @@ pub(super) fn list_windows() -> Vec<AppWindowInfo> {
             let cloaked = super::windows_window_target::inspect_window(hwnd)
                 .cloaked
                 .is_some_and(|value| value != 0);
+            let application = executables
+                .entry(window.pid)
+                .or_insert_with(|| exe_basename_for_pid(window.pid).unwrap_or_default())
+                .clone();
             AppWindowInfo {
                 pid: window.pid as i32,
                 window_id: window.hwnd as u64,
-                application: exe_basename_for_pid(window.pid).unwrap_or_default(),
+                application,
                 title: window.title,
                 bundle_id: None,
                 is_on_screen: Some(!window.minimized && !cloaked),
-                bounds: super::windows_capture::window_bounds(hwnd).ok().map(
+                // A minimized window's rectangle is the DWM placeholder, not
+                // its size or position.
+                bounds: (!window.minimized)
+                    .then(|| super::windows_capture::window_bounds(hwnd).ok())
+                    .flatten()
+                    .map(
                     |[left, top, width, height]| {
                         openbitfun_core::agentic::tools::computer_use_host::ComputerUseImageGlobalBounds {
                             left,

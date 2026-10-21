@@ -50,6 +50,8 @@ pub(super) fn list_windows() -> OpenBitFunResult<Vec<AppWindowInfo>> {
     }
     let windows: CFArray<CFTypeRef> = unsafe { CFArray::wrap_under_create_rule(raw) };
     let mut targets = Vec::new();
+    // Many windows share a process; resolve each process's bundle id once.
+    let mut bundle_ids = std::collections::HashMap::<i32, Option<String>>::new();
     for window in windows.iter() {
         if unsafe { CFGetTypeID(*window) } != Dictionary::type_id() {
             continue;
@@ -86,7 +88,14 @@ pub(super) fn list_windows() -> OpenBitFunResult<Vec<AppWindowInfo>> {
                     .filter(|value| unsafe { CFGetTypeID(*value) } == CFString::type_id())
                     .map(|value| unsafe { CFString::wrap_under_get_rule(value.cast()) }.to_string())
             };
-            let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid as i32);
+            let bundle_id = bundle_ids
+                .entry(pid as i32)
+                .or_insert_with(|| {
+                    NSRunningApplication::runningApplicationWithProcessIdentifier(pid as i32)
+                        .and_then(|app| app.bundleIdentifier())
+                        .map(|id| id.to_string())
+                })
+                .clone();
             // WindowServer omits kCGWindowIsOnscreen for windows that are not
             // on screen, so an absent key is an explicit off-screen fact.
             let is_on_screen = value(&window, "kCGWindowIsOnscreen")
@@ -101,9 +110,7 @@ pub(super) fn list_windows() -> OpenBitFunResult<Vec<AppWindowInfo>> {
                 application: string("kCGWindowOwnerName")
                     .unwrap_or_else(|| format!("Application {}", pid as i32)),
                 title: string("kCGWindowName").unwrap_or_default(),
-                bundle_id: app
-                    .and_then(|app| app.bundleIdentifier())
-                    .map(|id| id.to_string()),
+                bundle_id,
                 is_on_screen: Some(is_on_screen),
                 bounds: Some(frame),
             });

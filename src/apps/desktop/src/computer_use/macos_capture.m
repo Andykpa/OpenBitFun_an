@@ -407,8 +407,8 @@ static NSString *obf_no_window_matches(int32_t pid, uint32_t requestedWindow) {
     return [NSString stringWithFormat:@"TARGET_WINDOW_UNAVAILABLE: Window %u of process %d is not a capturable content window (closed, or not a normal-layer window such as a system badge or popup). Select a titled content window from list_windows; menus and popups of that window appear in its observation as auxiliary_windows", requestedWindow, pid];
 }
 
-// Validate a replacement without stopping the currently authorized stream.
-uint32_t obf_capture_validate_target(int32_t pid, uint32_t requestedWindow, char *error, size_t capacity) {
+static uint32_t obf_resolve_window(int32_t pid, uint32_t requestedWindow, BOOL requireSurface,
+                                   char *error, size_t capacity) {
     @autoreleasepool {
         if ([NSThread isMainThread]) {
             obf_error(error, capacity, @"CAPTURE_WRONG_THREAD: Resolve capture on a worker thread");
@@ -425,10 +425,13 @@ uint32_t obf_capture_validate_target(int32_t pid, uint32_t requestedWindow, char
         [SCShareableContent getShareableContentExcludingDesktopWindows:YES onScreenWindowsOnly:NO
             completionHandler:^(SCShareableContent *content, NSError *contentError) {
             SCWindow *selected = obf_select_window(content, pid, requestedWindow);
+            // Surface classification queries the target over Accessibility, so
+            // it runs before the waiter's lock is taken.
+            NSString *reason = contentError.localizedDescription;
+            if (!reason && !selected) reason = obf_no_window_matches(pid, requestedWindow);
+            if (!reason && requireSurface && !selected.isOnScreen) reason = obf_unavailable_surface(pid, selected.windowID);
             [condition lock];
-            failure = contentError.localizedDescription;
-            if (!failure && !selected) failure = obf_no_window_matches(pid, requestedWindow);
-            if (!failure && !selected.isOnScreen) failure = obf_unavailable_surface(pid, selected.windowID);
+            failure = reason;
             resolvedWindow = selected.windowID;
             completed = YES;
             [condition broadcast];
@@ -442,6 +445,17 @@ uint32_t obf_capture_validate_target(int32_t pid, uint32_t requestedWindow, char
         [condition unlock];
         return valid ? resolvedWindow : 0;
     }
+}
+
+// Validate a replacement without stopping the currently authorized stream.
+uint32_t obf_capture_validate_target(int32_t pid, uint32_t requestedWindow, char *error, size_t capacity) {
+    return obf_resolve_window(pid, requestedWindow, YES, error, capacity);
+}
+
+// The window capture would select for a process, live surface or not, so a
+// restore acts on exactly the window an unavailable-surface error names.
+uint32_t obf_capture_default_window(int32_t pid, char *error, size_t capacity) {
+    return obf_resolve_window(pid, 0, NO, error, capacity);
 }
 
 // This entry must run off the AppKit main thread; the OS delivers completion
@@ -553,14 +567,19 @@ int obf_capture_status(void *handle, char *error, size_t capacity) {
     }
     [session.condition lock];
     BOOL stopped = session.stopped;
-    if (!stopped && !onScreen) {
-        obf_error(error, capacity, obf_unavailable_surface(session.pid, session.windowID));
-        [session.condition unlock];
+    NSString *failure = session.failure;
+    [session.condition unlock];
+    if (stopped) {
+        obf_error(error, capacity, failure ?: @"CAPTURE_STOPPED");
         return 0;
     }
-    if (stopped) obf_error(error, capacity, session.failure ?: @"CAPTURE_STOPPED");
-    [session.condition unlock];
-    return stopped ? 0 : 1;
+    // Classification queries the target over Accessibility; frame delivery
+    // and Stop must not wait on it.
+    if (!onScreen) {
+        obf_error(error, capacity, obf_unavailable_surface(session.pid, session.windowID));
+        return 0;
+    }
+    return 1;
 }
 
 // Cheap authoritative geometry read for input. It must not copy pixels or
@@ -769,8 +788,8 @@ static int obf_window_screenshot(int32_t pid, uint32_t windowID, BOOL detail, ui
                 CGFloat scale = MAX(1.0, filter.pointPixelScale);
                 CGFloat longest = MAX(target.frame.size.width, target.frame.size.height);
                 if (longest * scale > OBF_SNAPSHOT_MAX_EDGE) scale = MAX(1.0, OBF_SNAPSHOT_MAX_EDGE / longest);
-                config.width = (size_t)MAX(1.0, ceil(target.frame.size.width * scale));
-                config.height = (size_t)MAX(1.0, ceil(target.frame.size.height * scale));
+                config.width = (size_t)MIN((CGFloat)OBF_SNAPSHOT_MAX_EDGE, MAX(1.0, ceil(target.frame.size.width * scale)));
+                config.height = (size_t)MIN((CGFloat)OBF_SNAPSHOT_MAX_EDGE, MAX(1.0, ceil(target.frame.size.height * scale)));
                 config.ignoreShadowsSingleWindow = YES;
             } else {
                 // A desktop-independent filter on an AppKit child window renders its

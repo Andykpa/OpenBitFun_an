@@ -90,14 +90,18 @@ the wording free of recovery advice, which the tool adds per mode. A bound
 stream that loses its surface reports that state too, never "closed": macOS
 per-window `CGWindowList` queries omit minimized and other-Space windows, so a
 window counts as closed only when the full list lacks it, and Windows checks
-the bound HWND's surface state before reusing its stream.
+the bound HWND's surface state before reusing its stream. Classify a lost
+surface over Accessibility outside capture-session locks.
 `restore_window` (unhide, un-minimize) runs only for foreground `activate_app`,
-requires `foreground_allowed` and `target_admissible`, and never selects a
-window other than the requested or bound one. `app-zoom-v1` re-captures the
-bound window only: macOS 14+ uses a one-shot desktop-independent window filter
-at backing scale, older macOS and Windows crop the live frame. Zoomed pointer
-maps keep their window offset and size; never re-anchor them on raw region
-bounds or let a zoom read pixels outside the bound window.
+requires `foreground_allowed` and `target_admissible`, and restores the window
+the surface error named: the requested or bound one, else the window capture
+selects for the process (Windows: its first minimized window). Activation sets
+the capture input barrier so the next observation is a post-activation frame.
+`app-zoom-v1` re-captures the bound window only: macOS 14+ uses a one-shot
+desktop-independent window filter at backing scale, older macOS and Windows
+crop the live frame. Zoomed pointer maps are marked zoomed and keep their
+window offset and size; never re-anchor them on raw region bounds, infer zoom
+from region size, or let a zoom read pixels outside the bound window.
 
 ## Target-local macOS focus acceptance
 

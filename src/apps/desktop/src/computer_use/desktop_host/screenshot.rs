@@ -39,6 +39,7 @@ pub(super) struct PointerMap {
     geometry: CaptureGeometry,
     window_offset: [f64; 2],
     window_size: [f64; 2],
+    zoomed: bool,
 }
 
 impl PointerMap {
@@ -48,7 +49,30 @@ impl PointerMap {
             geometry,
             window_offset: [0.0, 0.0],
             window_size: [bounds[2], bounds[3]],
+            zoomed: false,
         }
+    }
+
+    /// The observed map that image coordinates address, valid only while it
+    /// shares the window projection of the latest image.
+    pub(super) fn for_coordinates(
+        selected: Self,
+        latest: Option<Self>,
+        explicit_screenshot: bool,
+    ) -> OpenBitFunResult<Self> {
+        if !latest.is_some_and(|current| current.same_window_projection(&selected)) {
+            return Err(OpenBitFunError::tool(
+                "[STALE_CAPTURE] Screenshot does not match the target's current geometry",
+            ));
+        }
+        // After a zoom, coordinates may come from either image; guessing the
+        // region would move the pointer silently.
+        if !explicit_screenshot && selected.zoomed {
+            return Err(OpenBitFunError::tool(
+                "[SCREENSHOT_ID_REQUIRED] The latest image is a zoomed region; pass the screenshot_id of the image these coordinates come from, or observe the full window again",
+            ));
+        }
+        Ok(selected)
     }
 
     #[cfg(any(test, target_os = "macos", target_os = "windows"))]
@@ -61,12 +85,8 @@ impl PointerMap {
             geometry,
             window_offset,
             window_size,
+            zoomed: true,
         }
-    }
-
-    fn is_full_window(&self) -> bool {
-        let bounds = self.geometry.bounds();
-        self.window_offset == [0.0, 0.0] && bounds[2..] == self.window_size
     }
 
     /// The region of the window, relative to its origin, covered by an image
@@ -107,7 +127,7 @@ impl PointerMap {
     /// zoomed region and any other observation of the window agree while the
     /// window keeps its size; each keeps its own image-to-window transform.
     pub(super) fn same_window_projection(&self, other: &Self) -> bool {
-        if self.is_full_window() && other.is_full_window() {
+        if !self.zoomed && !other.zoomed {
             self.geometry.same_projection(&other.geometry)
         } else {
             self.window_size == other.window_size
@@ -466,6 +486,13 @@ fn zoom_crop(
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
+type DetailFrame = (
+    image::RgbaImage,
+    [f64; 4],
+    Vec<crate::computer_use::overlay_windows::CapturedOverlay>,
+);
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 impl DesktopComputerUseHost {
     /// A zoomed observation of the bound window: a fresh capture at the
     /// highest native detail, cut to a region of an earlier observation. It is
@@ -516,7 +543,7 @@ impl DesktopComputerUseHost {
             }
             (source.window_region_of(&region)?, source.window_size)
         };
-        let (rgba, bounds) = Self::window_detail_frame(pid, window).await?;
+        let (rgba, bounds, auxiliary) = Self::window_detail_frame(pid, window).await?;
         if bounds[2..] != window_size {
             return Err(OpenBitFunError::tool(
                 "[STALE_CAPTURE] Target resized; observe the window again before zooming",
@@ -541,6 +568,8 @@ impl DesktopComputerUseHost {
             width,
             height,
         });
+        shot.auxiliary_windows =
+            crate::computer_use::overlay_windows::auxiliary_metadata(&shot, &auxiliary);
         let map = PointerMap::window_region(
             PointerMap::from_screenshot(&shot)?.geometry,
             [x, y],
@@ -556,12 +585,10 @@ impl DesktopComputerUseHost {
     }
 
     /// The bound window's pixels at the most detail the platform offers, with
-    /// its global frame: backing scale on macOS 14+, else the live frame.
+    /// its global frame and composited popups: backing scale on macOS 14+,
+    /// else the live frame.
     #[cfg(target_os = "macos")]
-    async fn window_detail_frame(
-        pid: i32,
-        window: isize,
-    ) -> OpenBitFunResult<(image::RgbaImage, [f64; 4])> {
+    async fn window_detail_frame(pid: i32, window: isize) -> OpenBitFunResult<DetailFrame> {
         let window = u32::try_from(window)
             .map_err(|_| OpenBitFunError::tool("[TARGET_INVALID] Window id out of range"))?;
         let frame = crate::computer_use::control_session::spawn_blocking(move || {
@@ -585,14 +612,11 @@ impl DesktopComputerUseHost {
         .map_err(OpenBitFunError::tool)?;
         let image = image::RgbaImage::from_raw(frame.width, frame.height, frame.rgba)
             .ok_or_else(|| OpenBitFunError::tool("[CAPTURE_INVALID_FRAME] Invalid RGBA buffer"))?;
-        Ok((image, frame.bounds))
+        Ok((image, frame.bounds, frame.auxiliary))
     }
 
     #[cfg(target_os = "windows")]
-    async fn window_detail_frame(
-        _pid: i32,
-        window: isize,
-    ) -> OpenBitFunResult<(image::RgbaImage, [f64; 4])> {
+    async fn window_detail_frame(_pid: i32, window: isize) -> OpenBitFunResult<DetailFrame> {
         let cap = crate::computer_use::control_session::spawn_blocking(move || {
             crate::computer_use::windows_capture::screenshot_window_capture(
                 windows::Win32::Foundation::HWND(window as *mut std::ffi::c_void),
@@ -608,7 +632,7 @@ impl DesktopComputerUseHost {
         ];
         let image = image::RgbaImage::from_raw(cap.width, cap.height, cap.rgba)
             .ok_or_else(|| OpenBitFunError::tool("[CAPTURE_INVALID_FRAME] Invalid RGBA buffer"))?;
-        Ok((image, bounds))
+        Ok((image, bounds, cap.auxiliary))
     }
 }
 
@@ -1071,6 +1095,78 @@ mod window_projection_tests {
             .unwrap(),
         );
         assert!(!zoomed.same_window_projection(&other_window));
+    }
+
+    #[test]
+    fn a_whole_window_zoom_is_still_a_zoom() {
+        let observed = capture_map();
+        let whole = PointerMap::window_region(
+            CaptureGeometry::new(
+                1568,
+                1045,
+                &super::ComputerUseImageContentRect {
+                    left: 0,
+                    top: 0,
+                    width: 1568,
+                    height: 1045,
+                },
+                &super::ComputerUseImageGlobalBounds {
+                    left: 139.0,
+                    top: 40.0,
+                    width: 1800.0,
+                    height: 1200.0,
+                },
+            )
+            .unwrap(),
+            [0.0, 0.0],
+            [1800.0, 1200.0],
+        );
+        assert!(!observed.geometry.same_projection(&whole.geometry));
+        assert!(observed.same_window_projection(&whole));
+        assert!(whole.same_window_projection(&observed));
+        assert!(PointerMap::for_coordinates(observed, Some(whole), false).is_ok());
+        let implicit = PointerMap::for_coordinates(whole, Some(whole), false).unwrap_err();
+        assert!(
+            implicit.to_string().contains("SCREENSHOT_ID_REQUIRED"),
+            "{implicit}"
+        );
+    }
+
+    #[test]
+    fn coordinates_after_a_zoom_name_their_image() {
+        let observed = capture_map();
+        let zoomed = zoomed_map();
+        let implicit = PointerMap::for_coordinates(zoomed, Some(zoomed), false).unwrap_err();
+        assert!(
+            implicit.to_string().contains("SCREENSHOT_ID_REQUIRED"),
+            "{implicit}"
+        );
+        assert_eq!(
+            PointerMap::for_coordinates(zoomed, Some(zoomed), true).unwrap(),
+            zoomed
+        );
+        assert_eq!(
+            PointerMap::for_coordinates(observed, Some(zoomed), true).unwrap(),
+            observed
+        );
+        assert_eq!(
+            PointerMap::for_coordinates(observed, Some(observed), false).unwrap(),
+            observed
+        );
+        let resized = zoomed
+            .at_window_bounds([139.0, 40.0, 1800.0, 1200.0])
+            .unwrap();
+        assert!(PointerMap::for_coordinates(observed, Some(resized), true).is_ok());
+        for latest in [
+            None,
+            Some(PointerMap {
+                window_size: [1700.0, 1200.0],
+                ..zoomed
+            }),
+        ] {
+            let stale = PointerMap::for_coordinates(observed, latest, true).unwrap_err();
+            assert!(stale.to_string().contains("STALE_CAPTURE"), "{stale}");
+        }
     }
 
     #[test]

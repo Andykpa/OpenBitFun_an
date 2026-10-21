@@ -1270,36 +1270,15 @@ unsafe fn ax_window_minimized(element: AXUIElementRef) -> Option<bool> {
     }
 }
 
-/// The application's first minimized window, for selectors without a window id.
-unsafe fn first_minimized_window(app: AXUIElementRef) -> Option<(AXUIElementRef, u32)> {
-    // SAFETY: the caller owns a live AX application element. The copied window
-    // array owns its items; the returned element is retained for the caller.
-    unsafe {
-        let raw = ax_copy_attr(app, "AXWindows")?;
-        let windows = CFArray::<*const c_void>::wrap_under_create_rule(raw as CFArrayRef);
-        for index in 0..windows.len() {
-            let Some(value) = windows.get(index) else {
-                continue;
-            };
-            let element = *value as AXUIElementRef;
-            if element.is_null() || ax_window_minimized(element) != Some(true) {
-                continue;
-            }
-            if let Some(id) = ax_window_id(element) {
-                return Some((CFRetain(element as CFTypeRef) as AXUIElementRef, id));
-            }
-        }
-        None
-    }
-}
-
 /// Foreground recovery of a window without a live surface: unhide its
-/// application and un-minimize the exact window (for an application selector,
-/// its first minimized window). Window-only sharing must admit the window.
-/// Returns whether any state changed; the caller prepares capture again.
-pub(super) fn restore_window(pid: i32, window: Option<u32>) -> OpenBitFunResult<bool> {
+/// application and un-minimize the exact window. Window-only sharing must
+/// admit the window. Returns whether any state changed; the caller prepares
+/// capture again.
+pub(super) fn restore_window(pid: i32, window: u32) -> OpenBitFunResult<bool> {
     use objc2_app_kit::NSRunningApplication;
     super::control_session::foreground_allowed().map_err(OpenBitFunError::tool)?;
+    super::control_session::target_admissible(&format!("pid:{pid}/window:{window}"))
+        .map_err(OpenBitFunError::tool)?;
     // SAFETY: every AX element created or copied here is null-checked and
     // released exactly once on each return path.
     unsafe {
@@ -1310,32 +1289,15 @@ pub(super) fn restore_window(pid: i32, window: Option<u32>) -> OpenBitFunResult<
             ));
         }
         AXUIElementSetMessagingTimeout(app, 0.5);
-        let element = match window {
-            Some(id) => try_window_element_by_id(app, id).map(|element| (element, id)),
-            None => first_minimized_window(app),
-        };
+        let element = try_window_element_by_id(app, window);
         ax_release(app);
-        let target = window.or(element.as_ref().map(|(_, id)| *id));
-        if let Some(id) = target {
-            if let Err(error) =
-                super::control_session::target_admissible(&format!("pid:{pid}/window:{id}"))
-            {
-                if let Some((element, _)) = element {
-                    ax_release(element as CFTypeRef);
-                }
-                return Err(OpenBitFunError::tool(error));
-            }
-        } else if let Err(error) = super::control_session::target_admissible(&format!("pid:{pid}"))
-        {
-            return Err(OpenBitFunError::tool(error));
-        }
         let mut changed = false;
         if let Some(running) = NSRunningApplication::runningApplicationWithProcessIdentifier(pid) {
             if running.isHidden() && running.unhide() {
                 changed = true;
             }
         }
-        if let Some((element, id)) = element {
+        if let Some(element) = element {
             if ax_window_minimized(element) == Some(true) {
                 let attribute = CFString::new("AXMinimized");
                 let status = AXUIElementSetAttributeValue(
@@ -1346,7 +1308,7 @@ pub(super) fn restore_window(pid: i32, window: Option<u32>) -> OpenBitFunResult<
                 ax_release(element as CFTypeRef);
                 if status != 0 {
                     return Err(OpenBitFunError::tool(format!(
-                        "[FOREGROUND_ACTIVATION_DENIED] Un-minimizing window {id} failed ({status})"
+                        "[FOREGROUND_ACTIVATION_DENIED] Un-minimizing window {window} failed ({status})"
                     )));
                 }
                 changed = true;
@@ -1354,10 +1316,7 @@ pub(super) fn restore_window(pid: i32, window: Option<u32>) -> OpenBitFunResult<
                 ax_release(element as CFTypeRef);
             }
         }
-        log::info!(
-            "Computer Use window restore: pid={pid}, window={:?}, changed={changed}",
-            target
-        );
+        log::info!("Computer Use window restore: pid={pid}, window={window}, changed={changed}");
         Ok(changed)
     }
 }

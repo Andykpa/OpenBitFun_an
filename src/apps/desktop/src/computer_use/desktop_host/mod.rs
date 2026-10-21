@@ -1063,6 +1063,13 @@ impl ComputerUseHost for DesktopComputerUseHost {
                     )
                 })?;
             crate::computer_use::control_session::spawn_blocking(move || {
+                // Without an explicit or bound window, restore the one capture
+                // selects, which is the window its surface error names.
+                let window = match window {
+                    Some(window) => window,
+                    None => crate::computer_use::macos_capture::default_window(pid)
+                        .map_err(OpenBitFunError::tool)?,
+                };
                 crate::computer_use::macos_ax_ui::restore_window(pid, window)
             })
             .await

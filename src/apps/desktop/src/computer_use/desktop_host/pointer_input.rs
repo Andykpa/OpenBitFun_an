@@ -318,16 +318,11 @@ impl DesktopComputerUseHost {
                 .observations
                 .image(screenshot_id)
                 .map_err(OpenBitFunError::tool)?;
-            if !state
-                .observations
-                .latest_image()
-                .is_some_and(|current| current.same_window_projection(&selected))
-            {
-                return Err(OpenBitFunError::tool(
-                    "[STALE_CAPTURE] Screenshot does not match the target's current geometry",
-                ));
-            }
-            selected
+            PointerMap::for_coordinates(
+                selected,
+                state.observations.latest_image(),
+                screenshot_id.is_some(),
+            )?
         };
         #[cfg(target_os = "macos")]
         let map = {

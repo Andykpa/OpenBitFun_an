@@ -18,6 +18,7 @@ unsafe extern "C" {
         error: *mut c_char,
         capacity: usize,
     ) -> u32;
+    fn obf_capture_default_window(pid: i32, error: *mut c_char, capacity: usize) -> u32;
     fn obf_capture_status(handle: *mut c_void, error: *mut c_char, capacity: usize) -> i32;
     fn obf_capture_bounds(
         handle: *mut c_void,
@@ -263,6 +264,19 @@ pub(super) fn ensure_capture(pid: i32, mut window_id: Option<u32>) -> Result<(),
 // request a replacement, validated above before the old stream is released.
 fn reuse_bound_window(bound: u32, requested: Option<u32>) -> bool {
     requested.is_none_or(|id| id == bound)
+}
+
+/// The content window capture selects for a process without an explicit
+/// window, whether or not it currently has a live surface.
+pub(super) fn default_window(pid: i32) -> Result<u32, String> {
+    super::control_session::capture_allowed()?;
+    let mut error = [0; 1024];
+    // SAFETY: the error buffer outlives the call and its capacity is passed.
+    let window = unsafe { obf_capture_default_window(pid, error.as_mut_ptr(), error.len()) };
+    if window == 0 {
+        return Err(error_string(&error));
+    }
+    Ok(window)
 }
 
 pub(super) fn bound_window_id(pid: i32) -> Result<u32, String> {
