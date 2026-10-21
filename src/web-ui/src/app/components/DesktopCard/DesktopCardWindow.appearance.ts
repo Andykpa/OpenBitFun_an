@@ -10,5 +10,6 @@ export const desktopCardAppearanceDescriptor: AppearanceSurfaceDescriptor = {
   states: [
     { id: 'loading', selector: { kind: 'self', suffix: '[data-openbitfun-state~="loading"]' } },
     { id: 'error', selector: { kind: 'self', suffix: '[data-openbitfun-state~="error"]' } },
+    { id: 'warning', selector: { kind: 'self', suffix: '[data-openbitfun-state~="warning"]' } },
   ],
 };

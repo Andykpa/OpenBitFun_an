@@ -74,15 +74,19 @@ function DesktopCardFooter({ card, formatRelativeTime }: {
   const { t } = useI18n('components');
   useNow(30_000);
   if (!hasDataSource(card) || !card.lastData) return null;
-  const { error, fetchedAtMs } = card.lastData;
+  const { error, warning, fetchedAtMs } = card.lastData;
+  const state = error ? 'error' : warning ? 'warning' : undefined;
+  const time = formatRelativeTime(fetchedAtMs);
   return (
-    <footer className="openbitfun-desktop-card__footer" data-state={error ? 'error' : undefined} title={error}
+    <footer className="openbitfun-desktop-card__footer" data-state={state} title={error ?? warning}
       data-openbitfun-component="desktop-card" data-openbitfun-part="footer"
-      data-openbitfun-state={error ? 'error' : undefined}>
+      data-openbitfun-state={state}>
       <OverflowText>
         {error
           ? t('desktopCard.refreshFailed', { error })
-          : t('desktopCard.updated', { time: formatRelativeTime(fetchedAtMs) })}
+          : warning
+            ? t('desktopCard.updatedWithWarning', { time })
+            : t('desktopCard.updated', { time })}
       </OverflowText>
     </footer>
   );

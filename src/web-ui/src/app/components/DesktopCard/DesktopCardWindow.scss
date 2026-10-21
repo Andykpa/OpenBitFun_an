@@ -95,6 +95,7 @@ body.openbitfun-desktop-card-window-body #root {
     font-size: var(--openbitfun-type-micro-font-size);
 
     &[data-state='error'] { color: var(--openbitfun-color-status-danger-content); }
+    &[data-state='warning'] { color: var(--openbitfun-color-status-warning-content); }
   }
 
   &__empty {
