@@ -4,7 +4,7 @@
   "title": "OpenBitFun Playbook",
   "origin": "https://playbook.openbitfun.com",
   "source": "src/shared/interactive-capabilities/catalog.json",
-  "digest": "191a3aebf661db2fa73656f74f21e855cdf9784faaf6c0699b3607eff11fa8ca",
+  "digest": "27c7a36f2c817b3df4411cb5ceceb707ae2bfa2b6d128c6498358956fca30411",
   "ownerDigest": "103fc8646df7b35e9fac1c52149a35b86e9c6115b462b0aa36240a4600903ce4",
   "searchAcceptance": [
     {
@@ -25532,8 +25532,8 @@
         },
         {
           "id": "drag-restore",
-          "titleZh": "拖动卡片到桌面任意位置；关闭 OpenBitFun 时卡片消失，重新打开后按原位置恢复",
-          "titleEn": "Drag cards anywhere on the desktop; they disappear when OpenBitFun closes and return to the same positions when it reopens",
+          "titleZh": "拖动卡片到桌面任意位置，拖动卡片边缘或四角调整大小；关闭 OpenBitFun 时卡片消失，重新打开后按原位置和大小恢复",
+          "titleEn": "Drag cards anywhere on the desktop and resize them from their edges or corners; they disappear when OpenBitFun closes and return with the same position and size when it reopens",
           "control": {
             "kind": "open",
             "reasonCode": "visualSelection",
@@ -25608,8 +25608,8 @@
         "See every card in the Home Desktop cards section, and show, hide, or delete individual cards",
         "在卡片上刷新数据、勾选清单项、切换置顶、打开链接或回到来源会话",
         "Refresh data, check off list items, toggle always-on-top, open the link, or return to the source session from a card",
-        "拖动卡片到桌面任意位置；关闭 OpenBitFun 时卡片消失，重新打开后按原位置恢复",
-        "Drag cards anywhere on the desktop; they disappear when OpenBitFun closes and return to the same positions when it reopens",
+        "拖动卡片到桌面任意位置，拖动卡片边缘或四角调整大小；关闭 OpenBitFun 时卡片消失，重新打开后按原位置和大小恢复",
+        "Drag cards anywhere on the desktop and resize them from their edges or corners; they disappear when OpenBitFun closes and return with the same position and size when it reopens",
         "20 分钟后提醒我开会",
         "做一张卡片帮我盯着这个 PR 的状态",
         "Remind me about the meeting in 20 minutes",
