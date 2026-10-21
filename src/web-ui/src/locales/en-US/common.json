@@ -72,6 +72,10 @@
     "forward": "Forward",
     "backShortcut": "Back (Alt+←)",
     "forwardShortcut": "Forward (Alt+→)",
+    "programmersDay": {
+      "tooltip": "2¹⁰ = 1024 · Happy Programmer's Day! May your code ship with zero bugs today",
+      "ariaLabel": "Happy Programmer's Day (1024)"
+    },
     "items": {
       "personalOverview": "Home",
       "sessions": "Sessions",
