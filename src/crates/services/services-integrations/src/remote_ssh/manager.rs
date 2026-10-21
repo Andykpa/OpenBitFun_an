@@ -255,7 +255,7 @@ impl ContainerFileReader {
                 return Err(std::io::Error::other(format!(
                     "Container file stream failed: exit_status={:?} {}",
                     exit.exit_code,
-                    String::from_utf8_lossy(&stderr).trim()
+                    container_stderr_detail(&stderr)
                 )));
             }
             Ok(())
@@ -2021,6 +2021,21 @@ fn parse_container_dir_output(
         .collect()
 }
 
+/// Render transport stderr for a container failure message.
+///
+/// Local process transports write their own Windows-host messages into the same
+/// stderr stream as the Linux command, in UTF-16LE. Reporting that stream raw
+/// both hides the Linux-side error behind mojibake and attributes host noise to
+/// the workspace, so every container failure decodes and filters it first.
+fn container_stderr_detail(stderr: &[u8]) -> String {
+    let detail = super::wsl::stderr_diagnostics(stderr);
+    if detail.is_empty() {
+        "no stderr output".to_string()
+    } else {
+        detail
+    }
+}
+
 /// Interpret a workspace directory listing from its exit status alone.
 ///
 /// The exit status is the only success signal: local process transports (WSL,
@@ -2034,16 +2049,11 @@ fn container_dir_entries(
     status: i32,
 ) -> anyhow::Result<Vec<crate::remote_ssh::types::RemoteDirEntry>> {
     if status != 0 {
-        let detail = super::wsl::stderr_diagnostics(stderr);
         anyhow::bail!(
-            "Failed to list container directory '{}': command exited with status {}{}",
+            "Failed to list container directory '{}': command exited with status {}: {}",
             path,
             status,
-            if detail.is_empty() {
-                String::new()
-            } else {
-                format!(": {detail}")
-            }
+            container_stderr_detail(stderr)
         );
     }
     let stdout = String::from_utf8(stdout).with_context(|| {
@@ -5338,7 +5348,7 @@ impl SSHConnectionManager {
             anyhow::bail!(
                 "Failed to read container file '{}': {}",
                 path,
-                String::from_utf8_lossy(&stderr).trim()
+                container_stderr_detail(&stderr)
             );
         }
         let _ = on_progress(content.len() as u64, total);
@@ -5403,7 +5413,7 @@ impl SSHConnectionManager {
                 "Failed to write container workspace file '{}': exit_status={:?} {}",
                 path,
                 exit.exit_code,
-                String::from_utf8_lossy(&stderr).trim()
+                container_stderr_detail(&stderr)
             );
         }
         Ok(())
@@ -5648,9 +5658,10 @@ impl SSHConnectionManager {
         let stderr = stderr_task.await.unwrap_or_default();
         if exit.exit_code.unwrap_or(-1) != 0 {
             anyhow::bail!(
-                "Failed to atomically write container file '{}': {}",
+                "Failed to atomically write container file '{}': exit_status={:?} {}",
                 path,
-                String::from_utf8_lossy(&stderr).trim()
+                exit.exit_code,
+                container_stderr_detail(&stderr)
             );
         }
         Ok(())
@@ -5773,9 +5784,10 @@ impl SSHConnectionManager {
         }
         if status != 0 {
             anyhow::bail!(
-                "Failed to stat container path '{}': {}",
+                "Failed to stat container path '{}': exit_status={} {}",
                 path,
-                String::from_utf8_lossy(&stderr).trim()
+                status,
+                container_stderr_detail(&stderr)
             );
         }
         let stdout = String::from_utf8(stdout).with_context(|| {
@@ -5816,7 +5828,7 @@ impl SSHConnectionManager {
                     "Failed to inspect container path '{}': exit_status={} {}",
                     path,
                     status,
-                    String::from_utf8_lossy(&stderr).trim()
+                    container_stderr_detail(&stderr)
                 );
             }
             let metadata = parse_workspace_stat_output(std::str::from_utf8(&stdout)?)?;
@@ -5842,7 +5854,7 @@ impl SSHConnectionManager {
                     "Failed to read container symbolic link '{}': exit_status={} {}",
                     path,
                     status,
-                    String::from_utf8_lossy(&stderr).trim()
+                    container_stderr_detail(&stderr)
                 );
             }
             let target = std::str::from_utf8(&target)?
@@ -5871,13 +5883,14 @@ impl SSHConnectionManager {
         operation: &str,
         path: &str,
     ) -> anyhow::Result<()> {
-        let (_, stderr, status) = self.execute_command(connection_id, command).await?;
+        let (_, stderr, status) = self.execute_workspace_bytes(connection_id, command).await?;
         if status != 0 {
             anyhow::bail!(
-                "Failed to {} container path '{}': {}",
+                "Failed to {} container path '{}': exit_status={} {}",
                 operation,
                 path,
-                stderr.trim()
+                status,
+                container_stderr_detail(&stderr)
             );
         }
         Ok(())
@@ -8637,6 +8650,22 @@ mod tests {
         let stderr = super::super::wsl::stderr_diagnostics(&wsl_host_warning_stderr());
 
         assert!(!parse_container_exists_output("/workspace/missing", &stderr, 1).unwrap());
+    }
+
+    #[test]
+    fn container_failure_details_keep_linux_text_and_drop_host_noise() {
+        let mut stderr = wsl_host_warning_stderr();
+        stderr.extend_from_slice(b"cat: /workspace/missing: No such file or directory\n");
+
+        assert_eq!(
+            container_stderr_detail(&stderr),
+            "cat: /workspace/missing: No such file or directory"
+        );
+        assert_eq!(container_stderr_detail(&[]), "no stderr output");
+        assert_eq!(
+            container_stderr_detail(&wsl_host_warning_stderr()),
+            "no stderr output"
+        );
     }
 
     #[test]
