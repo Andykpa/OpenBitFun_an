@@ -5672,6 +5672,21 @@ pub async fn get_watched_paths() -> Result<Vec<String>, String> {
     file_watch::get_watched_paths().await
 }
 
+/// Whether filesystem changes still reach product surfaces, and why not.
+/// `LocalOnly`: the watcher is a host-side resource and is not used for remote
+/// workspaces, which do their own remote IO.
+#[tauri::command]
+pub async fn get_file_watch_status() -> Result<file_watch::FileWatchStatus, String> {
+    Ok(file_watch::get_file_watch_status())
+}
+
+/// Re-registers every watched root on a fresh native watcher so a surface can
+/// recover from a backend failure after the user fixes its cause.
+#[tauri::command]
+pub async fn retry_file_watch() -> Result<(), String> {
+    file_watch::retry_file_watch().await
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubscriptionProviderRequest {

@@ -1178,18 +1178,20 @@
         },
         {
           "id": "file-watch",
-          "titleZh": "监听项目文件变化并查看当前监听路径",
-          "titleEn": "Watch project file changes and inspect active watched paths",
+          "titleZh": "监听项目文件变化、检查监听状态并在失败后恢复",
+          "titleEn": "Watch project file changes, inspect watch status, and recover a stopped watcher",
           "control": {
             "kind": "open",
             "reasonCode": "unstructuredInteraction",
-            "reasonZh": "“监听项目文件变化并查看当前监听路径”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-            "reasonEn": "“Watch project file changes and inspect active watched paths” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user."
+            "reasonZh": "“监听项目文件变化、检查监听状态并在失败后恢复”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
+            "reasonEn": "“Watch project file changes, inspect watch status, and recover a stopped watcher” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user."
           },
           "evidence": [
             "command:start_file_watch",
             "command:stop_file_watch",
-            "command:get_watched_paths"
+            "command:get_watched_paths",
+            "command:get_file_watch_status",
+            "command:retry_file_watch"
           ]
         },
         {

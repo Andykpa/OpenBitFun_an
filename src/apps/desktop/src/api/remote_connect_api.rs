@@ -521,6 +521,7 @@ fn should_fanout_peer_ui_event(event: &str) -> bool {
         event,
         "terminal_event"
             | "file-system-changed"
+            | openbitfun_core::service::FILE_WATCH_STATUS_CHANGED_EVENT
             | "backend-event-mcpinteractionrequest"
             | "backend-event-acppermissionrequest"
             | "backend-event-toolexecutionprogress"

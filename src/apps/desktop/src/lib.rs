@@ -1561,6 +1561,8 @@ pub async fn run() {
             start_file_watch,
             stop_file_watch,
             get_watched_paths,
+            get_file_watch_status,
+            retry_file_watch,
             get_clipboard_files,
             get_clipboard_image,
             api::browser_file_drop_api::resolve_browser_dropped_file_paths,
