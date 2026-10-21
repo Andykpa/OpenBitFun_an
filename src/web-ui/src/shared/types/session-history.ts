@@ -30,7 +30,7 @@ export interface SessionCustomMetadata extends Record<string, unknown> {
   externalHistoryMode?: 'follow';
   externalHistoryPending?: boolean;
   externalContentVersion?: string;
-  externalSourceStatus?: 'available' | 'unavailable';
+  externalSourceStatus?: 'available' | 'unavailable' | 'unsupported';
   externalSourceIncomplete?: boolean;
   externalObservedFingerprint?: string;
   externalMaterializedObservation?: string;
