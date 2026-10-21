@@ -84,6 +84,21 @@ decision, never a native retry or implicit escalation. macOS/Windows
 global input must validate the foreground destination. Linux retains its separate
 portal consent/surface identity. Preserve user Stop, cancellation and OS denial.
 
+Surface errors name the state the host established (minimized, hidden, cloaked,
+off-Space, display affinity) for the exact window; keep the codes stable and
+the wording free of recovery advice, which the tool adds per mode. A bound
+stream that loses its surface reports that state too, never "closed": macOS
+per-window `CGWindowList` queries omit minimized and other-Space windows, so a
+window counts as closed only when the full list lacks it, and Windows checks
+the bound HWND's surface state before reusing its stream.
+`restore_window` (unhide, un-minimize) runs only for foreground `activate_app`,
+requires `foreground_allowed` and `target_admissible`, and never selects a
+window other than the requested or bound one. `app-zoom-v1` re-captures the
+bound window only: macOS 14+ uses a one-shot desktop-independent window filter
+at backing scale, older macOS and Windows crop the live frame. Zoomed pointer
+maps keep their window offset and size; never re-anchor them on raw region
+bounds or let a zoom read pixels outside the bound window.
+
 ## Target-local macOS focus acceptance
 
 The directed-input route can change a target application's internal
