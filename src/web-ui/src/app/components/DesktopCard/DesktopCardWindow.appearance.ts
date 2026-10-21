@@ -4,7 +4,7 @@ export const desktopCardAppearanceDescriptor: AppearanceSurfaceDescriptor = {
   id: 'desktop-card',
   parts: [
     { id: 'root' }, { id: 'header' }, { id: 'icon' }, { id: 'title' }, { id: 'subtitle' },
-    { id: 'actions' }, { id: 'body' }, { id: 'footer' },
+    { id: 'actions' }, { id: 'body' }, { id: 'footer' }, { id: 'resizeHandle' },
     { id: 'countdown' }, { id: 'checklist' }, { id: 'note' }, { id: 'progress' }, { id: 'metrics' }, { id: 'cron' },
   ],
   states: [

@@ -5,10 +5,13 @@ import { useI18n } from '@/infrastructure/i18n/hooks/useI18n';
 import { desktopCardAPI, type DesktopCardRecord } from '@/infrastructure/api/service-api/DesktopCardAPI';
 import { systemAPI } from '@/infrastructure/api/service-api/SystemAPI';
 import {
+  DESKTOP_CARD_RESIZE_DIRECTIONS,
   openDesktopCardSourceSession,
   readDesktopCardIdFromLocation,
   startDesktopCardWindowDrag,
+  startDesktopCardWindowResize,
 } from '@/infrastructure/desktop-cards/desktopCardWindow';
+import { isMacOSDesktopRuntime, supportsNativeWindowControls } from '@/infrastructure/runtime/environment';
 import { createLogger } from '@/shared/utils/logger';
 import {
   ChecklistTemplate,
@@ -35,6 +38,31 @@ const log = createLogger('DesktopCardWindow');
 
 function isInteractiveTarget(target: EventTarget | null): boolean {
   return target instanceof Element && Boolean(target.closest('button, a, input, textarea, select, iframe, [role="menu"]'));
+}
+
+/**
+ * Borderless card windows have no native resize border on Windows and Linux,
+ * where the webview also swallows edge hit-testing; macOS resizes natively.
+ */
+function DesktopCardResizeRegions({ cardId }: { cardId: string | null }) {
+  const enabled = useMemo(() => supportsNativeWindowControls() && !isMacOSDesktopRuntime(), []);
+  if (!enabled) return null;
+  return (
+    <>
+      {DESKTOP_CARD_RESIZE_DIRECTIONS.map(direction => (
+        <div key={direction} className="openbitfun-desktop-card__resize" data-direction={direction} aria-hidden="true"
+          data-openbitfun-component="desktop-card" data-openbitfun-part="resizeHandle"
+          onMouseDown={event => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            event.stopPropagation();
+            void startDesktopCardWindowResize(direction).catch(error => {
+              log.debug('Failed to start desktop card resize', { cardId, direction, error });
+            });
+          }} />
+      ))}
+    </>
+  );
 }
 
 function DesktopCardBody({ card, formatters, onOpenLink, onDismiss }: {
@@ -183,6 +211,7 @@ export default function DesktopCardWindow() {
         <div className="openbitfun-desktop-card__empty" role="status">
           {loadFailed ? <span>{t('desktopCard.loadFailed')}</span> : <Spinner size="sm" />}
         </div>
+        <DesktopCardResizeRegions cardId={cardId} />
       </div>
     );
   }
@@ -261,6 +290,7 @@ export default function DesktopCardWindow() {
       <DesktopCardFooter card={card} formatRelativeTime={formatters.formatRelativeTime} />
       <MenuPopover items={menuItems} open={menuOpen} onClose={() => setMenuOpen(false)} anchorRef={menuButtonRef}
         placement="bottom" inlineSize="content" />
+      <DesktopCardResizeRegions cardId={cardId} />
     </div>
   );
 }
