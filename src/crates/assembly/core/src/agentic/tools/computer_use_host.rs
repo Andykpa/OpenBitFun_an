@@ -14,13 +14,14 @@ pub use openbitfun_agent_tools::computer_use::{
     ComputerUseInteractionState, ComputerUseLastMutationKind, ComputerUseNavigateQuadrant,
     ComputerUseNavigationRect, ComputerUsePermissionSnapshot, ComputerUsePointerGlobal,
     ComputerUseScreenshotParams, ComputerUseScreenshotRefinement, ComputerUseSessionSnapshot,
-    InteractiveActionResult, InteractiveClickParams, InteractiveElement, InteractiveScrollParams,
-    InteractiveTypeTextParams, InteractiveView, InteractiveViewOpts, OcrAccessibilityHit,
-    OcrRegionNative, OcrTextMatch, OpenAppResult, ScreenshotCropCenter, UiElementLocateQuery,
-    UiElementLocateResult, VisualActionResult, VisualClickParams, VisualImageRegion, VisualMark,
-    VisualMarkView, VisualMarkViewOpts, COMPUTER_USE_POINT_CROP_HALF_DEFAULT,
-    COMPUTER_USE_POINT_CROP_HALF_MAX, COMPUTER_USE_POINT_CROP_HALF_MIN,
-    COMPUTER_USE_QUADRANT_CLICK_READY_MAX_LONG_EDGE, COMPUTER_USE_QUADRANT_EDGE_EXPAND_PX,
+    ComputerUseZoomRegion, InteractiveActionResult, InteractiveClickParams, InteractiveElement,
+    InteractiveScrollParams, InteractiveTypeTextParams, InteractiveView, InteractiveViewOpts,
+    OcrAccessibilityHit, OcrRegionNative, OcrTextMatch, OpenAppResult, ScreenshotCropCenter,
+    UiElementLocateQuery, UiElementLocateResult, VisualActionResult, VisualClickParams,
+    VisualImageRegion, VisualMark, VisualMarkView, VisualMarkViewOpts,
+    COMPUTER_USE_POINT_CROP_HALF_DEFAULT, COMPUTER_USE_POINT_CROP_HALF_MAX,
+    COMPUTER_USE_POINT_CROP_HALF_MIN, COMPUTER_USE_QUADRANT_CLICK_READY_MAX_LONG_EDGE,
+    COMPUTER_USE_QUADRANT_EDGE_EXPAND_PX,
 };
 
 use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
@@ -59,6 +60,24 @@ pub trait ComputerUseHost: Send + Sync + std::fmt::Debug {
         Err(OpenBitFunError::tool(
             "[ACTIVATION_UNSUPPORTED] This host cannot activate a native window. On Linux use the consented portal surface and verify focus before seat input.",
         ))
+    }
+    /// Capture a rectangle of an earlier observation of the bound window again
+    /// at higher detail (app-zoom-v1). The result is a new image observation
+    /// with its own screenshot_id; image_xy on it maps into that rectangle.
+    async fn zoom_observation(
+        &self,
+        _app: AppSelector,
+        _region: ComputerUseZoomRegion,
+    ) -> OpenBitFunResult<ComputerScreenshot> {
+        Err(OpenBitFunError::tool(
+            "[ZOOM_UNSUPPORTED] This host does not advertise app-zoom-v1; observe the full window instead",
+        ))
+    }
+    /// Foreground-only recovery of a selected window that has no live surface:
+    /// unhide its application and un-minimize the window. Returns whether a
+    /// window state was changed; the caller prepares the target again.
+    async fn restore_window(&self, _app: AppSelector) -> OpenBitFunResult<bool> {
+        Ok(false)
     }
     async fn start_control(
         &self,
