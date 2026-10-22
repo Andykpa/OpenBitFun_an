@@ -189,7 +189,6 @@ import { browserPreviewAppearanceDescriptor } from '@/app/scenes/browser/Browser
 import { nurseryGalleryAppearanceDescriptor } from '@/app/scenes/profile/views/NurseryGallery.appearance';
 import { gitGraphViewAppearanceDescriptor } from '@/app/scenes/git/views/GraphView.appearance';
 import { navBarAppearanceDescriptor } from '@/app/components/NavBar/NavBar.appearance';
-import { programmersDayEggAppearanceDescriptor } from '@/app/components/ProgrammersDayEgg/ProgrammersDayEgg.appearance';
 import { splashScreenAppearanceDescriptor } from '@/app/components/SplashScreen/SplashScreen.appearance';
 import { chatPaneAppearanceDescriptor } from '@/app/scenes/session/ChatPane.appearance';
 import { auxPaneAppearanceDescriptor } from '@/app/scenes/session/AuxPane.appearance';
@@ -333,7 +332,6 @@ export function createDefaultAppearanceRegistry(): AppearanceRegistry {
     .registerComponent(workspaceToolAppearanceDescriptor)
     .registerComponent(gitGraphViewAppearanceDescriptor)
     .registerComponent(navBarAppearanceDescriptor)
-    .registerComponent(programmersDayEggAppearanceDescriptor)
     .registerComponent(splashScreenAppearanceDescriptor)
     .registerComponent(chatPaneAppearanceDescriptor)
     .registerComponent(auxPaneAppearanceDescriptor)

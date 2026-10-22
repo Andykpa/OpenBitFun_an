@@ -72,10 +72,6 @@
     "forward": "前進",
     "backShortcut": "後退 (Alt+←)",
     "forwardShortcut": "前進 (Alt+→)",
-    "programmersDay": {
-      "tooltip": "2¹⁰ = 1024 · 程式設計師節快樂，願你今天零 Bug",
-      "ariaLabel": "1024 程式設計師節快樂"
-    },
     "items": {
       "personalOverview": "首頁",
       "sessions": "會話",
