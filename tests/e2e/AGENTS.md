@@ -58,9 +58,10 @@ select a freshly linked artifact when a development instance locks the default e
 For pet/bubble main-window activation after opening an embedded browser, build
 Desktop and run `node tests/e2e/scripts/run-browser-window-activation.mjs`.
 It uses completed frontend assets and isolated storage to exercise native window
-activation, focus, tray hiding and geometry persistence with multiple browser
-children. The same binary/frontend snapshot overrides above are supported. This
-is native command coverage, not a pet-pointer or remote-session integration test.
+activation, focus, tray hiding, geometry persistence, main-view command routing
+and remote child-view ACL rejection with multiple browser children. The same
+binary/frontend snapshot overrides above are supported. This is native command
+coverage, not a pet-pointer or remote-session integration test.
 
 Markdown editor browser interaction tests (no desktop binary required):
 

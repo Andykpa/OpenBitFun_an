@@ -74,10 +74,11 @@ async function until(read, description, timeout = 45_000) {
   throw new Error('Timed out waiting for ' + description + ': ' + (last ?? 'not ready'));
 }
 const execute = (fn, ...args) => request('/session/' + session + '/execute/sync', { script: fn.toString(), args });
-const invoke = (command, args = {}) => execute(async (command, args) => {
+const invokeResult = (command, args = {}) => execute(async (command, args) => {
   try { return { ok: true, value: await window.__TAURI_INTERNALS__.invoke(command, args) }; }
   catch (error) { return { ok: false, error: String(error) }; }
-}, command, args).then(result => {
+}, command, args);
+const invoke = (command, args = {}) => invokeResult(command, args).then(result => {
   assert.equal(result.ok, true, command + ': ' + result.error);
   return result.value;
 });
@@ -115,6 +116,35 @@ try {
       .filter(view => view.window_label === 'main');
     assert.equal(children.length, index + 1, 'Activation must retain the main frontend and all browser children');
   }
+  const snapshot = await invoke('miniapp_presentation', { request: { operation: 'snapshot' } });
+  assert.ok(Array.isArray(snapshot.instances), 'The main frontend must still reach MiniApp presentation commands');
+  for (const command of ['frontend_update_candidate_ready', 'frontend_update_candidate_failed']) {
+    const result = await invokeResult(command, { request: { transactionId: 'missing-native-test', message: 'fixture' } });
+    assert.deepEqual(result, { ok: false, error: 'No frontend update is awaiting a decision' });
+  }
+  const dropResult = await invokeResult('resolve_browser_dropped_file_paths', { request: { token: 'invalid token', fileCount: 1 } });
+  assert.deepEqual(dropResult, { ok: false, error: 'Invalid browser drop token' });
+  const previewResult = await invokeResult('set_file_drop_preview_target', { request: { targetId: 'native-test', bounds: null } });
+  assert.deepEqual(previewResult, process.platform === 'win32'
+    ? { ok: true, value: null }
+    : { ok: false, error: 'Native file drag previews are only available on Windows' });
+  report.checks.push('main-WebView command extraction with browser children');
+  // Remote browser children must remain blocked by Tauri's origin ACL, even
+  // though their parent is the main window and the commands accept Webview.
+  await request('/session/' + session + '/window', { handle: 'embedded-browser-panel-view-activation-1' });
+  try {
+    await until(() => execute(() => !!window.__TAURI_INTERNALS__), 'browser child IPC');
+    const result = await invokeResult('miniapp_presentation', { request: { operation: 'snapshot' } });
+    assert.deepEqual(result, { ok: false, error: 'miniapp_presentation not allowed. Plugin not found' });
+    const capture = await invokeResult('miniapp_market_capture_window');
+    assert.deepEqual(capture, { ok: false, error: 'miniapp_market_capture_window not allowed. Plugin not found' });
+  } finally {
+    await request('/session/' + session + '/window', { handle: 'main' });
+  }
+  report.checks.push('remote browser children retain their origin ACL restrictions');
+  await invoke('debug_open_devtools');
+  await invoke('debug_close_devtools');
+  report.checks.push('main frontend DevTools with browser children');
   await invoke('minimize_to_tray');
   assert.equal(await windowCommand('is_visible'), false);
   await invoke('show_main_window');
