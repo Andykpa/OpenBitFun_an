@@ -822,7 +822,7 @@ pub async fn run() {
                     tauri::webview::PageLoadEvent::Finished => "finished",
                 };
                 let url = payload.url().to_string();
-                api::browser_api::update_browser_target_url(label, &url);
+                api::browser_api::update_browser_target_page_load(label, event, &url);
                 openbitfun_core::agentic::tools::browser_control::builtin_browser::publish_builtin_browser_page_load(
                     label,
                     event,

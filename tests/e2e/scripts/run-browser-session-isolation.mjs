@@ -48,8 +48,9 @@ const fixtureErrors = [];
 let fixtureUrl;
 function respondModel(res, marker, tool) {
   const [owner, action] = marker.split('_');
-  const input = { domain: 'browser', action: action === 'OPEN' ? 'navigate' : action === 'CLICK' ? 'click' : 'read_article',
-    params: action === 'OPEN' ? { target: 'builtin', url: `${fixtureUrl}/pages/${owner.toLowerCase()}`, observe: 'article' }
+  const input = { domain: 'browser', action: action === 'REOPEN' ? 'open_builtin' : action === 'OPEN' ? 'navigate' : action === 'CLICK' ? 'click' : 'read_article',
+    params: action === 'REOPEN' ? { url: `${fixtureUrl}/pages/${owner.toLowerCase()}?replacement=1`, replace_existing: true, observe: 'article' }
+      : action === 'OPEN' ? { target: 'builtin', url: `${fixtureUrl}/pages/${owner.toLowerCase()}`, observe: 'article' }
       : action === 'CLICK' ? { selector: '#next' } : {} };
   const events = [
     { type: 'message_start', message: { id: marker, type: 'message', role: 'assistant', model: 'browser-fixture', usage: { input_tokens: 10, output_tokens: 0 } } },
@@ -70,8 +71,10 @@ const fixture = createHttpServer(async (req, res) => {
     const url = new URL(req.url, fixtureUrl);
     if (url.pathname.startsWith('/pages/')) {
       const owner = url.pathname.endsWith('/a') ? 'A' : 'B';
+      const replacement = url.searchParams.has('replacement');
+      if (replacement) await new Promise(resolve => setTimeout(resolve, 500));
       res.writeHead(200, { 'content-type': 'text/html' });
-      res.end(`<!doctype html><title>Browser ${owner}</title><main><h1>SESSION_${owner}_PAGE</h1><p>${('Session ' + owner + ' content. ').repeat(100)}</p><input id="draft" value="initial"><a id="next" target="_blank" href="?step=2">Next</a><script>window.pageInstance=Math.random();window.ticks=0;setInterval(()=>window.ticks++,100);</script></main>`);
+      res.end(`<!doctype html><title>Browser ${owner}</title><main><h1>SESSION_${owner}_PAGE</h1>${replacement ? '<p>REPLACEMENT_DOCUMENT</p>' : ''}<p>${('Session ' + owner + ' content. ').repeat(100)}</p><input id="draft" value="initial"><a id="next" target="_blank" href="?step=2">Next</a><script>window.pageInstance=Math.random();window.ticks=0;setInterval(()=>window.ticks++,100);</script></main>`);
       return;
     }
     const chunks = [];
@@ -80,7 +83,7 @@ const fixture = createHttpServer(async (req, res) => {
     const messages = body.messages ?? [];
     const markers = messages.filter(message => message.role === 'user').flatMap(message => {
       const text = typeof message.content === 'string' ? message.content : (message.content ?? []).filter(block => block.type === 'text').map(block => block.text).join('\n');
-      return [...text.matchAll(/BROWSER_([AB]_(?:OPEN|READ|CLICK))/g)].map(match => match[1]);
+      return [...text.matchAll(/BROWSER_([AB]_(?:OPEN|READ|CLICK|REOPEN))/g)].map(match => match[1]);
     });
     const marker = markers.at(-1);
     if (!marker) return respondModel(res, 'A_AUX', false);
@@ -257,6 +260,12 @@ try {
   assert.equal(await selected(b), true);
   assert.equal(await execute(() => document.querySelectorAll('[data-testid=browser-panel]').length), 0);
   report.checks.push('A follows a new-window link in its own hidden page before ever mounting a panel');
+  await turn(a, 'A_REOPEN', opened.id);
+  await completed('A_REOPEN');
+  assert.ok(JSON.stringify(toolResults.get('A_REOPEN')).includes('REPLACEMENT_DOCUMENT'),
+    'A replacement read must observe the new document rather than the previous completed page');
+  assert.equal((await tool('list_pages', { target: 'builtin' })).pages[0].id, aPage);
+  report.checks.push('Replacing a hidden page waits for the new document and retains its native identity');
   const before = await pageState(aPage);
   assert.equal(before.visibility, 'hidden');
   report.checks.push('A opens and reads its native page in the background while B remains selected');

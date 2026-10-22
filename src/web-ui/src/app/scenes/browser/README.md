@@ -8,6 +8,9 @@ Tool discovery and attachment filter by conversation, including explicit page ID
 legacy callers without a conversation retain their unscoped contract.
 The shared new-window link interceptor runs at native document initialization, so
 background navigation has the same behavior before a panel has ever mounted.
+Replacement navigation gates tool evaluation on the next native load lifecycle,
+so a slow response cannot expose the previous completed document as the new page.
+Fragment-only transitions keep their existing document and do not await a load.
 
 The frontend commits each open event directly to that session's canvas snapshot
 without activating the session or touching another session's selected tab. Browser
@@ -97,6 +100,7 @@ node tests/e2e/scripts/run-browser-session-isolation.mjs
 ```
 
 This isolated runner scripts only the model HTTP response. Real Agent tool calls,
-native pages and production session controls exercise background opening, concurrent
-reads, repeated session switches, retained document/input state, and native visibility.
+native pages and production session controls exercise background opening, delayed
+replacement, concurrent reads, repeated session switches, retained document/input
+state, and native visibility.
 It does not establish remote-host or cross-platform behavior.

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use tauri::Manager;
+use tokio::sync::watch;
 
 const VIDEO_DECODER_MODE_ENV: &str = "OPENBITFUN_BROWSER_VIDEO_DECODER_MODE";
 
@@ -124,6 +125,32 @@ struct BrowserTargetRecord {
     title: Option<String>,
     open_request_id: Option<String>,
     conversation_id: Option<String>,
+    navigation: Option<BrowserNavigation>,
+}
+
+#[derive(Clone, Debug)]
+struct BrowserNavigation {
+    started: bool,
+    completed: watch::Sender<bool>,
+}
+
+impl BrowserNavigation {
+    fn new() -> Self {
+        Self {
+            started: false,
+            completed: watch::channel(false).0,
+        }
+    }
+
+    fn page_load(&mut self, event: &str) {
+        if event == "started" {
+            self.started = true;
+        } else if event == "finished" && self.started {
+            // Redirects may finish at a different URL. A finish from the old
+            // document before this navigation starts must not release readers.
+            self.completed.send_replace(true);
+        }
+    }
 }
 
 #[derive(Default)]
@@ -188,14 +215,39 @@ fn associate_browser_open_request(label: &str, open_request_id: Option<&str>) {
     }
 }
 
-pub(crate) fn update_browser_target_url(label: &str, url: &str) {
+pub(crate) fn update_browser_target_page_load(label: &str, event: &str, url: &str) {
     if let Some(record) = lock_browser_targets().records.get_mut(label) {
         record.url = url.to_string();
         // A navigation invalidates the cached document title. The async
         // automation host refreshes it from the page before target discovery
         // is returned to ControlHub.
         record.title = None;
+        if let Some(navigation) = &mut record.navigation {
+            navigation.page_load(event);
+        }
     }
+}
+
+/// Native navigation can leave the previous completed document readable while
+/// the replacement response is in flight. Do not expose that document to tools.
+pub(crate) async fn wait_for_browser_navigation(label: &str) -> Result<(), String> {
+    let pending = lock_browser_targets()
+        .records
+        .get(label)
+        .and_then(|record| record.navigation.as_ref())
+        .map(|navigation| navigation.completed.subscribe());
+    if let Some(mut pending) = pending {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            pending.wait_for(|done| *done),
+        )
+        .await
+        .map_err(|_| {
+            format!("Navigation on {label} is still loading; wait before reading this page")
+        })?
+        .map_err(|_| format!("Navigation on {label} was superseded or its page was closed"))?;
+    }
+    Ok(())
 }
 
 pub(crate) fn update_browser_target_metadata(label: &str, url: &str, title: &str) {
@@ -210,13 +262,16 @@ pub(crate) fn unregister_browser_target(label: &str) {
 }
 
 pub(crate) fn list_browser_targets(app: &tauri::AppHandle) -> Vec<BuiltInBrowserTarget> {
-    let views = app.webviews();
-    let records = {
+    let (records, views) = {
         let mut registry = lock_browser_targets();
+        // This only snapshots local handles; it performs no native UI calls.
+        // Take it while registration is excluded, so a newly registered page
+        // cannot be pruned against an older handle snapshot.
+        let views = app.webviews();
         registry
             .records
             .retain(|label, _| views.contains_key(label));
-        registry.records.clone()
+        (registry.records.clone(), views)
     };
     // Native URL reads may dispatch to the UI thread. Page-load callbacks on
     // that thread update this registry, so never hold its mutex across native IO.
@@ -409,9 +464,21 @@ pub async fn browser_webview_navigate(
         scheme => return Err(format!("unsupported protocol: {scheme}")),
     }
 
-    find_browser_webview(&app, &request.label)?
-        .navigate(url)
-        .map_err(|e| format!("navigate failed: {e}"))?;
+    let webview = find_browser_webview(&app, &request.label)?;
+    let same_document = webview.url().ok().is_some_and(|mut current| {
+        let fragment_changed = current.fragment() != url.fragment();
+        current.set_fragment(url.fragment());
+        fragment_changed && current == url
+    });
+    if let Some(record) = lock_browser_targets().records.get_mut(&request.label) {
+        record.navigation = (!same_document).then(BrowserNavigation::new);
+    }
+    if let Err(error) = webview.navigate(url) {
+        if let Some(record) = lock_browser_targets().records.get_mut(&request.label) {
+            record.navigation = None;
+        }
+        return Err(format!("navigate failed: {error}"));
+    }
     // A failed URL parse or native navigation must never acknowledge an open
     // request merely because an older target is already active.
     associate_browser_open_request(&request.label, request.open_request_id.as_deref());
@@ -534,6 +601,17 @@ pub async fn browser_get_url(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replacement_navigation_does_not_accept_the_previous_document_finish() {
+        let mut navigation = BrowserNavigation::new();
+        navigation.page_load("finished");
+        assert!(!*navigation.completed.borrow());
+        navigation.page_load("started");
+        navigation.page_load("started"); // A redirect or a superseding navigation.
+        navigation.page_load("finished");
+        assert!(*navigation.completed.borrow());
+    }
 
     #[tokio::test]
     async fn presentation_cannot_overwrite_a_session_hosts_newer_open_request() {

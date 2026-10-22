@@ -1,6 +1,6 @@
 //! Desktop adapter for the built-in browser automation host port.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -11,7 +11,7 @@ use openbitfun_core::agentic::tools::browser_control::builtin_browser::{
 };
 use openbitfun_core::infrastructure::events::{emit_global_event, BackendEvent};
 use serde_json::{json, Value};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tokio::sync::{Mutex, RwLock};
 
 use crate::api::browser_api;
@@ -42,14 +42,15 @@ impl DesktopBuiltInBrowserHost {
         if let Some(driver) = self.drivers.read().await.get(target_id).cloned() {
             return Ok(driver);
         }
+        let mut drivers = self.drivers.write().await;
+        if let Some(driver) = drivers.get(target_id).cloned() {
+            return Ok(driver);
+        }
         let driver = Arc::new(
             openbitfun_webdriver::EmbeddedWebviewAutomation::attach(self.app.clone(), target_id)
                 .await?,
         );
-        self.drivers
-            .write()
-            .await
-            .insert(target_id.to_string(), driver.clone());
+        drivers.insert(target_id.to_string(), driver.clone());
         Ok(driver)
     }
     async fn discover_targets(
@@ -57,15 +58,13 @@ impl DesktopBuiltInBrowserHost {
         conversation_id: Option<&str>,
     ) -> Result<Vec<BuiltInBrowserTarget>, String> {
         let mut targets = browser_api::list_browser_targets(&self.app);
-        let live_ids = targets
-            .iter()
-            .map(|target| target.id.clone())
-            .collect::<HashSet<_>>();
         let stale_drivers = {
             let mut drivers = self.drivers.write().await;
             let stale_ids = drivers
                 .keys()
-                .filter(|target_id| !live_ids.contains(*target_id))
+                // A driver may have attached after the inventory snapshot.
+                // Check current handles before dropping its automation session.
+                .filter(|target_id| self.app.get_webview(target_id).is_none())
                 .cloned()
                 .collect::<Vec<_>>();
             stale_ids
@@ -203,6 +202,9 @@ impl BuiltInBrowserHost for DesktopBuiltInBrowserHost {
     }
 
     async fn execute(&self, command: BuiltInBrowserCommand) -> Result<Value, String> {
+        if command.method == "Runtime.evaluate" {
+            browser_api::wait_for_browser_navigation(&command.target_id).await?;
+        }
         let driver = self.driver(&command.target_id).await?;
         let result = driver.execute(&command.method, command.params).await;
         if command.method == "Page.close" && result.is_ok() {
