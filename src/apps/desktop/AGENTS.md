@@ -286,6 +286,17 @@ release builds always use the packaged protocol.
 For alternate dev-server ports and preview startup URL changes, run
 `node --test scripts/dev-startup.test.mjs` and
 `cargo test -p openbitfun-desktop --no-default-features --lib appearance::development_frontend_tests`.
+For launcher-only development storage mode changes, run
+`node --test scripts/dev-startup.test.mjs`; no native app launch is required.
+By default (or with `--isolated-data`), both desktop development launchers set `OPENBITFUN_USER_ROOT` and
+`OPENBITFUN_HOME` before spawning children, defaulting to the checkout-local
+`.openbitfun/desktop-dev/{user,home}` directories. `--shared-data` leaves storage
+selection to the app; the two flags are mutually exclusive. Preserve explicit
+overrides and the legacy E2E aliases in both modes. Development launchers set
+`OPENBITFUN_DESKTOP_HOST_CHANNEL=development`: its MiniApp lease, discovery and
+launch records are separate even when product storage is shared. Keep per-session
+writer and scheduler leases intact. See the MiniApp presentation guide for the
+native host-channel and launch-record compatibility checks.
 `OPENBITFUN_DEV_PORT` selects the HTTP port; `OPENBITFUN_DEV_HMR_PORT` defaults
 to the previous port. Desktop and Vite must use the same values. Development
 launchers reuse the locked Sherpa library/archive cache across Git worktrees,
