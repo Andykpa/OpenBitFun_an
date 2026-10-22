@@ -243,6 +243,31 @@ impl WorkspaceStdio {
         })
     }
 
+    /// Rewrite the stderr stream of an already spawned workspace process.
+    ///
+    /// Targets that interleave transport-level noise into the command's stderr
+    /// use this to hand consumers clean diagnostics without changing stdin,
+    /// stdout, or process lifetime.
+    pub(crate) fn map_stderr(
+        self,
+        filter: impl FnOnce(WorkspaceReader) -> WorkspaceReader,
+    ) -> Self {
+        let Self {
+            stdin,
+            stdout,
+            stderr,
+            control,
+            completion,
+        } = self;
+        Self {
+            stdin,
+            stdout,
+            stderr: filter(stderr),
+            control,
+            completion,
+        }
+    }
+
     pub fn into_parts(
         self,
     ) -> (
