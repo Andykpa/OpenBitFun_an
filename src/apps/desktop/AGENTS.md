@@ -44,6 +44,13 @@ product wiring and compatibility bridges in `src/crates/assembly/core`.
 - Keep desktop-only integrations here; do not move them into shared core
 - Window lifecycle behavior, including close/minimize-to-tray defaults, is a
   desktop surface concern. Preserve saved user preferences when changing it.
+- Main-window lifecycle and geometry use `get_window("main")`. Embedded browser
+  child WebViews make `get_webview_window("main")` return `None` even while the
+  native window exists; use `get_webview("main")` for the frontend view itself.
+  Main-frontend commands accept `tauri::Webview` and validate its own label before
+  accessing `webview.window()`; accepting only the parent window would let a
+  browser child pass a main-window label check. `WebviewWindow` command extraction
+  also fails once the main host has browser children.
 - `window_state_support` owns main-window geometry validation and atomic
   persistence in the legacy `.window-state.json` format. Do not reinstall the
   window-state plugin alongside it: the plugin's exit cache can overwrite repairs.
@@ -236,6 +243,13 @@ For peer system-info response compatibility, run
 `cargo test -p openbitfun-desktop --lib system_info_home_contract`.
 For window geometry recovery, legacy state compatibility, and snapshot persistence,
 run `cargo test -p openbitfun-desktop --lib window_state_support::tests`.
+For main-window activation with embedded browsers, build Desktop and run
+`node tests/e2e/scripts/run-browser-window-activation.mjs` with completed frontend
+assets. It checks the native command shared by pet/bubble clicks with zero, one
+and two browser children, hide/show, minimize/restore, focus and state persistence
+in an isolated profile. It also checks main-view command extraction, remote
+child-view ACL rejection and DevTools. It does not exercise remote hosts or pet
+pointer events.
 For macOS close-to-hide fullscreen sequencing, run
 `cargo check --locked -p openbitfun-desktop` and
 `node scripts/test-macos-window-close.mjs` on a graphical macOS session.

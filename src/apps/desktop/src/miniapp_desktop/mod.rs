@@ -333,10 +333,10 @@ async fn open_window(
 
 pub(crate) async fn miniapp_presentation(
     app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
+    webview: tauri::Webview,
     request: PresentationRequest,
 ) -> Result<Value, String> {
-    if window.label() != "main" {
+    if webview.label() != "main" {
         return Err("MiniApp presentation requires the main product surface".into());
     }
     presentation(&app, request).await
@@ -919,7 +919,7 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<(), String> {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(10)).await;
             let state = handle.state::<DesktopMiniApps>();
-            if handle.get_webview_window("main").is_some() {
+            if handle.get_webview("main").is_some() {
                 state.instances.renew_committed_views(MiniAppViewKind::Tab);
             }
             {

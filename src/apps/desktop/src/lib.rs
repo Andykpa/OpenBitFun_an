@@ -238,7 +238,7 @@ async fn hide_main_window_on_macos(
 fn show_main_window_on_macos(app: &tauri::AppHandle, reason: &str) {
     cancel_main_window_close_request_on_macos(app);
 
-    let Some(main_window) = app.get_webview_window("main") else {
+    let Some(main_window) = app.get_window("main") else {
         handle_secondary_launch(app);
         return;
     };
@@ -283,7 +283,7 @@ fn show_main_window_for_secondary_launch(
     app: &tauri::AppHandle,
     attempt: &str,
 ) -> Result<(), String> {
-    if app.get_webview_window("main").is_none() {
+    if app.get_window("main").is_none() {
         #[cfg(target_os = "macos")]
         let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
         let trace = app.state::<DesktopStartupTrace>();
@@ -298,7 +298,7 @@ fn show_main_window_for_secondary_launch(
             ),
         );
     }
-    let Some(main_window) = app.get_webview_window("main") else {
+    let Some(main_window) = app.get_window("main") else {
         return Err("main window not found".to_string());
     };
 
@@ -2082,7 +2082,7 @@ pub async fn run() {
             app.run(|app_handle, event| match event {
                 tauri::RunEvent::ExitRequested { api, code, .. } => {
                     if code.is_none()
-                        && (app_handle.get_webview_window("main").is_none()
+                        && (app_handle.get_window("main").is_none()
                             || app_handle
                                 .state::<miniapp_desktop::DesktopMiniApps>()
                                 .instances
