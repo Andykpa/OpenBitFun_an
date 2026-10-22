@@ -27,6 +27,7 @@ import {
   clampAnchorSize,
 } from '../types';
 import { normalizePath } from '@/shared/utils/pathUtils';
+import { workbenchPaneLayoutStore } from '@/app/workbench/workbenchPaneLayoutStore';
 
 // ==================== Store State Types ====================
 
@@ -1275,13 +1276,19 @@ function applyEmptyAgentCanvas(scopeKey?: string): void {
   });
 }
 
-/** Clear agent canvas snapshots when entering/exiting Peer Device Mode. */
+/**
+ * Clear agent canvas snapshots when entering/exiting Peer Device Mode.
+ *
+ * The pane open state is remembered per session, so it is dropped with the
+ * content: keeping it would restore a visible pane over a cleared canvas.
+ */
 export function clearAgentCanvasForPeerSwitch(): void {
   agentScopeSnapshots.clear();
   agentSnapshotLruOrder.length = 0;
   applyEmptyAgentCanvas();
   useGitCanvasStore.getState().reset();
   useBottomTerminalCanvasStore.getState().reset();
+  workbenchPaneLayoutStore.getState().resetSessionMemory();
 }
 
 /**
