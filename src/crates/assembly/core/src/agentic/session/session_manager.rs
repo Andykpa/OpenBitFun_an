@@ -7964,6 +7964,7 @@ impl SessionManager {
                             first_chunk_ms: None,
                             first_visible_output_ms: None,
                             stream_duration_ms: None,
+                            ttft_ms: None,
                             attempt_count: None,
                             attempt_diagnostics: vec![],
                             failure_category: None,
@@ -8465,6 +8466,7 @@ impl SessionManager {
                     first_chunk_ms: None,
                     first_visible_output_ms: None,
                     stream_duration_ms: None,
+                    ttft_ms: None,
                     attempt_count: None,
                     attempt_diagnostics: vec![],
                     failure_category: None,
@@ -8611,6 +8613,7 @@ impl SessionManager {
                 round.first_chunk_ms = existing.first_chunk_ms;
                 round.first_visible_output_ms = existing.first_visible_output_ms;
                 round.stream_duration_ms = existing.stream_duration_ms;
+                round.ttft_ms = existing.ttft_ms;
                 round.attempt_count = existing.attempt_count;
                 round.attempt_diagnostics = existing.attempt_diagnostics.clone();
                 round.failure_category = existing.failure_category.clone();
@@ -8718,6 +8721,7 @@ impl SessionManager {
                 first_chunk_ms: None,
                 first_visible_output_ms: None,
                 stream_duration_ms: None,
+                ttft_ms: None,
                 attempt_count: None,
                 attempt_diagnostics: vec![],
                 failure_category: None,
@@ -17038,6 +17042,7 @@ mod tests {
             first_chunk_ms: None,
             first_visible_output_ms: None,
             stream_duration_ms: None,
+            ttft_ms: None,
             attempt_count: None,
             attempt_diagnostics: vec![],
             failure_category: None,
