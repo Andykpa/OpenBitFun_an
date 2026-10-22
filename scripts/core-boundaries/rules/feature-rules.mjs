@@ -622,6 +622,8 @@ export const capabilityContractDependencyRules = [
       'native-hook-runtime': [
         'native-hook-settings',
         'dep:async-trait',
+        // Unix only: signal the hook process group on timeout.
+        'dep:libc',
         'dep:log',
         'dep:serde',
         'dep:serde_json',
