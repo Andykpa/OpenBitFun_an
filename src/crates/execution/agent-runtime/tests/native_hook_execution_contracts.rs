@@ -770,3 +770,93 @@ mod skill_hooks {
             .is_none());
     }
 }
+
+/// A timed-out handler must stop the processes it started, not just the shell.
+///
+/// The handler here starts an inner shell that records its pid and sleeps. The
+/// outer `wait` keeps the handler alive past its timeout; the inner shell is a
+/// descendant in the handler's process group. If only the direct child were
+/// killed, the recorded pid would survive as an orphan.
+#[tokio::test]
+async fn timeout_kills_descendants_of_the_handler() {
+    let directory = std::env::temp_dir().join(format!(
+        "openbitfun-hook-tree-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock after epoch")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&directory).expect("create hook fixture directory");
+    let pid_file = directory.join("descendant.pid");
+
+    let command = format!(
+        "sh -c 'echo $$ > {pid_file}; sleep 30' & wait",
+        pid_file = pid_file.display()
+    );
+    let hooks = json!({
+        "hooks": {
+            "PreToolUse": [{
+                "hooks": [{"type": "command", "command": command, "timeout": 1}]
+            }]
+        }
+    })
+    .to_string();
+
+    let outcome = dispatch(&engine(&hooks), &pre_tool_use_payload("Bash")).await;
+
+    assert_eq!(outcome.warnings.len(), 1, "{:?}", outcome.warnings);
+    assert!(
+        outcome.warnings[0].contains("timed out"),
+        "{:?}",
+        outcome.warnings
+    );
+
+    let pid = wait_for_descendant_pid(&pid_file);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if !hook_fixture_process_is_alive(pid) {
+            let _ = std::fs::remove_dir_all(&directory);
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
+    panic!("hook descendant {pid} survived the handler timeout");
+}
+
+fn wait_for_descendant_pid(pid_file: &std::path::Path) -> i32 {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if let Ok(text) = std::fs::read_to_string(pid_file) {
+            if let Ok(pid) = text.trim().parse::<i32>() {
+                return pid;
+            }
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "handler descendant never recorded its pid"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn hook_fixture_process_is_alive(pid: i32) -> bool {
+    // A killed descendant can linger as a zombie until its reaper runs, so the
+    // process state matters more than mere entry presence.
+    let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+        return false;
+    };
+    let state = stat
+        .rsplit_once(')')
+        .and_then(|(_, rest)| rest.split_whitespace().next());
+    !matches!(state, Some("Z") | Some("X"))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn hook_fixture_process_is_alive(pid: i32) -> bool {
+    // SAFETY: signal 0 only probes whether the pid still exists.
+    unsafe { libc::kill(pid, 0) == 0 }
+}

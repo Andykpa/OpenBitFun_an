@@ -5945,6 +5945,7 @@ dependencies = [
  "async-trait",
  "dashmap",
  "hex",
+ "libc",
  "log",
  "openbitfun-agent-stream",
  "openbitfun-agent-tools",
