@@ -121,6 +121,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogHeaderActions,
   DialogHeading,
   DialogTitle,
   Disclosure,
@@ -4186,7 +4187,7 @@ const ModelSettingsPage: React.FC = () => {
       );
     };
     return (
-      <>
+      <div className="openbitfun-model-settings__subscription-content">
         {subscriptionLoadError && (
           <ConfigRetryState message={t('acquisition.loadFailed')} retryLabel={t('messages.retry')}
             loading={isLoadingSubscriptions} onRetry={() => void refreshSubscriptionAccounts()} />
@@ -4233,16 +4234,19 @@ const ModelSettingsPage: React.FC = () => {
             <SubscriptionServiceGroup key={group[0].provider} title={`${subscriptionName(group[0])}${managed.some(item => item.account.provider === group[0].provider)
               ? ` · ${t('subscriptionAuth.accountsCount', { count: managed.filter(item => item.account.provider === group[0].provider).length })}` : ''}`}
               description={t(`subscriptionAuth.details.${group[0].provider}`)}
-              busy={!!loggingInProvider || isLoadingSubscriptions || !!subscriptionLoadError}
-              action={isRetiredSubscriptionProvider(group[0].provider) ? undefined
-                : t(managed.some(item => item.account.provider === group[0].provider) && canEditAccountPools ? 'subscriptionAuth.pool.addAccount' : 'subscriptionAuth.login')}
-              onAdd={isRetiredSubscriptionProvider(group[0].provider) ? undefined : () => startAccount(group[0].provider)}>
+              actions={isRetiredSubscriptionProvider(group[0].provider) ? undefined : (
+                <Button size="sm" variant="outline"
+                  disabled={!!loggingInProvider || isLoadingSubscriptions || !!subscriptionLoadError}
+                  onClick={() => startAccount(group[0].provider)}>
+                  {t(managed.some(item => item.account.provider === group[0].provider) && canEditAccountPools ? 'subscriptionAuth.pool.addAccount' : 'subscriptionAuth.login')}
+                </Button>
+              )}>
               <SubscriptionAccountList accounts={managed.filter(item => item.account.provider === group[0].provider)}
                 renderAccount={item => renderAccount(item.account, false, item.accountId, item.enabled)} />
             </SubscriptionServiceGroup>
           ))}
         </div>
-      </>
+      </div>
     );
   };
 
@@ -4870,15 +4874,23 @@ const ModelSettingsPage: React.FC = () => {
       </ConfigPageContent>
 
       <Dialog open={showSubscriptionManager}
+        className="openbitfun-model-settings__subscription-dialog"
         onOpenChange={open => { if (!open && !loggingInProvider) setShowSubscriptionManager(false); }} size="xl">
         <DialogHeader>
-          <DialogHeading><DialogTitle>{t('acquisition.importTitle')}</DialogTitle></DialogHeading>
-          <IconButton size="sm" aria-label={t('subscriptionAuth.rescan')}
-            onClick={() => void refreshSubscriptionAccounts(true)} disabled={isLoadingSubscriptions}
-            icon={<Icon name="refresh" size="sm" />} />
-          <DialogClose disabled={!!loggingInProvider} />
+          <DialogHeading>
+            <DialogTitle>{t('acquisition.importTitle')}</DialogTitle>
+            <DialogDescription>{t('subscriptionAuth.sectionDescription')}</DialogDescription>
+          </DialogHeading>
+          <DialogHeaderActions>
+            <Tooltip content={t('subscriptionAuth.rescan')}>
+              <IconButton size="sm" aria-label={t('subscriptionAuth.rescan')}
+                onClick={() => void refreshSubscriptionAccounts(true)} disabled={isLoadingSubscriptions}
+                icon={<Icon name="refresh" size="sm" />} />
+            </Tooltip>
+            <DialogClose disabled={!!loggingInProvider} />
+          </DialogHeaderActions>
         </DialogHeader>
-        <DialogBody inset="none">
+        <DialogBody>
           {renderSubscriptionManagerContent()}
         </DialogBody>
       </Dialog>
