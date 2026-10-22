@@ -753,6 +753,8 @@ export interface ModelRoundCompletedEvent extends AgenticEvent {
   firstChunkMs?: number;
   firstVisibleOutputMs?: number;
   streamDurationMs?: number;
+  /** Request start to first effective output for the accepted model attempt. */
+  ttftMs?: number;
   attemptCount?: number;
   failureCategory?: string;
   tokenDetails?: unknown;
