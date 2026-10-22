@@ -2390,10 +2390,29 @@
 }
 
 .openbitfun-model-settings {
+  &__subscription-dialog {
+    max-block-size: min(
+      640px,
+      calc(100dvh - 2 * var(--openbitfun-overlay-dialog-viewport-gutter))
+    );
+  }
+
+  &__subscription-content {
+    container: config-panel / inline-size;
+    display: grid;
+    gap: var(--openbitfun-space-4);
+    min-inline-size: 0;
+  }
+
   &__cli-discovery {
     display: flex;
     flex-direction: column;
-    gap: var(--openbitfun-space-1);
+    gap: var(--openbitfun-space-3);
+    min-inline-size: 0;
+  }
+
+  &__cli-discovery [data-openbitfun-part='subscriptionQuota'] {
+    margin-inline: var(--openbitfun-layout-card-padding-md);
   }
 
   &__cli-empty {
@@ -2409,6 +2428,8 @@
 
   &__cli-account.openbitfun-config-page-row {
     grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--openbitfun-space-4);
+    padding: var(--openbitfun-layout-card-padding-md);
   }
 
   &__cli-description-line {
@@ -2431,14 +2452,15 @@
   &__subscription-login-panel {
     display: grid;
     gap: var(--openbitfun-space-3);
-    margin: 0 var(--openbitfun-space-3) var(--openbitfun-space-2);
+    margin: 0 var(--openbitfun-layout-card-padding-md) var(--openbitfun-layout-card-padding-md);
     padding: var(--openbitfun-space-3);
-    border: 1px solid var(--openbitfun-color-action-secondary-hover);
+    border: 1px solid var(--openbitfun-color-status-info-border);
     border-radius: var(--openbitfun-radius-base);
-    background: color-mix(in srgb, var(--openbitfun-color-content-on-dark) 4%, transparent);
+    background: var(--openbitfun-color-status-info-surface);
 
     &--failed {
-      border-color: var(--openbitfun-color-status-danger-emphasis);
+      border-color: var(--openbitfun-color-status-danger-border);
+      background: var(--openbitfun-color-status-danger-surface);
     }
   }
 

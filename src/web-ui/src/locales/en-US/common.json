@@ -1294,7 +1294,7 @@
     "latestVersion": "Latest",
     "releaseNotes": "Release notes",
     "later": "Later",
-    "skipVersion": "Skip this version",
+    "skipVersion": "Skip",
     "cancel": "Cancel",
     "install": "Download and install",
     "backgroundInstall": "Download in background",
@@ -1328,7 +1328,7 @@
       "installMetadata": "The downloaded package is saved. Connect to the internet and retry installation."
     },
     "availableVersion": "Version {{version}} is available",
-    "downloadUpdate": "Download update",
+    "downloadUpdate": "Update",
     "releaseTitle": "{{name}} v{{version}}",
     "openReleaseNotes": "{{title}} — release notes",
     "noticeReady": "Update downloaded",
