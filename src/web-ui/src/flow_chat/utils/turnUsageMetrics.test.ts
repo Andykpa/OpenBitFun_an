@@ -76,6 +76,14 @@ describe('getTurnOutputDurationMs', () => {
     ])).toBe(9_000);
   });
 
+  it('excludes controller setup rows while requiring every actual model call to be timed', () => {
+    const setup = round({ index: -1 });
+    const timed = round({ streamDurationMs: 5_000, firstVisibleOutputMs: 1_000 });
+    expect(getTurnOutputDurationMs([setup, timed])).toBe(4_000);
+    expect(getTurnOutputDurationMs([setup])).toBeUndefined();
+    expect(getTurnOutputDurationMs([setup, round({}), timed])).toBeUndefined();
+  });
+
   it('accepts zero first-output latency without substituting a later mark', () => {
     expect(getTurnOutputDurationMs([round({ streamDurationMs: 2_000, firstChunkMs: 0, firstVisibleOutputMs: 0 })])).toBe(2_000);
   });
@@ -107,6 +115,14 @@ describe('getTurnTtftMs', () => {
   it('uses request-level TTFT from the first model call, including a reported zero', () => {
     expect(getTurnTtftMs([round({ ttftMs: 1_500 }), round({ ttftMs: 4_000 })])).toBe(1_500);
     expect(getTurnTtftMs([round({ ttftMs: 0 })])).toBe(0);
+  });
+
+  it('excludes controller setup rows without skipping an untimed model call', () => {
+    const setup = round({ index: -1 });
+    const timed = round({ ttftMs: 1_500 });
+    expect(getTurnTtftMs([setup, timed])).toBe(1_500);
+    expect(getTurnTtftMs([setup])).toBeUndefined();
+    expect(getTurnTtftMs([setup, round({}), timed])).toBeUndefined();
   });
 
   it('does not substitute a later call or stream-only timing for missing request timing', () => {

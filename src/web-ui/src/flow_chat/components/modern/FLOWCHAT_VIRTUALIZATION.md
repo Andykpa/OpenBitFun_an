@@ -102,8 +102,10 @@ latency do not affect it. The speed levels use output tokens divided by the sum
 of each call's first-effective-output-to-stream-end time, with thresholds at 15,
 40 and 80 tokens/s disclosed in the Tooltip. HTTP setup, TTFT, tool execution and
 post-stream usage persistence are excluded. Missing or inconsistent timing in
-any round, or retries whose earlier attempt timing is unavailable, omit speed
-rather than substituting turn wall time. Legacy records omit unknown TTFT;
+any model call, or retries whose earlier attempt timing is unavailable, omit speed
+rather than substituting turn wall time. Negative-index controller setup/audit
+rows are presentation only and do not participate in either metric.
+Legacy records omit unknown TTFT;
 reported zero remains valid. Timing survives the normal history save/load path. Total usage and the cache ring form one unit,
 hidden only when both values are missing. If usage is known but the cache ratio
 is unknown, a neutral dashed ring remains; cache-only data adds no total placeholder.

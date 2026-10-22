@@ -38,6 +38,8 @@ export function getTurnOutputDurationMs(rounds?: readonly ModelRound[]): number 
   if (!rounds?.length) return undefined;
   let totalMs = 0;
   for (const round of rounds) {
+    // Negative indexes are controller setup/audit rows, not model calls.
+    if (round.index < 0) continue;
     const durationMs = roundOutputDurationMs(round);
     if (durationMs === undefined) return undefined;
     totalMs += durationMs;
@@ -47,7 +49,7 @@ export function getTurnOutputDurationMs(rounds?: readonly ModelRound[]): number 
 
 /** TTFT of the turn's first model call; later tool-driven calls are not added. */
 export function getTurnTtftMs(rounds?: readonly ModelRound[]): number | undefined {
-  const ttftMs = rounds?.[0]?.ttftMs;
+  const ttftMs = rounds?.find(round => !(round.index < 0))?.ttftMs;
   return isCount(ttftMs) ? ttftMs : undefined;
 }
 
