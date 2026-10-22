@@ -25,8 +25,10 @@ provider-neutral contracts owned by `openbitfun-agent-stream`.
   adapter tests and downstream usage expectations.
 - OpenAI Chat Completions streams request `stream_options.include_usage` by
   default, preserving explicit custom-body `false`/`null` overrides. Only an
-  HTTP 400/422 explicitly rejecting `include_usage` or `stream_options` may
-  trigger one compatibility resend without the rejected option. Keep other
+  HTTP error explicitly rejecting `include_usage` or `stream_options` may
+  trigger one compatibility resend without the rejected option. Use the error
+  body as evidence across 4xx/5xx statuses, not just 400/422; preserve dedicated
+  authentication and rate-limit handling. Keep other
   request content, authorization checks, and attempt traces intact. Never
   replay an accepted stream to recover usage, or invent usage when the
   provider omits it. This negotiation is per call, with no persisted provider

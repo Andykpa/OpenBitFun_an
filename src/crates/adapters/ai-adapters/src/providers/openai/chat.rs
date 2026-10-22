@@ -124,10 +124,18 @@ fn without_rejected_usage_option(
     error_text: &str,
     request_body: &Value,
 ) -> Option<Value> {
-    if !matches!(
-        status,
-        StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY
-    ) || request_body.get("stream") != Some(&Value::Bool(true))
+    // Compatible gateways may wrap validation failures in other 4xx/5xx
+    // statuses. Require explicit parameter-rejection evidence below instead
+    // of assuming only 400/422, while preserving auth and rate-limit handling.
+    if !(status.is_client_error() || status.is_server_error())
+        || matches!(
+            status,
+            StatusCode::UNAUTHORIZED
+                | StatusCode::FORBIDDEN
+                | StatusCode::PROXY_AUTHENTICATION_REQUIRED
+                | StatusCode::TOO_MANY_REQUESTS
+        )
+        || request_body.get("stream") != Some(&Value::Bool(true))
         || request_body.pointer("/stream_options/include_usage") != Some(&Value::Bool(true))
     {
         return None;
@@ -562,11 +570,12 @@ mod tests {
             );
         }
         for status in [
+            StatusCode::OK,
+            StatusCode::FOUND,
             StatusCode::UNAUTHORIZED,
             StatusCode::FORBIDDEN,
-            StatusCode::NOT_FOUND,
+            StatusCode::PROXY_AUTHENTICATION_REQUIRED,
             StatusCode::TOO_MANY_REQUESTS,
-            StatusCode::INTERNAL_SERVER_ERROR,
         ] {
             assert!(without_rejected_usage_option(status, UNSUPPORTED_USAGE, &original).is_none());
         }
@@ -581,6 +590,37 @@ mod tests {
                 &body
             )
             .is_none());
+        }
+    }
+
+    #[test]
+    fn parameter_rejection_evidence_is_not_limited_to_validation_status_codes() {
+        let body = json!({"stream":true,"stream_options":{"include_usage":true}});
+        for status in [
+            StatusCode::BAD_REQUEST,
+            StatusCode::NOT_FOUND,
+            StatusCode::METHOD_NOT_ALLOWED,
+            StatusCode::CONFLICT,
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::NOT_IMPLEMENTED,
+            StatusCode::BAD_GATEWAY,
+            StatusCode::SERVICE_UNAVAILABLE,
+            StatusCode::GATEWAY_TIMEOUT,
+        ] {
+            assert_eq!(
+                without_rejected_usage_option(status, UNSUPPORTED_USAGE, &body),
+                Some(json!({"stream":true})),
+                "an explicit parameter rejection must be recognized despite HTTP {status}",
+            );
+            for unrelated in [
+                r#"{"error":{"message":"Upstream service unavailable"}}"#,
+                r#"{"error":{"message":"Request timed out"}}"#,
+                r#"{"error":{"message":"Unsupported model","param":"model"}}"#,
+            ] {
+                assert!(without_rejected_usage_option(status, unrelated, &body).is_none());
+            }
         }
     }
 
@@ -771,6 +811,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn gateway_status_preserves_the_single_parameter_fallback() {
+        for status in [StatusCode::INTERNAL_SERVER_ERROR, StatusCode::BAD_GATEWAY] {
+            let fixture =
+                Fixture::new(vec![(status, UNSUPPORTED_USAGE), (StatusCode::OK, SUCCESS)]).await;
+            let response = send_stream(&client(&fixture.url), vec![], None, None, 1, None, None)
+                .await
+                .expect(
+                    "a gateway-wrapped parameter rejection must negotiate before ordinary retries",
+                );
+            let result = crate::client::response_aggregator::aggregate_stream_response(response)
+                .await
+                .unwrap();
+            assert_eq!(result.text, "OK");
+            let requests = fixture.requests.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            let mut expected = requests[0].clone();
+            expected.as_object_mut().unwrap().remove("stream_options");
+            assert_eq!(requests[1], expected);
+        }
+    }
+
+    #[tokio::test]
     async fn ordinary_retries_keep_the_adapted_request_body() {
         let fixture = Fixture::new(vec![
             (StatusCode::BAD_REQUEST, UNSUPPORTED_USAGE),
@@ -799,7 +861,10 @@ mod tests {
             ),
             (StatusCode::UNAUTHORIZED, UNSUPPORTED_USAGE),
             (StatusCode::TOO_MANY_REQUESTS, UNSUPPORTED_USAGE),
-            (StatusCode::INTERNAL_SERVER_ERROR, UNSUPPORTED_USAGE),
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                r#"{"error":{"message":"Upstream service unavailable"}}"#,
+            ),
         ] {
             let fixture = Fixture::new(vec![(status, body)]).await;
             assert!(
