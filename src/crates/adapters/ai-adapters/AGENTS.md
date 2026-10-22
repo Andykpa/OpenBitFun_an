@@ -23,6 +23,15 @@ provider-neutral contracts owned by `openbitfun-agent-stream`.
   `docs/architecture/model-request-cache-reuse.md`.
 - Do not change shared stream or usage semantics without updating the focused
   adapter tests and downstream usage expectations.
+- OpenAI Chat Completions streams request `stream_options.include_usage` by
+  default, preserving explicit custom-body `false`/`null` overrides. Only an
+  HTTP 400/422 explicitly rejecting `include_usage` or `stream_options` may
+  trigger one compatibility resend without the rejected option. Keep other
+  request content, authorization checks, and attempt traces intact. Never
+  replay an accepted stream to recover usage, or invent usage when the
+  provider omits it. This negotiation is per call, with no persisted provider
+  capability assumption. Focused check:
+  `cargo test --locked -p openbitfun-ai-adapters --lib providers::openai::chat::tests`.
 - Do not move provider-neutral stream DTOs, replay policy, or tool-call
   accumulation ownership back into this crate.
 - Normalize explicitly reported response models into the typed stream
