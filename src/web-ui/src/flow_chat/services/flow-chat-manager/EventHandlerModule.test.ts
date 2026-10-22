@@ -2172,3 +2172,28 @@ describe('handleTokenUsageUpdate', () => {
     expect(session?.currentTokenUsage).toBeUndefined();
   });
 });
+
+
+describe('model round host timing', () => {
+  beforeEach(() => { resetFlowChatStore(); stateMachineManager.clear(); });
+  afterEach(() => { resetFlowChatStore(); stateMachineManager.clear(); });
+
+  it.each([
+    [{ firstChunkMs: 20, firstVisibleOutputMs: 200, streamDurationMs: 1_200, ttftMs: 350 }, 350],
+    [{ first_chunk_ms: 20, first_visible_output_ms: 200, stream_duration_ms: 1_200, ttft_ms: 0 }, 0],
+    [{}, undefined],
+  ])('receives projected, replayed and legacy timing: %j', async (timing, ttftMs) => {
+    putFinishingSessionInStore();
+    await stateMachineManager.transition('session-1', SessionExecutionEvent.START, {
+      taskId: 'session-1', dialogTurnId: 'turn-1',
+    });
+    __test_only__.handleModelRoundComplete(createFlowChatContext(), {
+      sessionId: 'session-1', turnId: 'turn-1', roundId: 'round-1', hasToolCalls: false,
+      modelConfigId: 'model', effectiveModelName: 'model', ...timing,
+    });
+    const round = FlowChatStore.getInstance().getState().sessions.get('session-1')?.dialogTurns[0].modelRounds[0];
+    expect(round?.ttftMs).toBe(ttftMs);
+    expect(round?.streamDurationMs).toBe(ttftMs === undefined ? undefined : 1_200);
+    expect(round?.firstVisibleOutputMs).toBe(ttftMs === undefined ? undefined : 200);
+  });
+});

@@ -308,3 +308,12 @@ This filter covers semantic-response validation, legacy job-policy round trips,
 run identity, disk completion/checkpoint/recovery, and Weixin result consumption.
 The `git` feature supports the existing Core unit-test fixtures. It does not
 prove a live model or remote-host execution.
+
+For request TTFT versus effective-output streaming duration:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib model_round_timing_separates_request_ttft_from_output_stream
+```
+
+This delayed loopback HTTP fixture separates response headers, metadata and model
+output. It does not exercise a real provider or remote host.

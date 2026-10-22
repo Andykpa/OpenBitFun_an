@@ -937,7 +937,7 @@ impl RoundExecutor {
         let max_attempts = Self::MAX_STREAM_ATTEMPTS;
         let mut local_attempt_index = 0usize;
         let mut retry_reason = None;
-        let (stream_result, send_to_stream_ms, stream_processing_ms, final_trace_handle) = loop {
+        let (stream_result, send_to_stream_ms, stream_processing_ms, ttft_ms, final_trace_handle) = loop {
             let source = account_source.as_ref();
             let attempt_number = lifecycle.begin_attempt();
             let attempt_id = format!("{round_id}:attempt:{attempt_number}");
@@ -1256,6 +1256,7 @@ impl RoundExecutor {
             );
 
             let stream_started_at = Instant::now();
+            let request_to_stream_processing_ms = elapsed_ms_u64(request_started_at);
             match self
                 .stream_processor
                 .process_stream_with_options(
@@ -1280,6 +1281,11 @@ impl RoundExecutor {
                 .await
             {
                 Ok(result) => {
+                    // Stop measuring before usage persistence or other post-stream work.
+                    let stream_processing_ms = elapsed_ms_u64(stream_started_at);
+                    let ttft_ms = result.first_visible_output_ms.map(|first_output_ms| {
+                        request_to_stream_processing_ms.saturating_add(first_output_ms)
+                    });
                     // Raw tool-argument fragments are not a usable tool call.
                     // Preserve the output latch across all retries and recovery.
                     lifecycle.observe_output(
@@ -1290,7 +1296,6 @@ impl RoundExecutor {
                     );
                     usage_context.response_model = result.response_model.clone();
                     self.record_attempt_usage(&context, &usage_context, result.usage.as_ref(), if result.partial_recovery_reason.is_some() { openbitfun_services_core::token_usage::types::ModelRequestOutcome::Failed } else { openbitfun_services_core::token_usage::types::ModelRequestOutcome::Completed }, context_window, is_subagent).await;
-                    let stream_processing_ms = elapsed_ms_u64(stream_started_at);
                     let has_interrupted_invalid_tool_calls =
                         Self::has_interrupted_invalid_tool_calls(&result);
                     if let Some(partial_recovery_reason) = result.partial_recovery_reason.as_deref()
@@ -1371,6 +1376,7 @@ impl RoundExecutor {
                                 recovered,
                                 send_to_stream_ms,
                                 stream_processing_ms,
+                                ttft_ms,
                                 trace_handle,
                             );
                         }
@@ -1544,6 +1550,7 @@ impl RoundExecutor {
                         result,
                         send_to_stream_ms,
                         stream_processing_ms,
+                        ttft_ms,
                         trace_handle,
                     );
                 }
@@ -1821,6 +1828,7 @@ impl RoundExecutor {
                 first_chunk_ms: stream_result.first_chunk_ms,
                 first_visible_output_ms: stream_result.first_visible_output_ms,
                 stream_duration_ms: Some(stream_processing_ms),
+                ttft_ms,
                 attempt_count: Some(lifecycle.attempts_started()),
                 failure_category: None,
                 token_details: stream_result
@@ -2755,6 +2763,15 @@ pub(super) mod tests {
             keep_open: bool,
             retry_after: Option<u64>,
         ) -> Self {
+            Self::with_timing_options(replies, keep_open, retry_after, None)
+        }
+
+        fn with_timing_options(
+            replies: Vec<(u16, String)>,
+            keep_open: bool,
+            retry_after: Option<u64>,
+            timing_delays: Option<(Duration, Duration)>,
+        ) -> Self {
             use std::io::{BufRead, Read, Write};
             use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -2825,8 +2842,21 @@ pub(super) mod tests {
                     let retry_header = retry_after
                         .map(|seconds| format!("Retry-After: {seconds}\r\n"))
                         .unwrap_or_default();
-                    write!(socket, "HTTP/1.1 {status} Fixture\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n{retry_header}Connection: close\r\n\r\n{body}", body.len() + usize::from(keep_open)).unwrap();
+                    if let Some((before_headers, _)) = timing_delays {
+                        std::thread::sleep(before_headers);
+                    }
+                    write!(socket, "HTTP/1.1 {status} Fixture\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n{retry_header}Connection: close\r\n\r\n", body.len() + usize::from(keep_open)).unwrap();
                     socket.flush().unwrap();
+                    if let Some((_, between_events)) = timing_delays {
+                        for event in body.split_inclusive("\n\n") {
+                            socket.write_all(event.as_bytes()).unwrap();
+                            socket.flush().unwrap();
+                            std::thread::sleep(between_events);
+                        }
+                    } else {
+                        socket.write_all(body.as_bytes()).unwrap();
+                        socket.flush().unwrap();
+                    }
                     if keep_open {
                         socket.set_nonblocking(true).unwrap();
                         opened.fetch_add(1, Ordering::SeqCst);
@@ -2920,6 +2950,53 @@ pub(super) mod tests {
                 })
             ),
         )
+    }
+
+    #[tokio::test]
+    async fn model_round_timing_separates_request_ttft_from_output_stream() {
+        let delay = Duration::from_millis(50);
+        let metadata = json!({
+            "id": "timing-test", "object": "chat.completion.chunk", "created": 1,
+            "model": "retry-test-model", "choices": [],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 0, "total_tokens": 10}
+        });
+        let (_, answer) = retry_test_success();
+        let server = RetryTestServer::with_timing_options(
+            vec![(200, format!("data: {metadata}\n\n{answer}"))],
+            false,
+            None,
+            Some((delay, delay)),
+        );
+        let executor = test_round_executor();
+        executor
+            .execute_round(
+                server.client(),
+                test_round_context(),
+                vec![super::AIMessage::user("Measure timing".into())],
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        let events = executor.event_queue.dequeue_batch(100).await;
+        let timing = events
+            .iter()
+            .find_map(|event| match &event.event {
+                AgenticEvent::ModelRoundCompleted {
+                    first_chunk_ms: Some(first_chunk),
+                    first_visible_output_ms: Some(first_output),
+                    stream_duration_ms: Some(stream_duration),
+                    ttft_ms: Some(ttft),
+                    ..
+                } => Some((*first_chunk, *first_output, *stream_duration, *ttft)),
+                _ => None,
+            })
+            .expect("completed round must carry host timing");
+        let (first_chunk, first_output, stream_duration, ttft) = timing;
+        // Metadata arrives before the first token, and HTTP setup precedes both.
+        assert!(first_output >= first_chunk + 40, "{timing:?}");
+        assert!(ttft >= first_output + 40, "{timing:?}");
+        assert!(stream_duration >= first_output + 40, "{timing:?}");
     }
 
     #[tokio::test]
