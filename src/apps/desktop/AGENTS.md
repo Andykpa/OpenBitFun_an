@@ -269,6 +269,12 @@ For native sidebar material and appearance bootstrap, run
 and `pnpm --dir src/web-ui run test:run src/infrastructure/appearance/adapters/ThemeTokenAppearanceAdapter.test.ts`.
 For embedded browser preview encoding and target correlation, run
 `cargo test -p openbitfun-desktop --lib api::browser_api::tests`.
+For conversation-owned browser lifetime, build Desktop and Web UI, then run
+`node tests/e2e/scripts/run-browser-session-isolation.mjs`. Its isolated native
+fixture delays A's model response until B is selected, exercises background
+opening and concurrent reads through real Agent tools, and verifies native
+visibility and retained document state across session switches. It scripts only
+model HTTP, not browser or session behavior; it does not establish remote coverage.
 After browser command registration changes, also run
 `cargo test -p openbitfun-desktop --lib remote_workspace_policy`.
 After changing updater command registration, also run

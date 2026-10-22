@@ -63,6 +63,16 @@ and remote child-view ACL rejection with multiple browser children. The same
 binary/frontend snapshot overrides above are supported. This is native command
 coverage, not a pet-pointer or remote-session integration test.
 
+For conversation-owned browser pages, build Desktop and Web UI and run
+`node tests/e2e/scripts/run-browser-session-isolation.mjs`. The fixture uses
+isolated storage and loopback model/page servers. It drives the actual session
+controls and Agent tool dispatcher to check background opening, concurrent reads,
+native visibility and document preservation across repeated session switches.
+Inspect its `result.json`; local native coverage does not prove remote behavior.
+Full visibility coverage needs an unlocked desktop. For a locked/headless display,
+`OPENBITFUN_E2E_BACKGROUND_ONLY=1` runs background execution and panel binding;
+the report explicitly excludes foreground native visibility in that mode.
+
 Markdown editor browser interaction tests (no desktop binary required):
 
 ```bash

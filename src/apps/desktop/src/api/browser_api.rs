@@ -103,6 +103,8 @@ pub struct WebviewCreateRequest {
     pub height: f64,
     #[serde(default)]
     pub open_request_id: Option<String>,
+    #[serde(default)]
+    pub conversation_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -121,6 +123,7 @@ struct BrowserTargetRecord {
     url: String,
     title: Option<String>,
     open_request_id: Option<String>,
+    conversation_id: Option<String>,
 }
 
 #[derive(Default)]
@@ -130,10 +133,9 @@ struct BrowserTargetRegistry {
 }
 
 impl BrowserTargetRegistry {
-    fn active_label_for_open_request(&self, request_id: &str) -> Option<String> {
+    fn label_for_open_request(&self, request_id: &str) -> Option<String> {
         self.records.iter().find_map(|(label, record)| {
-            (record.active && record.open_request_id.as_deref() == Some(request_id))
-                .then(|| label.clone())
+            (record.open_request_id.as_deref() == Some(request_id)).then(|| label.clone())
         })
     }
 }
@@ -157,12 +159,18 @@ pub(crate) fn validate_browser_label(label: &str) -> Result<(), String> {
     }
 }
 
-fn register_browser_target(label: &str, url: &str, open_request_id: Option<String>) {
+fn register_browser_target(
+    label: &str,
+    url: &str,
+    open_request_id: Option<String>,
+    conversation_id: Option<String>,
+) {
     lock_browser_targets().records.insert(
         label.to_string(),
         BrowserTargetRecord {
             url: url.to_string(),
             open_request_id,
+            conversation_id,
             ..BrowserTargetRecord::default()
         },
     );
@@ -202,16 +210,21 @@ pub(crate) fn unregister_browser_target(label: &str) {
 }
 
 pub(crate) fn list_browser_targets(app: &tauri::AppHandle) -> Vec<BuiltInBrowserTarget> {
-    let mut registry = lock_browser_targets();
-    registry
-        .records
-        .retain(|label, _| app.get_webview(label).is_some());
-    let mut targets = registry
-        .records
+    let views = app.webviews();
+    let records = {
+        let mut registry = lock_browser_targets();
+        registry
+            .records
+            .retain(|label, _| views.contains_key(label));
+        registry.records.clone()
+    };
+    // Native URL reads may dispatch to the UI thread. Page-load callbacks on
+    // that thread update this registry, so never hold its mutex across native IO.
+    let mut targets = records
         .iter()
         .map(|(label, record)| {
-            let url = app
-                .get_webview(label)
+            let url = views
+                .get(label)
                 .and_then(|webview| {
                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| webview.url()))
                         .ok()
@@ -227,6 +240,7 @@ pub(crate) fn list_browser_targets(app: &tauri::AppHandle) -> Vec<BuiltInBrowser
                     url,
                     title: record.title.clone().unwrap_or_default(),
                     active: record.active,
+                    conversation_id: record.conversation_id.clone(),
                 },
             )
         })
@@ -235,7 +249,7 @@ pub(crate) fn list_browser_targets(app: &tauri::AppHandle) -> Vec<BuiltInBrowser
     targets.into_iter().map(|(_, target)| target).collect()
 }
 
-/// Resolve the exact active WebView that acknowledged one browser-open
+/// Resolve the exact WebView that acknowledged one browser-open
 /// request. The request ID is presentation lifecycle metadata and is kept out
 /// of the public browser target DTO.
 pub(crate) fn browser_target_for_open_request(
@@ -244,11 +258,11 @@ pub(crate) fn browser_target_for_open_request(
 ) -> Option<BuiltInBrowserTarget> {
     let label = {
         let registry = lock_browser_targets();
-        registry.active_label_for_open_request(request_id)
+        registry.label_for_open_request(request_id)
     }?;
     list_browser_targets(app)
         .into_iter()
-        .find(|target| target.id == label && target.active)
+        .find(|target| target.id == label)
 }
 
 fn validate_webview_bounds(x: f64, y: f64, width: f64, height: f64) -> Result<(), String> {
@@ -288,8 +302,20 @@ pub async fn browser_webview_create(
     let mut builder =
         tauri::webview::WebviewBuilder::new(request.label, tauri::WebviewUrl::External(url))
             .initialization_script(video_decoder_compatibility_script())
+            // Navigation behavior must also exist before a background session
+            // has ever mounted a frontend panel, and after every document load.
+            .initialization_script(include_str!(
+                "../../../../shared/browser/blankTargetIntercept.js"
+            ))
             .transparent(false)
             .background_color(tauri::window::Color(0, 0, 0, 255));
+
+    // Session automation must continue while its presentation is hidden.
+    // WebKit otherwise suspends hidden documents after a period of inactivity.
+    if request.conversation_id.is_some() {
+        builder = builder
+            .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
+    }
 
     #[cfg(any(debug_assertions, feature = "devtools"))]
     {
@@ -308,7 +334,12 @@ pub async fn browser_webview_create(
         .hide()
         .map_err(|e| format!("failed to hide browser webview before positioning: {e}"))?;
     let target_url = webview.url().map(|url| url.to_string()).unwrap_or_default();
-    register_browser_target(webview.label(), &target_url, request.open_request_id);
+    register_browser_target(
+        webview.label(),
+        &target_url,
+        request.open_request_id,
+        request.conversation_id,
+    );
     Ok(())
 }
 
@@ -321,13 +352,19 @@ pub async fn browser_webview_set_agent_target_state(
 ) -> Result<(), String> {
     validate_browser_label(&request.label)?;
     let mut registry = lock_browser_targets();
+    if !registry.records.contains_key(&request.label) {
+        return Err(format!("Webview not found: {}", request.label));
+    }
     if request.active {
         registry.next_seq = registry.next_seq.saturating_add(1);
         let next_seq = registry.next_seq;
         for record in registry.records.values_mut() {
             record.active = false;
         }
-        let record = registry.records.entry(request.label).or_default();
+        let record = registry
+            .records
+            .get_mut(&request.label)
+            .expect("registered target");
         record.active = true;
         record.last_active_seq = next_seq;
         if let Some(request_id) = request
@@ -335,6 +372,9 @@ pub async fn browser_webview_set_agent_target_state(
             .as_deref()
             .map(str::trim)
             .filter(|request_id| !request_id.is_empty())
+            // Session requests are registered by the host before presentation.
+            // A late callback from the old panel must not overwrite a newer open.
+            .filter(|_| record.conversation_id.is_none())
         {
             record.open_request_id = Some(request_id.to_string());
         }
@@ -495,6 +535,40 @@ pub async fn browser_get_url(
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn presentation_cannot_overwrite_a_session_hosts_newer_open_request() {
+        let label = "embedded-browser-panel-view-request-owner-test";
+        register_browser_target(
+            label,
+            "https://example.com",
+            Some("new-request".into()),
+            Some("owner".into()),
+        );
+        browser_webview_set_agent_target_state(BrowserAgentTargetStateRequest {
+            label: label.into(),
+            active: true,
+            open_request_id: Some("old-request".into()),
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            lock_browser_targets().label_for_open_request("new-request"),
+            Some(label.into())
+        );
+        unregister_browser_target(label);
+    }
+
+    #[test]
+    fn legacy_create_payload_keeps_the_unscoped_browser_contract() {
+        let request: WebviewCreateRequest = serde_json::from_value(serde_json::json!({
+            "label": "embedded-browser-panel-view-old", "url": "https://example.com",
+            "x": 0, "y": 0, "width": 800, "height": 600,
+        }))
+        .unwrap();
+        assert!(request.conversation_id.is_none());
+        assert!(request.open_request_id.is_none());
+    }
+
     #[test]
     fn preview_is_a_bounded_jpeg_and_rejects_invalid_data() {
         use base64::Engine as _;
@@ -513,7 +587,7 @@ mod tests {
     }
 
     #[test]
-    fn open_request_correlation_requires_the_exact_active_target() {
+    fn open_request_correlation_accepts_the_exact_background_target() {
         let mut registry = BrowserTargetRegistry::default();
         registry.records.insert(
             "embedded-browser-panel-view-old".to_string(),
@@ -533,22 +607,13 @@ mod tests {
         );
 
         assert_eq!(
-            registry
-                .active_label_for_open_request("old-request")
-                .as_deref(),
+            registry.label_for_open_request("old-request").as_deref(),
             Some("embedded-browser-panel-view-old")
         );
-        assert_eq!(registry.active_label_for_open_request("new-request"), None);
+        assert_eq!(registry.label_for_open_request("missing-request"), None);
 
-        registry
-            .records
-            .get_mut("embedded-browser-panel-view-new")
-            .expect("new target")
-            .active = true;
         assert_eq!(
-            registry
-                .active_label_for_open_request("new-request")
-                .as_deref(),
+            registry.label_for_open_request("new-request").as_deref(),
             Some("embedded-browser-panel-view-new")
         );
     }

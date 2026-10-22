@@ -646,6 +646,10 @@ export type DialogTurnStartedEvent = AgenticEvent;
 
 export interface OpenBuiltInBrowserEvent {
   requestId?: string;
+  /** Owning Agent conversation, independent of the currently displayed one. */
+  sessionId?: string;
+  /** Host-owned native page; mounting its panel only attaches presentation. */
+  targetId?: string;
   url: string;
   title?: string;
   replaceExisting?: boolean;
