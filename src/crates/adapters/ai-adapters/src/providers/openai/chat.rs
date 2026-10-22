@@ -34,21 +34,39 @@ enum RejectedUsageOption {
     StreamOptions,
 }
 
-fn usage_option_named(text: &str) -> Option<RejectedUsageOption> {
-    let words: Vec<_> = text
+fn usage_option_at_path(path: &[&str]) -> Option<RejectedUsageOption> {
+    let path = path.strip_prefix(&["body"]).unwrap_or(path);
+    match path {
+        ["include_usage"] | ["stream_options", "include_usage"] => {
+            Some(RejectedUsageOption::IncludeUsage)
+        }
+        ["stream_options"] => Some(RejectedUsageOption::StreamOptions),
+        _ => None,
+    }
+}
+
+fn usage_option_in_field(field: &str) -> Option<RejectedUsageOption> {
+    let path: Vec<_> = field
         .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
         .filter(|word| !word.is_empty())
         .collect();
-    if words.contains(&"include_usage") {
-        Some(RejectedUsageOption::IncludeUsage)
-    } else if words.contains(&"stream_options")
-        && !text.contains("stream_options.")
-        && !text.contains("stream_options[")
-    {
-        Some(RejectedUsageOption::StreamOptions)
-    } else {
-        None
+    usage_option_at_path(&path)
+}
+
+fn usage_option_named(message: &str) -> Option<RejectedUsageOption> {
+    let mut rejected = None;
+    for field in message.split_whitespace() {
+        match usage_option_in_field(field) {
+            Some(RejectedUsageOption::IncludeUsage) => {
+                return Some(RejectedUsageOption::IncludeUsage);
+            }
+            Some(RejectedUsageOption::StreamOptions) => {
+                rejected = Some(RejectedUsageOption::StreamOptions);
+            }
+            None => {}
+        }
     }
+    rejected
 }
 
 fn rejected_usage_option(diagnostic: &Value) -> Option<RejectedUsageOption> {
@@ -92,17 +110,11 @@ fn rejected_usage_option(diagnostic: &Value) -> Option<RejectedUsageOption> {
     // Prefer the explicit offending field over message text or an echoed
     // request body. A rejection of a sibling option must not disable usage.
     if let Some(parameter) = diagnostic.get("param").and_then(Value::as_str) {
-        return usage_option_named(
-            parameter
-                .rsplit(['.', '[', ']', '\'', '"'])
-                .find(|s| !s.is_empty())?,
-        );
+        return usage_option_in_field(parameter);
     }
     if let Some(location) = diagnostic.get("loc").and_then(Value::as_array) {
-        return location
-            .last()
-            .and_then(Value::as_str)
-            .and_then(usage_option_named);
+        let path: Vec<_> = location.iter().map(Value::as_str).collect::<Option<_>>()?;
+        return usage_option_at_path(&path);
     }
     usage_option_named(&message)
 }
@@ -125,7 +137,12 @@ fn without_rejected_usage_option(
     let rejected = if let Some(details) = diagnostic.get("detail").and_then(Value::as_array) {
         details.iter().find_map(rejected_usage_option)
     } else {
-        rejected_usage_option(diagnostic.get("error").unwrap_or(&diagnostic))
+        rejected_usage_option(
+            diagnostic
+                .get("error")
+                .or_else(|| diagnostic.get("detail"))
+                .unwrap_or(&diagnostic),
+        )
     }?;
     let mut body = request_body.clone();
     match rejected {
@@ -509,6 +526,8 @@ mod tests {
         }
         for error in [
             r#"{"error":{"message":"Unrecognized request argument supplied: stream_options"}}"#,
+            r#"{"error":{"message":"Unsupported parameter: stream_options."}}"#,
+            r#"{"detail":"Unknown parameter: stream_options"}"#,
             r#"{"error":{"param":"stream_options","code":"unsupported_parameter"}}"#,
             r#"{"detail":[{"loc":["body","stream_options"],"type":"extra_forbidden"}]}"#,
         ] {
@@ -528,6 +547,10 @@ mod tests {
             r#"{"error":{"message":"Invalid type for stream_options.include_usage"}}"#,
             r#"{"error":{"message":"Unsupported model","param":"model"},"request":{"stream_options":{"include_usage":true}}}"#,
             r#"{"error":{"message":"Unsupported include_usage in messages","param":"messages"}}"#,
+            r#"{"error":{"code":"unsupported_parameter","param":"response_format.json_schema.schema.properties.include_usage"}}"#,
+            r#"{"error":{"message":"Unsupported parameter: response_format.json_schema.schema.properties.include_usage"}}"#,
+            r#"{"error":{"code":"unsupported_parameter","param":"messages[0].stream_options"}}"#,
+            r#"{"detail":[{"loc":["body","messages",0,"include_usage"],"type":"extra_forbidden"}]}"#,
             r#"{"error":{"message":"Unsupported parameter: stream_options.continuous_usage_stats"}}"#,
             r#"{"detail":[{"loc":["body","stream_options","other"],"type":"extra_forbidden"}]}"#,
             r#"{"error":{"message":"Context length exceeded"}}"#,
