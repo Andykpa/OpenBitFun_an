@@ -507,10 +507,20 @@ available. Its right inset equals the top and bottom clearance at every density.
 </Capsule>
 ```
 
-The action floats over the intact label: do not clip, mask, hide, resize, or add
-action padding to its text when revealing the icon. Normal constrained-width
-`OverflowText` behavior remains available. `TabGroup.endAction` and removable
-`MultiSelect` tags share this contract, including existing native tab buttons.
+The default `actionPlacement="overlay"` floats over the intact label: do not clip,
+mask, hide, resize, or add action padding to its text when revealing the icon.
+Use `actionPlacement="reserved"` with a `Button` child for short selectable labels.
+The Button always reserves trailing padding for the action inside its pill surface,
+keeping the gaps between capsules compact. Its content is centered at rest, then
+shifts toward the leading edge as the icon fades in on pointer hover. Only the
+content transform and icon opacity change: hovering a row-end capsule cannot
+change its width or trigger wrapping. Keyboard focus reveals the action and moves
+the content immediately; touch keeps the action visible and the content clear of
+it. Reduced motion disables both transitions. Capsules without an action do not
+reserve empty space.
+Normal constrained-width `OverflowText` behavior remains available.
+`TabGroup.endAction` and removable `MultiSelect` tags retain the overlay contract,
+including existing native tab buttons.
 Leading identity icons stay in their label layout; this contract governs the
 independent trailing actions. Product CSS owns placement of capsules, not their
 action offsets, backgrounds, or visibility.

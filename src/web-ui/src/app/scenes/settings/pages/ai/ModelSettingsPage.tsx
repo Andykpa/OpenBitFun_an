@@ -4597,7 +4597,20 @@ const ModelSettingsPage: React.FC = () => {
               <ul className="openbitfun-model-settings__import-summary" aria-label={t('acquisition.api')}>
                 {apiProviderGroups.map(group => (
                   <li key={group.key} className="openbitfun-model-settings__import-item">
-                    <Capsule size="sm">
+                    <Capsule size="sm" actionPlacement="reserved" action={(
+                      <Tooltip content={t('actions.deleteProvider')} trigger="hover-focus">
+                        <IconButton
+                          className="openbitfun-model-settings__source-pill-delete"
+                          aria-label={`${t('actions.deleteProvider')}: ${group.providerName}`}
+                          size="xs"
+                          shape="circle"
+                          variant="quiet"
+                          tone="danger"
+                          onClick={() => void requestProviderDelete(group)}
+                          icon={<Icon name="delete" size="xs" />}
+                        />
+                      </Tooltip>
+                    )}>
                       <Tooltip content={group.models[0].base_url} trigger="hover-focus">
                         <Button size="sm" variant="outline" className="openbitfun-model-settings__source-pill"
                           aria-label={t('acquisition.configureProvider', { provider: group.providerName })}
@@ -4635,7 +4648,20 @@ const ModelSettingsPage: React.FC = () => {
               <ul className="openbitfun-model-settings__import-summary" aria-label={t('acquisition.subscriptions')}>
                 {subscriptionProviderGroups.map(group => (
                   <li key={group.key} className="openbitfun-model-settings__import-item">
-                    <Capsule size="sm">
+                    <Capsule size="sm" actionPlacement="reserved" action={(
+                      <Tooltip content={t('actions.deleteProvider')} trigger="hover-focus">
+                        <IconButton
+                          className="openbitfun-model-settings__source-pill-delete"
+                          aria-label={`${t('actions.deleteProvider')}: ${group.providerName}`}
+                          size="xs"
+                          shape="circle"
+                          variant="quiet"
+                          tone="danger"
+                          onClick={() => void requestProviderDelete(group)}
+                          icon={<Icon name="delete" size="xs" />}
+                        />
+                      </Tooltip>
+                    )}>
                       <Button size="sm" variant="outline" className="openbitfun-model-settings__source-pill"
                         aria-label={t('acquisition.configureProvider', { provider: group.providerName })}
                         onClick={() => handleEditProvider(group.models[0])}>

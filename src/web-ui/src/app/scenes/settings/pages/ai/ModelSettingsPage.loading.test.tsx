@@ -314,9 +314,12 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(button('actions.addModel').disabled).toBe(false);
   });
 
-  it.each(['api', 'subscription'] as const)(
-    'confirms %s provider deletion from its editor before removing only that provider’s models',
-    async kind => {
+  it.each([
+    ['api', 'capsule'], ['api', 'editor'],
+    ['subscription', 'capsule'], ['subscription', 'editor'],
+  ] as const)(
+    'confirms %s provider deletion from its %s before removing only that provider’s models',
+    async (kind, entryPoint) => {
       const providerModels: AIModelConfig[] = [model, { ...model, id: 'second-model', model_name: 'second-model' }]
         .map(entry => ({
           ...entry,
@@ -340,13 +343,20 @@ describe('ModelSettingsPage loading and provider actions', () => {
         reads.get('ai.agent_model_selections')!.resolve({});
       });
 
-      expect(container.querySelector('.openbitfun-model-settings__source-pill-delete')).toBeNull();
       const providerButton = [...container.querySelectorAll<HTMLButtonElement>('.openbitfun-model-settings__source-pill')]
         .find(element => element.textContent === model.name)!;
-      await act(async () => providerButton.click());
-      const editor = document.querySelector<HTMLElement>('.openbitfun-model-settings__editor-dialog')!;
-      const deleteButton = [...editor.querySelectorAll<HTMLButtonElement>('button')]
-        .find(element => element.textContent === copy('actions.deleteProvider'))!;
+      const capsule = providerButton.closest('[data-openbitfun-component="capsule"]')!;
+      expect(capsule.getAttribute('data-action-placement')).toBe('reserved');
+      expect(capsule.querySelectorAll('button')).toHaveLength(2);
+      expect(providerButton.querySelector('button')).toBeNull();
+      let deleteButton = capsule.querySelector<HTMLButtonElement>('.openbitfun-model-settings__source-pill-delete')!;
+      expect(deleteButton.getAttribute('aria-label')).toBe(`${copy('actions.deleteProvider')}: ${model.name}`);
+      if (entryPoint === 'editor') {
+        await act(async () => providerButton.click());
+        const editor = document.querySelector<HTMLElement>('.openbitfun-model-settings__editor-dialog')!;
+        deleteButton = [...editor.querySelectorAll<HTMLButtonElement>('button')]
+          .find(element => element.textContent === copy('actions.deleteProvider'))!;
+      }
       await act(async () => deleteButton.click());
 
       const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]')!;
@@ -354,7 +364,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
       expect(dialog.textContent).toContain(String(i18nService.getI18nInstance().t('providerDeleteConfirm.message', {
         ns: 'settings/models', name: model.name, modelCount: 2, referenceCount: 1,
       })));
-      expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+      expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(entryPoint === 'editor' ? 1 : 0);
       expect(updateConfig).not.toHaveBeenCalled();
 
       const cancel = dialog.querySelector<HTMLButtonElement>('button[data-openbitfun-variant="fill"]')!;
