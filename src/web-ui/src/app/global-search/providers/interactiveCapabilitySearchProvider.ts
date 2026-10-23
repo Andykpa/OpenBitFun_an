@@ -1,6 +1,7 @@
 import {
   INTERACTIVE_CAPABILITY_CATALOG,
   getInteractiveCapabilityCatalog,
+  isInteractiveCapabilityDestinationAvailable,
   type InteractiveCapability,
 } from '../interactiveCapabilityCatalog';
 import { scoreTextMatch } from '../searchMatching';
@@ -51,8 +52,11 @@ export const interactiveCapabilitySearchProvider: GlobalSearchProvider = {
       ? getInteractiveCapabilityCatalog(false)
       : INTERACTIVE_CAPABILITY_CATALOG;
     const items = catalog.capabilities
-      .map((capability) => {
+      .flatMap((capability) => {
         const item = matchingItem(capability, request.query);
+        if (!isInteractiveCapabilityDestinationAvailable(item?.destination ?? capability.destination)) {
+          return [];
+        }
         const textScore = scoreTextMatch(request.query, [
           capability.id,
           capability.titleZh,

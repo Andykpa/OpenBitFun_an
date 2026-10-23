@@ -128,6 +128,12 @@ describe('interactiveCapabilitySearchProvider', () => {
         request(acceptance.query),
         new AbortController().signal,
       );
+      // Git remains in the host discovery contract, but no longer has a Web UI panel entry.
+      if (acceptance.expectedFirstCapabilityId === 'feature.git') {
+        expect(result.items.some(item => item.target.kind === 'capability'
+          && item.target.capabilityId === 'feature.git')).toBe(false);
+        continue;
+      }
       const ranked = [...result.items].sort((left, right) => right.score - left.score);
       expect(
         ranked[0]?.target.kind === 'capability' ? ranked[0].target.capabilityId : undefined,
