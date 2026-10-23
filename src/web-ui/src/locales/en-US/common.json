@@ -192,7 +192,9 @@
         "activationFailed": "Could not open that result",
         "remoteFileSearchUnavailable": "File search is unavailable for remote project {{workspace}}",
         "sessionUnavailable": "This session is no longer available"
-      }
+      },
+      "diagnosticTarget": "Search device: {{host}}",
+      "retrySource": "Retry this source"
     },
     "displayModes": {
       "pro": "Expert Mode",
@@ -798,7 +800,8 @@
     "hostDiscoveryFailed": "Could not load hosts. Try again.",
     "existingHostRequired": "Choose an existing SSH host.",
     "sshHost": "SSH host",
-    "sourceUnsupported": "This host does not support this environment."
+    "sourceUnsupported": "This host does not support this environment.",
+    "checkingWsl": "Checking WSL availability on this host…"
   },
   "newProject": {
     "title": "Create project",

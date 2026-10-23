@@ -192,7 +192,9 @@
         "activationFailed": "無法開啟該結果",
         "remoteFileSearchUnavailable": "遠端項目 {{workspace}} 暫不支援檔案搜尋",
         "sessionUnavailable": "該會話已不可用"
-      }
+      },
+      "diagnosticTarget": "搜尋裝置：{{host}}",
+      "retrySource": "重試此來源"
     },
     "displayModes": {
       "pro": "專業模式",
@@ -523,7 +525,7 @@
         "workspacePath": "請輸入工作區路徑",
         "session": "請選擇或輸入會話 ID",
         "optionalSession": "留空則建立新會話後執行",
-        "agentType": "例如：Standard、Cowork 或 Claw",
+        "agentType": "例如：$t(shared:agents.Standard)、$t(shared:agents.Cowork) 或 $t(shared:agents.Claw)",
         "name": "例如：每日全球新聞簡報",
         "anchorMs": "留空則使用建立時刻",
         "timezone": "例如：Asia/Shanghai",
@@ -798,7 +800,8 @@
     "hostDiscoveryFailed": "無法載入主機，請重試。",
     "existingHostRequired": "請選擇現有的 SSH 主機。",
     "sshHost": "SSH 主機",
-    "sourceUnsupported": "目前主機不支援此環境。"
+    "sourceUnsupported": "目前主機不支援此環境。",
+    "checkingWsl": "正在檢查目前主機的 WSL 支援…"
   },
   "newProject": {
     "title": "建立專案",
