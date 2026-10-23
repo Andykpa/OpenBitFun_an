@@ -889,3 +889,12 @@ The outer animated surface owns both paint and backdrop blur; its content is
 transparent and unfiltered. An opaque fallback covers unsupported filters and
 reduced-transparency preferences. Tooltip declares ownership of its entrance
 motion to avoid the product's additional popup animation.
+
+### Layout-owned field labels
+
+`FieldAccessibilityProvider` accepts `aria-labelledby` and `aria-describedby`
+references for layouts that render labels outside their controls. Input, Switch,
+Checkbox, Select, Combobox, MultiSelect, NumberInput, SearchField and Textarea
+consume those references through intervening wrappers. A control's explicit name
+or own label takes precedence; descriptions are combined. Give each child in a
+composite field its own name. Nested `Field` controls retain their own labels.
