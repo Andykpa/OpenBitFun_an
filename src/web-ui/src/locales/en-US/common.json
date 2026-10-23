@@ -800,7 +800,8 @@
     "hostDiscoveryFailed": "Could not load hosts. Try again.",
     "existingHostRequired": "Choose an existing SSH host.",
     "sshHost": "SSH host",
-    "sourceUnsupported": "This host does not support this environment."
+    "sourceUnsupported": "This host does not support this environment.",
+    "checkingWsl": "Checking WSL availability on this host…"
   },
   "newProject": {
     "title": "Create project",

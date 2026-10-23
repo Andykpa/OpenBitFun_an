@@ -800,7 +800,8 @@
     "hostDiscoveryFailed": "無法載入主機，請重試。",
     "existingHostRequired": "請選擇現有的 SSH 主機。",
     "sshHost": "SSH 主機",
-    "sourceUnsupported": "目前主機不支援此環境。"
+    "sourceUnsupported": "目前主機不支援此環境。",
+    "checkingWsl": "正在檢查目前主機的 WSL 支援…"
   },
   "newProject": {
     "title": "建立專案",

@@ -25,6 +25,9 @@ vi.mock('@/shared/utils/logger', () => ({ createLogger: () => ({ error: vi.fn() 
 vi.mock('@/infrastructure/peer-device/pickWorkspaceDirectory', () => ({ pickWorkspaceDirectory: state.pickDirectory }));
 vi.mock('@/infrastructure/api', () => ({ globalAPI: {}, workspaceAPI: {} }));
 vi.mock('@/app/services/createProject', () => ({ createProject: state.createProject }));
+vi.mock('@/features/ssh-remote/sshApi', () => ({
+  sshApi: { listWslDistributions: async () => ({ supported: true, distributions: [] }) },
+}));
 vi.mock('@/features/ssh-remote/useWorkspaceSourceOptions', () => ({
   workspacePresetHost: (preset?: { kind: string; connection?: unknown }) => preset?.kind === 'saved' ? preset.connection : undefined,
   useWorkspaceSourceOptions: (source: string) => ({ options: state.options[source] || [], loading: false, error: '', refresh: vi.fn() }),
@@ -138,6 +141,7 @@ describe('project creation entry points', () => {
       expect(document.querySelector('[data-testid="nav-session-group-add-project"]')).toBeNull();
     }
     expect(sourceOption(1, 'wsl')).not.toBeNull();
+    expect(sourceOption(1, 'wsl').disabled).toBe(false);
     setSource('wsl');
     await click('actions.add');
     expect(document.querySelector('[data-testid="connection-dialog"]')).toBeNull();
@@ -171,6 +175,7 @@ describe('project creation entry points', () => {
 
   it('opens new configuration from the header and preserves the chosen source when it is cancelled', async () => {
     await act(async () => window.dispatchEvent(new Event('nav:new-project')));
+    expect(sourceOption(1, 'wsl').disabled).toBe(false);
     setSource('wsl');
     await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="ssh.remote.newConnection"]')!.click());
     expect(document.querySelector('[data-testid="connection-dialog"]')?.getAttribute('data-target')).toBe('wsl');

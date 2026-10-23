@@ -1,5 +1,5 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
-import { OverflowText, SegmentedControl } from '@openbitfun/ui';
+import { Button, OverflowText, SegmentedControl } from '@openbitfun/ui';
 import { useI18n } from '@/infrastructure/i18n';
 import { usePeerDeviceModeOptional } from '@/infrastructure/peer-device/peerDeviceContextState';
 import { DeviceSystemGlyph } from '@/app/components/NavPanel/components/DeviceSystemGlyph';
@@ -10,6 +10,7 @@ import {
   type WorkspaceEnvironment, type WorkspaceLocation, type WorkspaceSource,
 } from './workspaceSource';
 import './WorkspaceSourceSelector.scss';
+import { useWslSupport } from './useWslSupport';
 
 interface WorkspaceSourceSelectorProps {
   value: WorkspaceSource;
@@ -22,10 +23,11 @@ interface WorkspaceSourceSelectorProps {
   locationActions?: ReactNode;
   environmentActions?: ReactNode;
   showEnvironment?: boolean;
+  onWslSupportChange?: (supported: boolean) => void;
 }
 
 export function WorkspaceSourceSelector({
-  value, onValueChange, disabled, allowHostDirectory = true, locationOptions, environmentOptions, locationActions, environmentActions, showEnvironment = true,
+  value, onValueChange, disabled, allowHostDirectory = true, locationOptions, environmentOptions, locationActions, environmentActions, showEnvironment = true, onWslSupportChange,
 }: WorkspaceSourceSelectorProps) {
   const { t } = useI18n('common');
   const peer = usePeerDeviceModeOptional();
@@ -35,6 +37,10 @@ export function WorkspaceSourceSelector({
   const locationId = useId();
   const environmentId = useId();
   const { location, environment } = workspaceSourceCoordinates(value);
+  const wsl = useWslSupport(location === 'current' && showEnvironment);
+  const wslSupported = wsl.status === 'supported';
+  useEffect(() => { onWslSupportChange?.(wslSupported); }, [onWslSupportChange, wslSupported]);
+  const wslHintId = useId();
   const peerActive = peer?.peerMode.active === true;
   useEffect(() => {
     if (peerActive || location !== 'current') return;
@@ -80,15 +86,20 @@ export function WorkspaceSourceSelector({
       <div className="workspace-source-selector__heading">
       <span id={environmentId} className="workspace-source-selector__label" data-openbitfun-component="ssh-remote" data-openbitfun-part="sourceLabel">{t('workspaceSource.environment')}</span>
       <SegmentedControl className="workspace-source-selector__control" size="sm" distribution="content" aria-labelledby={environmentId}
-        value={environment} disabled={disabled}
+        value={environment} disabled={disabled} aria-describedby={location === 'current' && !wslSupported ? wslHintId : undefined}
         options={[
           { value: 'system', label: t('workspaceSource.system'), disabled: location === 'current' && !allowHostDirectory },
           { value: 'container', label: t('workspaceSource.container') },
-          { value: 'wsl', label: t('workspaceSource.wsl'), disabled: location === 'other' },
+          { value: 'wsl', label: t('workspaceSource.wsl'), disabled: location === 'other' || !wslSupported },
         ]}
         onValueChange={value => onValueChange?.(workspaceSourceFor(location, value as WorkspaceEnvironment))} />
       {environmentActions && <div className="workspace-source-selector__actions">{environmentActions}</div>}
       </div>
+      {location === 'current' && !wslSupported && <div id={wslHintId} className="workspace-source-selector__device" role="status">
+        <span>{t(wsl.status === 'checking' ? 'workspaceSource.checkingWsl'
+          : wsl.status === 'unsupported' ? 'ssh.remote.wslUnsupported' : 'ssh.remote.wslDiscoveryFailed')}</span>
+        {wsl.status === 'unavailable' && <Button size="sm" variant="quiet" disabled={disabled} onClick={wsl.retry}>{t('workspaceSource.refreshOptions')}</Button>}
+      </div>}
       {environmentOptions}
     </div>}
   </div>;

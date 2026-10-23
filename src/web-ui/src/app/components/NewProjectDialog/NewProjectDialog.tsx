@@ -37,6 +37,7 @@ export const NewProjectDialog: React.FC<NewProjectDialogProps> = ({
   const { t } = useI18n('common');
   const [folders, setFolders] = useState<ProjectFolder[]>([]);
   const [projectName, setProjectName] = useState('');
+  const [wslSupported, setWslSupported] = useState(false);
   const [source, setSource] = useState<WorkspaceSource>('host');
   const [selectedOption, setSelectedOption] = useState<string>();
   const [selectedHostOption, setSelectedHostOption] = useState<string>();
@@ -71,7 +72,7 @@ export const NewProjectDialog: React.FC<NewProjectDialogProps> = ({
       ?? (source === 'remoteDocker' && selectedHost ? { kind: 'new', host: workspacePresetHost(selectedHost.preset), credentialConnectionId: selectedHost.preset.credentialConnectionId } : undefined),
   [source, selectedHost, sourceOptions.options, selectedOption]);
   const showEnvironment = location === 'current' || Boolean(selectedHost);
-  const sourceReady = hasFolders || (showEnvironment && (source === 'host' || (source === 'ssh' ? Boolean(selectedHost) : Boolean(selectedOption && sourceOptions.options.some(option => option.id === selectedOption)) || Boolean(connectedRemote))));
+  const sourceReady = (source !== 'wsl' || wslSupported) && (hasFolders || (showEnvironment && (source === 'host' || (source === 'ssh' ? Boolean(selectedHost) : Boolean(selectedOption && sourceOptions.options.some(option => option.id === selectedOption)) || Boolean(connectedRemote)))));
   const environmentLabel = environment === 'wsl' ? t('workspaceSource.wsl')
     : environment === 'container' ? t('workspaceSource.container') : t('workspaceSource.system');
   const saveLocation = `${source === 'host' ? t('newProject.emptyProjectHint')
@@ -183,7 +184,7 @@ export const NewProjectDialog: React.FC<NewProjectDialogProps> = ({
   }, [busy, needsName, name, invalidDirectoryName, folders, onConfirm, onClose, source, onSelectRemoteHost, step, t, connectionPreset, connectedRemote, sourceOptions.loading, sourceReady]);
 
   const handleConfigureSource = async (target: WorkspaceConnectionTarget) => {
-    if (busy || hasFolders || !onSelectRemoteHost) return;
+    if (busy || hasFolders || !onSelectRemoteHost || (target === 'wsl' && !wslSupported)) return;
     setIsSelecting(true);
     setError('');
     try {
@@ -209,7 +210,7 @@ export const NewProjectDialog: React.FC<NewProjectDialogProps> = ({
   };
 
   const handleEditSource = async (option: WorkspaceSourceOption, target: WorkspaceConnectionTarget) => {
-    if (busy || hasFolders || !onSelectRemoteHost) return;
+    if (busy || hasFolders || !onSelectRemoteHost || (target === 'wsl' && !wslSupported)) return;
     setIsSelecting(true);
     setError('');
     try {
@@ -318,13 +319,13 @@ export const NewProjectDialog: React.FC<NewProjectDialogProps> = ({
               </div>
               {onPickRemoteFolder && (
                 <div className="new-project-dialog__field" data-openbitfun-component="new-project-dialog" data-openbitfun-part="field">
-                  <WorkspaceSourceSelector value={source} disabled={busy || hasFolders} showEnvironment={showEnvironment}
+                  <WorkspaceSourceSelector onWslSupportChange={setWslSupported} value={source} disabled={busy || hasFolders} showEnvironment={showEnvironment}
                     locationOptions={location === 'other' ? optionChoices(hostOptions, 'ssh', selectedHostOption, value => {
                       setSelectedHostOption(value); setSelectedOption(undefined);
                     }) : undefined}
                     environmentOptions={source !== 'host' && source !== 'ssh' ? optionChoices(environmentOptions, source, selectedOption, setSelectedOption) : undefined}
                     locationActions={location === 'other' ? optionActions(hostOptions, 'ssh') : undefined}
-                    environmentActions={source !== 'host' && source !== 'ssh' ? optionActions(environmentOptions, source) : undefined}
+                    environmentActions={source !== 'host' && source !== 'ssh' && (source !== 'wsl' || wslSupported) ? optionActions(environmentOptions, source) : undefined}
                     onValueChange={value => {
                       if (workspaceSourceCoordinates(value).location !== location) setSelectedHostOption(undefined);
                       setSource(value); setSelectedOption(undefined); setConnectedRemote(undefined); setError('');

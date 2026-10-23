@@ -800,7 +800,8 @@
     "hostDiscoveryFailed": "无法加载主机，请重试。",
     "existingHostRequired": "请选择已有的 SSH 主机。",
     "sshHost": "SSH 主机",
-    "sourceUnsupported": "当前主机不支持此环境。"
+    "sourceUnsupported": "当前主机不支持此环境。",
+    "checkingWsl": "正在检查当前主机的 WSL 支持…"
   },
   "newProject": {
     "title": "创建项目",
