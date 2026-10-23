@@ -394,6 +394,15 @@ continues to own selection, keyboard navigation, label overflow, and end-action
 anatomy. Product wrappers own document states and layout, without replacing the
 tab's control styles or creating another tablist.
 
+`TabGroupItem.endAction` reserves space inside the tab surface. On pointer devices,
+the icon, label, and non-interactive suffix are centered together at rest, then
+shift toward the leading edge as the action fades in on hover. The tab and action
+hit areas keep fixed positions and widths. Keyboard focus reveals the action and
+moves the content immediately; touch keeps the action visible and the content
+clear of it. Reduced motion disables both transitions. Tabs without an end action
+keep their ordinary centered layout. Label overflow and rolling-text replacement
+remain inside the label slot, independent of this movement.
+
 ## Mobile controls
 
 Touch-first controls use the isolated mobile entry so compact and foldable
@@ -519,8 +528,8 @@ the content immediately; touch keeps the action visible and the content clear of
 it. Reduced motion disables both transitions. Capsules without an action do not
 reserve empty space.
 Normal constrained-width `OverflowText` behavior remains available.
-`TabGroup.endAction` and removable `MultiSelect` tags retain the overlay contract,
-including existing native tab buttons.
+`TabGroupItem.endAction` uses a reserved slot as described above; removable
+`MultiSelect` tags retain the overlay contract.
 Leading identity icons stay in their label layout; this contract governs the
 independent trailing actions. Product CSS owns placement of capsules, not their
 action offsets, backgrounds, or visibility.
