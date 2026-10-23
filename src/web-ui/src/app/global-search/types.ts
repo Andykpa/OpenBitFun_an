@@ -59,6 +59,10 @@ export interface GlobalSearchProviderDiagnostic {
   providerId: string;
   code: string;
   message: string;
+  workspaceName?: string;
+  workspacePath?: string;
+  hostLabel?: string;
+  retryable?: boolean;
 }
 
 export interface GlobalSearchProviderResult {

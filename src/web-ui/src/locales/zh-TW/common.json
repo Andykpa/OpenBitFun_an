@@ -192,7 +192,9 @@
         "activationFailed": "無法開啟該結果",
         "remoteFileSearchUnavailable": "遠端項目 {{workspace}} 暫不支援檔案搜尋",
         "sessionUnavailable": "該會話已不可用"
-      }
+      },
+      "diagnosticTarget": "搜尋裝置：{{host}}",
+      "retrySource": "重試此來源"
     },
     "displayModes": {
       "pro": "專業模式",

@@ -192,7 +192,9 @@
         "activationFailed": "无法打开该结果",
         "remoteFileSearchUnavailable": "远程项目 {{workspace}} 暂不支持文件搜索",
         "sessionUnavailable": "该会话已不可用"
-      }
+      },
+      "diagnosticTarget": "搜索设备：{{host}}",
+      "retrySource": "重试此来源"
     },
     "displayModes": {
       "pro": "专业模式",

@@ -192,7 +192,9 @@
         "activationFailed": "Could not open that result",
         "remoteFileSearchUnavailable": "File search is unavailable for remote project {{workspace}}",
         "sessionUnavailable": "This session is no longer available"
-      }
+      },
+      "diagnosticTarget": "Search device: {{host}}",
+      "retrySource": "Retry this source"
     },
     "displayModes": {
       "pro": "Expert Mode",

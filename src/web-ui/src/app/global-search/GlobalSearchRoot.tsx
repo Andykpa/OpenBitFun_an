@@ -10,6 +10,7 @@ import React, {
 import { isImeOwnedKeyboardEvent } from '@/shared/utils/ime';
 import { OverflowText,
   ActionCard,
+  Button,
   TabGroup,
   Icon,
   KeyHint,
@@ -22,6 +23,8 @@ import { OverflowText,
 import { BarChart3, Blocks, CheckSquare2, FileText, Keyboard, MessageSquareText, MessagesSquare, Network, Users } from 'lucide-react';
 import { useShortcut } from '@/infrastructure/hooks/useShortcut';
 import { useI18n } from '@/infrastructure/i18n';
+import { getActiveSurfaceScope, onSurfaceActivated } from '@/infrastructure/peer-device/deviceSurface';
+import { usePeerDeviceModeOptional } from '@/infrastructure/peer-device/peerDeviceContextState';
 import { useWorkspaceContext } from '@/infrastructure/contexts/WorkspaceContext';
 import { useMyAgentStore } from '@/app/scenes/my-agent/myAgentStore';
 import { useNurseryStore } from '@/app/scenes/profile/nurseryStore';
@@ -166,7 +169,17 @@ export const GlobalSearchContent: React.FC<GlobalSearchContentProps> = ({
   const openAssistant = useNurseryStore((state) => state.openAssistant);
   const [query, setQuery] = useState(initialQuery);
   const [scope, setScope] = useState<GlobalSearchScope>('all');
-  const [snapshot, setSnapshot] = useState<GlobalSearchSnapshot>(EMPTY_SNAPSHOT);
+  const surfaceScope = useSyncExternalStore(onSurfaceActivated, getActiveSurfaceScope, getActiveSurfaceScope);
+  const peerDevice = usePeerDeviceModeOptional();
+  const hostLabel = peerDevice?.peerMode.active
+    ? peerDevice.peerMode.deviceName : tCommon('accountLogin.thisDevice');
+  const [snapshotState, setSnapshotState] = useState({ epoch: surfaceScope.epoch, value: EMPTY_SNAPSHOT });
+  const snapshot = snapshotState.epoch === surfaceScope.epoch ? snapshotState.value : EMPTY_SNAPSHOT;
+  const setSnapshot = useCallback((value: GlobalSearchSnapshot) => {
+    if (surfaceScope.isCurrent()) setSnapshotState({ epoch: surfaceScope.epoch, value });
+  }, [surfaceScope]);
+  const [retryRevision, setRetryRevision] = useState(0);
+  const retryRef = useRef<{ context: string; providerId: string; previous: GlobalSearchSnapshot } | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [drilldownGroup, setDrilldownGroup] = useState<GlobalSearchDrilldownGroupId | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -195,15 +208,32 @@ export const GlobalSearchContent: React.FC<GlobalSearchContentProps> = ({
     setActiveId(null);
     setDrilldownGroup(null);
     setSnapshot(EMPTY_SNAPSHOT);
-  }, [active, initialQuery]);
+  }, [active, initialQuery, setSnapshot]);
 
   const parsedQuery = useMemo(() => parseGlobalSearchQuery(query, scope), [query, scope]);
+
+  const searchContext = JSON.stringify([
+    surfaceScope.epoch, query, parsedQuery.scope, currentWorkspace?.id,
+    openedWorkspacesList.map(workspace => [workspace.id, workspace.rootPath, workspace.connectionId]),
+  ]);
+  const retryProvider = (providerId: string) => {
+    if (!surfaceScope.isCurrent() || snapshot.isSearching) return;
+    retryRef.current = { context: searchContext, providerId, previous: snapshot };
+    setRetryRevision(revision => revision + 1);
+  };
 
   useEffect(() => {
     if (!active) return;
     const controller = new AbortController();
+    const abort = () => controller.abort();
+    surfaceScope.signal.addEventListener('abort', abort, { once: true });
+    const requestedRetry = retryRef.current;
+    retryRef.current = null;
+    const retry = requestedRetry?.context === searchContext
+      ? { previous: requestedRetry.previous, providerIds: [requestedRetry.providerId] } : undefined;
     const delay = parsedQuery.query ? SEARCH_DEBOUNCE_MS : 0;
     const timer = window.setTimeout(() => {
+      if (!surfaceScope.isCurrent()) return;
       void runFederatedSearch(
         providers,
         {
@@ -217,16 +247,22 @@ export const GlobalSearchContent: React.FC<GlobalSearchContentProps> = ({
           tSettings,
         },
         controller.signal,
-        setSnapshot,
+        value => { if (!controller.signal.aborted) setSnapshot(value); },
+        retry,
       );
     }, delay);
 
     return () => {
       window.clearTimeout(timer);
       controller.abort();
+      surfaceScope.signal.removeEventListener('abort', abort);
     };
   }, [
     active,
+    surfaceScope,
+    searchContext,
+    setSnapshot,
+    retryRevision,
     currentWorkspace,
     openedWorkspacesList,
     parsedQuery.query,
@@ -627,13 +663,27 @@ export const GlobalSearchContent: React.FC<GlobalSearchContentProps> = ({
           || snapshot.diagnostics.length > 0) ? (
         <footer className="global-search__footer" data-openbitfun-component="global-search" data-openbitfun-part="footer">
           {snapshot.diagnostics.length > 0 ? (
-            <OverflowText
-              className="global-search__footer-status"
-              role="status"
-              data-testid={`${testIdPrefix}-partial-status`}
-            >
-              {tCommon('nav.search.partialUnavailable')}
-            </OverflowText>
+            <details className="global-search__diagnostics" data-testid={`${testIdPrefix}-partial-status`}>
+              <summary>{tCommon('nav.search.partialUnavailable')}</summary>
+              <div className="global-search__diagnostic-target">
+                {tCommon('nav.search.diagnosticTarget', { host: hostLabel })}
+              </div>
+              {snapshot.diagnostics.map((diagnostic, index) => (
+                <div className="global-search__diagnostic" key={`${diagnostic.providerId}:${diagnostic.code}:${index}`}>
+                  <strong>{providers.find(provider => provider.id === diagnostic.providerId)?.groups
+                    .map(group => tCommon(`nav.search.groups.${group}`)).join(' / ') ?? diagnostic.providerId}</strong>
+                  {diagnostic.workspaceName ? <div>{diagnostic.workspaceName} · {diagnostic.hostLabel ?? hostLabel}</div> : null}
+                  {diagnostic.workspacePath ? <div className="global-search__diagnostic-path">{diagnostic.workspacePath}</div> : null}
+                  <p>{diagnostic.message}</p>
+                  {diagnostic.retryable !== false ? (
+                    <Button size="sm" variant="outline" disabled={snapshot.isSearching}
+                      onClick={() => retryProvider(diagnostic.providerId)}>
+                      {tCommon('nav.search.retrySource')}
+                    </Button>
+                  ) : null}
+                </div>
+              ))}
+            </details>
           ) : null}
           <span className="global-search__footer-keys" aria-hidden="true">
             <KeyHint>↑↓</KeyHint> {tCommon('nav.search.footer.navigate')}
