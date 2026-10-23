@@ -10,6 +10,7 @@ const request: GlobalSearchRequest = {
   currentWorkspace: null,
   limitPerGroup: 2,
   tCommon: (key) => key,
+  tCapabilities: key => key,
   tSettings: (key) => key,
 };
 

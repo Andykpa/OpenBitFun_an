@@ -79,6 +79,7 @@ export interface GlobalSearchRequest {
   currentWorkspace: WorkspaceInfo | null;
   limitPerGroup: number;
   tCommon: (key: string, options?: Record<string, unknown>) => string;
+  tCapabilities: (key: string, options?: Record<string, unknown>) => string;
   tSettings: (key: string, options?: Record<string, unknown>) => string;
 }
 

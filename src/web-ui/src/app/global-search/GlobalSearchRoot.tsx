@@ -160,6 +160,7 @@ export const GlobalSearchContent: React.FC<GlobalSearchContentProps> = ({
 }) => {
   const { t: tCommon } = useI18n('common');
   const { t: tSettings } = useI18n('settings');
+  const { t: tCapabilities } = useI18n('scenes/capabilities');
   const {
     currentWorkspace,
     openedWorkspacesList,
@@ -245,6 +246,7 @@ export const GlobalSearchContent: React.FC<GlobalSearchContentProps> = ({
           limitPerGroup: SEARCH_LIMIT_PER_GROUP,
           tCommon,
           tSettings,
+          tCapabilities,
         },
         controller.signal,
         value => { if (!controller.signal.aborted) setSnapshot(value); },
@@ -271,6 +273,7 @@ export const GlobalSearchContent: React.FC<GlobalSearchContentProps> = ({
     query,
     tCommon,
     tSettings,
+    tCapabilities,
   ]);
 
   const items = snapshot.items;
