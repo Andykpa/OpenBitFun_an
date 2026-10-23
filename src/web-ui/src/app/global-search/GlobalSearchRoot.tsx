@@ -398,6 +398,7 @@ export const GlobalSearchContent: React.FC<GlobalSearchContentProps> = ({
               aria-label={tCommon('nav.search.inputLabel')}
               role="combobox"
               aria-autocomplete="list"
+              aria-haspopup="grid"
               aria-expanded="true"
               aria-controls={resultsId}
               aria-activedescendant={activeId ? `${instanceId}-option-${activeId}` : undefined}
@@ -428,7 +429,8 @@ export const GlobalSearchContent: React.FC<GlobalSearchContentProps> = ({
           ref={listRef}
           id={resultsId}
           className="global-search__results"
-          role="listbox"
+          role="grid"
+          aria-busy={snapshot.isSearching}
           aria-label={tCommon('nav.search.resultsLabel')}
           data-openbitfun-component="global-search"
           data-openbitfun-part="results"
@@ -436,9 +438,11 @@ export const GlobalSearchContent: React.FC<GlobalSearchContentProps> = ({
           data-search-view={drilldownGroup ?? 'overview'}
         >
           {navigableItems.length === 0 ? (
-            <div className="global-search__empty" role="status">
-              {snapshot.isSearching ? tCommon('nav.search.searching') : emptyLabel}
-            </div>
+            <div role="row"><div role="gridcell">
+              <div className="global-search__empty" role="status">
+                {snapshot.isSearching ? tCommon('nav.search.searching') : emptyLabel}
+              </div>
+            </div></div>
           ) : resultPresentation.groups.map((groupView) => {
             const groupId = groupView.id;
             const groupItems = groupView.items;
@@ -452,7 +456,7 @@ export const GlobalSearchContent: React.FC<GlobalSearchContentProps> = ({
               <section
                 key={groupId}
                 className={`global-search__group global-search__group--${groupId}${groupDetailPage ? ' global-search__group--detail' : ''}`}
-                role="group"
+                role="rowgroup"
                 aria-labelledby={labelId}
                 data-openbitfun-component="global-search"
                 data-openbitfun-part="group"
@@ -461,6 +465,7 @@ export const GlobalSearchContent: React.FC<GlobalSearchContentProps> = ({
                   ? `${testIdPrefix}-group-page-${groupId}`
                   : `${testIdPrefix}-group-${groupId}`}
               >
+                <div role="row"><div role="columnheader">
                 {groupDetailPage ? (
                   <div className="global-search__detail-header">
                     <button
@@ -506,7 +511,8 @@ export const GlobalSearchContent: React.FC<GlobalSearchContentProps> = ({
                     </span>
                   </div>
                 )}
-                <div className="global-search__group-items">
+                </div></div>
+                <div className="global-search__group-items" role="presentation">
                   {groupItems.map((item) => {
                     const itemIcon = iconForItem(item);
                     const selected = item.id === activeId;
@@ -527,14 +533,25 @@ export const GlobalSearchContent: React.FC<GlobalSearchContentProps> = ({
                       </span>
                     );
 
-                    if (itemVariant === 'action') {
-                      return (
-                        <ActionCard
-                          key={item.id}
+                    // Grid cells keep executable buttons in the native accessibility tree.
+                    // Listbox options flatten interactive descendants in WebKit.
+                    const resultRow = (content: React.ReactNode) => (
+                      <div role="row" key={item.id} className="global-search__result-row">
+                        <div
+                          role="gridcell"
                           id={`${instanceId}-option-${item.id}`}
                           data-search-result-id={item.id}
-                          role="option"
                           aria-selected={selected}
+                          aria-label={[item.title, item.subtitle, item.context].filter(Boolean).join('. ')}
+                        >{content}</div>
+                      </div>
+                    );
+
+                    if (itemVariant === 'action') {
+                      return resultRow(
+                        <ActionCard
+                          tabIndex={-1}
+                          aria-label={item.title}
                           className="global-search__action-card"
                           onClick={() => void activateItem(item)}
                           data-openbitfun-state={selected ? 'selected' : undefined}
@@ -558,13 +575,10 @@ export const GlobalSearchContent: React.FC<GlobalSearchContentProps> = ({
                     }
 
                     if (entity) {
-                      return (
+                      return resultRow(
                         <ActionCard
-                          key={item.id}
-                          id={`${instanceId}-option-${item.id}`}
-                          data-search-result-id={item.id}
-                          role="option"
-                          aria-selected={selected}
+                          tabIndex={-1}
+                          aria-label={item.title}
                           className="global-search__action-card"
                           onClick={() => void activateItem(item)}
                           data-openbitfun-state={selected ? 'selected' : undefined}
@@ -581,14 +595,11 @@ export const GlobalSearchContent: React.FC<GlobalSearchContentProps> = ({
                       );
                     }
 
-                    return (
+                    return resultRow(
                       <button data-overflow-trigger
-                        key={item.id}
-                        id={`${instanceId}-option-${item.id}`}
-                        data-search-result-id={item.id}
                         type="button"
-                        role="option"
-                        aria-selected={selected}
+                        tabIndex={-1}
+                        aria-label={item.title}
                         className={`global-search__result global-search__result--${itemVariant}${selected ? ' is-selected' : ''}`}
                         onClick={() => void activateItem(item)}
                         data-openbitfun-component="global-search"
