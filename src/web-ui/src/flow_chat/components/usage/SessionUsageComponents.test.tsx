@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
+import { formatDuration } from '@/shared/utils/format';
 import path from 'node:path';
 
 import type { SessionUsageReport } from '@/infrastructure/api/service-api/SessionAPI';
@@ -1057,7 +1058,7 @@ describe('Session usage report UI components', () => {
     });
 
     expect(container.textContent).toContain('Recorded time');
-    expect(container.textContent).toContain('40s');
+    expect(container.textContent).toContain(formatDuration(40000));
 
     const reportWithoutModelDuration = usageReport({
       models: [
@@ -1684,7 +1685,7 @@ describe('Session usage report UI components', () => {
     // is hard-coded English numbered from zero.
     expect(container.textContent).toContain('Turn 3');
     expect(container.textContent).not.toContain('turn 2');
-    expect(container.textContent).toContain('1m 35s');
+    expect(container.textContent).toContain(formatDuration(95000));
     expect(container.textContent).toContain('Redacted');
     expect(container.textContent).not.toContain('secret shell command');
 
@@ -1749,7 +1750,7 @@ describe('Session usage report UI components', () => {
     expect(container.textContent).toContain('28');
     expect(container.textContent).toContain('Timed out');
     expect(container.textContent).toContain('Execution');
-    expect(container.textContent).toContain('1m 35s');
+    expect(container.textContent).toContain(formatDuration(95000));
     expect(container.textContent).toContain('operation timed out');
 
     const toolLink = container.querySelector<HTMLButtonElement>('.session-usage-panel__turn-link');

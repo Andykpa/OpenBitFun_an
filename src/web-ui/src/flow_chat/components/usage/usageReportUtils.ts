@@ -1,3 +1,4 @@
+import { formatDuration } from '@/shared/utils/format';
 import type { SessionUsageReport } from '@/infrastructure/api/service-api/SessionAPI';
 import { i18nService } from '@/infrastructure/i18n';
 import {
@@ -74,36 +75,7 @@ export function formatUsageDuration(value: number | undefined, t: Translator): s
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return t('usage.unavailable');
   }
-  if (value < 1000) {
-    return t('usage.duration.ms', { value: Math.max(0, Math.round(value)) });
-  }
-
-  const seconds = Math.round(value / 1000);
-  if (seconds < 60) {
-    return t('usage.duration.seconds', { value: seconds });
-  }
-
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  if (minutes < 60) {
-    return remainingSeconds === 0
-      ? t('usage.duration.minutes', { value: minutes })
-      : t('usage.duration.minutesSeconds', { minutes, seconds: remainingSeconds });
-  }
-
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  if (hours < 24) {
-    return remainingMinutes === 0
-      ? t('usage.duration.hours', { value: hours })
-      : t('usage.duration.hoursMinutes', { hours, minutes: remainingMinutes });
-  }
-
-  const days = Math.floor(hours / 24);
-  const remainingHours = hours % 24;
-  return remainingHours === 0
-    ? t('usage.duration.days', { value: days })
-    : t('usage.duration.daysHours', { days, hours: remainingHours });
+  return formatDuration(value);
 }
 
 export function formatUsageTimestamp(value: number | undefined, t: Translator): string {

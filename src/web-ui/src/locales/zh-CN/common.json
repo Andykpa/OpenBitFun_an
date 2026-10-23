@@ -525,7 +525,7 @@
         "workspacePath": "请输入工作区路径",
         "session": "请选择或输入会话 ID",
         "optionalSession": "留空则创建新会话后执行",
-        "agentType": "例如：Standard、Cowork 或 Claw",
+        "agentType": "例如：$t(shared:agents.Standard)、$t(shared:agents.Cowork) 或 $t(shared:agents.Claw)",
         "name": "例如：每日全球新闻简报",
         "anchorMs": "留空则使用创建时刻",
         "timezone": "例如：Asia/Shanghai",
