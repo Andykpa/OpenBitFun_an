@@ -315,7 +315,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
   });
 
   it.each(['api', 'subscription'] as const)(
-    'confirms %s capsule deletion before removing only that provider’s models',
+    'confirms %s provider deletion from its editor before removing only that provider’s models',
     async kind => {
       const providerModels: AIModelConfig[] = [model, { ...model, id: 'second-model', model_name: 'second-model' }]
         .map(entry => ({
@@ -340,10 +340,13 @@ describe('ModelSettingsPage loading and provider actions', () => {
         reads.get('ai.agent_model_selections')!.resolve({});
       });
 
-      const deleteButton = [...container.querySelectorAll<HTMLButtonElement>('.openbitfun-model-settings__source-pill-delete')]
-        .find(element => element.getAttribute('aria-label')?.endsWith(`: ${model.name}`))!;
-      expect(deleteButton.getAttribute('aria-label')).toContain(model.name);
-      expect(deleteButton.parentElement?.closest('button')).toBeNull();
+      expect(container.querySelector('.openbitfun-model-settings__source-pill-delete')).toBeNull();
+      const providerButton = [...container.querySelectorAll<HTMLButtonElement>('.openbitfun-model-settings__source-pill')]
+        .find(element => element.textContent === model.name)!;
+      await act(async () => providerButton.click());
+      const editor = document.querySelector<HTMLElement>('.openbitfun-model-settings__editor-dialog')!;
+      const deleteButton = [...editor.querySelectorAll<HTMLButtonElement>('button')]
+        .find(element => element.textContent === copy('actions.deleteProvider'))!;
       await act(async () => deleteButton.click());
 
       const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]')!;
@@ -351,7 +354,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
       expect(dialog.textContent).toContain(String(i18nService.getI18nInstance().t('providerDeleteConfirm.message', {
         ns: 'settings/models', name: model.name, modelCount: 2, referenceCount: 1,
       })));
-      expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(0);
+      expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
       expect(updateConfig).not.toHaveBeenCalled();
 
       const cancel = dialog.querySelector<HTMLButtonElement>('button[data-openbitfun-variant="fill"]')!;
