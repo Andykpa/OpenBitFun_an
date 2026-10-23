@@ -532,6 +532,28 @@ describe('Session usage report UI components', () => {
     });
   };
 
+  it.each([undefined, null])('distinguishes a new session from missing telemetry with a %s file count', changedFiles => {
+    const report = usageReport({
+      scope: { kind: 'entire_session', turnCount: 0, includesSubagents: false },
+      tokens: { source: 'unavailable', cacheCoverage: 'unavailable' },
+      models: [{ modelId: 'unknown_model', callCount: 0 }],
+      tools: [], files: { scope: 'unavailable', files: [] },
+      errors: { totalErrors: 0, toolErrors: 0, modelErrors: 0, examples: [] },
+      compression: { compactionCount: 0, manualCompactionCount: 0, automaticCompactionCount: 0 },
+    });
+    // Rust Option serializes as null; legacy payloads may omit the field.
+    Object.assign(report.files, { changedFiles });
+    for (const Component of [SessionUsageReportCard, SessionUsagePanel]) {
+      render(<Component report={report} />);
+      expect(container.querySelector('[data-testid="session-usage-empty"]')).not.toBeNull();
+      expect(container.textContent).not.toContain('Unavailable');
+      render(<Component report={{ ...report, scope: { ...report.scope, turnCount: 1 } }} />);
+      expect(container.querySelector('[data-testid="session-usage-empty"]')).toBeNull();
+      render(<Component report={{ ...report, models: [{ modelId: 'unknown_model', callCount: 1 }] }} />);
+      expect(container.querySelector('[data-testid="session-usage-empty"]')).toBeNull();
+    }
+  });
+
   it('renders localized partial coverage and cache unavailable without showing zero', () => {
     const onOpenDetails = vi.fn();
     const report = usageReport();

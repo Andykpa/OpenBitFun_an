@@ -314,7 +314,9 @@
       "filesDescription": "当前会话没有找到文件编辑记录。",
       "errorsDescription": "本次报告没有记录到可展示的工具或模型错误样例。",
       "slowest": "无慢耗时记录",
-      "slowestDescription": "没有记录到带耗时的轮次、模型调用或工具片段。"
+      "slowestDescription": "没有记录到带耗时的轮次、模型调用或工具片段。",
+      "session": "还没有会话活动",
+      "sessionDescription": "在此会话中发送一条消息即可开始。运行后，这里会显示模型用量、工具调用和耗时。"
     },
     "runtime": {
       "open": "生成会话用量",

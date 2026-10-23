@@ -15,9 +15,19 @@ export const USAGE_EXPORT_REDACT_PATHS_STORAGE_KEY = 'openbitfun.sessionUsage.ex
 type UsageRedactPathsPreferenceListener = (redactPaths: boolean) => void;
 const usageRedactPathsPreferenceListeners = new Set<UsageRedactPathsPreferenceListener>();
 
+/** A missing telemetry field is not evidence that a session never ran. */
+export function isUnusedSession(report: SessionUsageReport): boolean {
+  return report.scope.kind === 'entire_session' && report.scope.turnCount === 0 &&
+    !report.models.some(model => model.callCount > 0) &&
+    !report.tools.some(tool => tool.callCount > 0) &&
+    !(report.tokens.totalTokens || report.tokens.inputTokens || report.tokens.outputTokens) &&
+    report.errors.totalErrors === 0 && report.compression.compactionCount === 0 &&
+    report.slowest.length === 0 && hasNoRecordedFileChanges(report);
+}
+
 export function hasNoRecordedFileChanges(report: SessionUsageReport): boolean {
   return report.files.files.length === 0 &&
-    (report.files.changedFiles === undefined || report.files.changedFiles === 0);
+    (report.files.changedFiles == null || report.files.changedFiles === 0);
 }
 
 export function isSessionUsageReport(value: unknown): value is SessionUsageReport {
