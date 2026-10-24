@@ -18,6 +18,7 @@ interface WorkspaceSourceSelectorProps {
   /** Connection-only surfaces cannot open the host's ordinary directory picker. */
   allowHostDirectory?: boolean;
   locationOptions?: ReactNode;
+  showCurrentDevice?: boolean;
   environmentOptions?: ReactNode;
   locationActions?: ReactNode;
   environmentActions?: ReactNode;
@@ -25,7 +26,7 @@ interface WorkspaceSourceSelectorProps {
 }
 
 export function WorkspaceSourceSelector({
-  value, onValueChange, disabled, allowHostDirectory = true, locationOptions, environmentOptions, locationActions, environmentActions, showEnvironment = true,
+  value, onValueChange, disabled, allowHostDirectory = true, locationOptions, environmentOptions, locationActions, environmentActions, showEnvironment = true, showCurrentDevice = true,
 }: WorkspaceSourceSelectorProps) {
   const { t } = useI18n('common');
   const peer = usePeerDeviceModeOptional();
@@ -69,7 +70,7 @@ export function WorkspaceSourceSelector({
         }} />
       {locationActions && <div className="workspace-source-selector__actions">{locationActions}</div>}
       </div>
-      {location === 'current' && <div className="workspace-source-selector__device" role="status"
+      {location === 'current' && showCurrentDevice && <div className="workspace-source-selector__device" role="status"
         data-openbitfun-component="ssh-remote" data-openbitfun-part="sourceHint">
         {deviceName && <DeviceSystemGlyph size="sm" device={{ kind: deviceKind === 'cli' ? 'execution-host' : 'desktop', name: deviceName, os: deviceOs ?? undefined, hostKind: deviceKind === 'cli' ? 'cli' : 'desktop' }} />}
         <OverflowText>{deviceName || (deviceNameFailed ? t('workspaceSource.deviceNameUnavailable') : '')}</OverflowText>

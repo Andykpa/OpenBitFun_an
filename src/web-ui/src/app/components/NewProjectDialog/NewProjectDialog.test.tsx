@@ -4,7 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NewProjectDialog } from './NewProjectDialog';
 import { activateSurface, resetDeviceSurfaceForTest, surfaceIdForDevice } from '@/infrastructure/peer-device/deviceSurface';
-import { ProjectDirectoryUnavailableError } from '@/app/utils/projectDraft';
+import { AssistantProjectFolderError, ProjectDirectoryUnavailableError } from '@/app/utils/projectDraft';
+import { globalAPI, type WorkspaceInfo } from '@/infrastructure/api/service-api/GlobalAPI';
 import type { WorkspaceSourceOption } from '@/features/ssh-remote/useWorkspaceSourceOptions';
 import { PeerDeviceContext, type PeerDeviceContextValue } from '@/infrastructure/peer-device/peerDeviceContextState';
 
@@ -57,6 +58,7 @@ describe('NewProjectDialog composition', () => {
 
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.spyOn(globalAPI, 'getRecentWorkspaces').mockResolvedValue([]);
     sourceOptions.length = 0;
     for (const key of Object.keys(optionsBySource)) delete optionsBySource[key];
     for (const source of ['ssh', 'wsl', 'localDocker', 'remoteDocker']) {
@@ -208,6 +210,41 @@ describe('NewProjectDialog composition', () => {
     expect(selectHost).toHaveBeenCalledWith('ssh', { ...option.preset, edit: true });
     expect(document.querySelector('[data-workspace-choice="host"] button[aria-pressed]')?.getAttribute('aria-pressed')).toBe('false');
     expect(pick).not.toHaveBeenCalled();
+  });
+
+  const recentWorkspace = (id: string, extra: Partial<WorkspaceInfo> = {}): WorkspaceInfo => ({
+    id, name: id, rootPath: `/work/${id}`, workspaceKind: 'normal', workspaceType: 'singleProject',
+    languages: [], tags: [], openedAt: '2026-01-01', lastAccessed: '2026-01-01', ...extra,
+  });
+
+  it('shows five newest unique host workspaces as capsules and adds the chosen folder without browsing', async () => {
+    vi.mocked(globalAPI.getRecentWorkspaces).mockResolvedValue([
+      recentWorkspace('old'),
+      ...Array.from({ length: 6 }, (_, index) => recentWorkspace(`project-${index}`, { lastAccessed: `2026-02-0${index + 1}` })),
+      recentWorkspace('duplicate', { rootPath: '/work/project-5/', lastAccessed: '2026-01-01' }),
+      recentWorkspace('assistant', { workspaceKind: 'assistant' }),
+      recentWorkspace('remote', { workspaceKind: 'remote' }),
+      recentWorkspace('container', { connectionId: 'docker' }),
+      recentWorkspace('ssh', { sshHost: 'build.test' }),
+    ]);
+    await render({ onPickRemoteFolder: vi.fn() });
+    const row = document.querySelector('[data-openbitfun-part="sourceField"]')!;
+    expect([...row.querySelectorAll('[data-workspace-choice]')].map(item => item.getAttribute('data-workspace-choice')))
+      .toEqual(['project-5', 'project-4', 'project-3', 'project-2', 'project-1']);
+    expect(row.querySelector('.workspace-source-selector__device')).toBeNull();
+    await click('project-5');
+    expect(pickDirectory).not.toHaveBeenCalled();
+    await click('newProject.create');
+    expect(confirm).toHaveBeenCalledWith({ name: '', folders: [{ path: '/work/project-5' }] });
+  });
+
+  it('ignores recent workspaces returned after switching devices', async () => {
+    let resolve!: (workspaces: WorkspaceInfo[]) => void;
+    vi.mocked(globalAPI.getRecentWorkspaces).mockReturnValue(new Promise(done => { resolve = done; }));
+    await render({ onPickRemoteFolder: vi.fn() });
+    activateSurface(surfaceIdForDevice('peer'));
+    await act(async () => resolve([recentWorkspace('controller-private')]));
+    expect(document.querySelector('[data-workspace-choice="controller-private"]')).toBeNull();
   });
 
   it('shows the device name below the current-computer header without repeating generic hints', async () => {
@@ -366,6 +403,20 @@ describe('NewProjectDialog composition', () => {
     await add('/peer/work');
     expect(pickDirectory).toHaveBeenCalledOnce();
     expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('explains an assistant source conflict and keeps the folder removable for retry', async () => {
+    confirm.mockRejectedValueOnce(new AssistantProjectFolderError());
+    await render();
+    await add('/srv/assistant');
+    await click('newProject.create');
+    expect(close).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('newProject.assistantFolderUnavailable');
+    act(() => document.querySelector<HTMLButtonElement>('button[aria-label="newProject.removeFolder"]')!.click());
+    enterName('example');
+    await click('newProject.create');
+    expect(confirm).toHaveBeenLastCalledWith({ name: 'example', folders: [] });
+    expect(close).toHaveBeenCalledOnce();
   });
 
   it('explains an unavailable host directory and leaves the name editable', async () => {
