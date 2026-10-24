@@ -83,7 +83,7 @@ describe('NewProjectDialog composition', () => {
     const onSelectRemoteHost = vi.fn();
     await render({ onPickRemoteFolder: vi.fn(), onSelectRemoteHost });
     expect(sourceOption(1, 'wsl').disabled).toBe(true);
-    expect(document.body.textContent).toContain('ssh.remote.wslUnsupported');
+    expect(document.body.textContent).not.toContain('ssh.remote.wslUnsupported');
     act(() => sourceOption(1, 'wsl').click());
     expect(sourceOption(1, 'system').getAttribute('aria-checked')).toBe('true');
     expect(onSelectRemoteHost).not.toHaveBeenCalled();
