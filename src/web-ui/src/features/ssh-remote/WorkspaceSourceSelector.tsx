@@ -1,9 +1,8 @@
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, type ReactNode } from 'react';
 import { Button, OverflowText, SegmentedControl } from '@openbitfun/ui';
 import { useI18n } from '@/infrastructure/i18n';
 import { usePeerDeviceModeOptional } from '@/infrastructure/peer-device/peerDeviceContextState';
 import { DeviceSystemGlyph } from '@/app/components/NavPanel/components/DeviceSystemGlyph';
-import { remoteConnectAPI } from '@/infrastructure/api/service-api/RemoteConnectAPI';
 import { useDeviceDirectory, resolveDeviceNameFrom } from '@/infrastructure/account/deviceDirectory';
 import {
   workspaceSourceCoordinates, workspaceSourceFor,
@@ -32,8 +31,6 @@ export function WorkspaceSourceSelector({
   const { t } = useI18n('common');
   const peer = usePeerDeviceModeOptional();
   const directory = useDeviceDirectory();
-  const [localDevice, setLocalDevice] = useState<{ id: string; name: string; os?: string; kind?: string }>();
-  const [deviceNameFailed, setDeviceNameFailed] = useState(false);
   const locationId = useId();
   const environmentId = useId();
   const { location, environment } = workspaceSourceCoordinates(value);
@@ -43,21 +40,12 @@ export function WorkspaceSourceSelector({
   useEffect(() => { onWslSupportChange?.(wslSupported); }, [onWslSupportChange, wslSupported]);
   const wslHintId = useId();
   const peerActive = peer?.peerMode.active === true;
-  useEffect(() => {
-    if (peerActive || location !== 'current') return;
-    let cancelled = false;
-    setDeviceNameFailed(false);
-    void remoteConnectAPI.getDeviceInfo().then(info => {
-      if (!cancelled) setLocalDevice({ id: info.device_id, name: info.device_name, os: info.device_os ?? undefined, kind: info.device_kind ?? undefined });
-    }).catch(() => { if (!cancelled) setDeviceNameFailed(true); });
-    return () => { cancelled = true; };
-  }, [peerActive, location]);
-  const deviceId = peer?.peerMode.active ? peer.peerMode.deviceId : directory.localId || localDevice?.id;
+  const deviceId = peer?.peerMode.active ? peer.peerMode.deviceId : undefined;
   const metadata = directory.devices.find(device => device.device_id === deviceId);
-  const fallbackName = peer?.peerMode.active ? peer.peerMode.deviceName : localDevice?.name || '';
+  const fallbackName = peer?.peerMode.active ? peer.peerMode.deviceName : '';
   const deviceName = deviceId ? resolveDeviceNameFrom(directory.devices, deviceId, fallbackName) : fallbackName;
-  const deviceKind = metadata?.device_kind ?? (peerActive ? undefined : localDevice?.kind);
-  const deviceOs = metadata?.device_os ?? (peerActive ? undefined : localDevice?.os);
+  const deviceKind = metadata?.device_kind;
+  const deviceOs = metadata?.device_os;
   return <div className="workspace-source-selector" data-openbitfun-component="ssh-remote" data-openbitfun-part="sourceSelector">
     <div className="workspace-source-selector__field" data-openbitfun-component="ssh-remote" data-openbitfun-part="sourceField">
       <div className="workspace-source-selector__heading">
@@ -76,10 +64,10 @@ export function WorkspaceSourceSelector({
         }} />
       {locationActions && <div className="workspace-source-selector__actions">{locationActions}</div>}
       </div>
-      {location === 'current' && <div className="workspace-source-selector__device" role="status"
+      {location === 'current' && peerActive && <div className="workspace-source-selector__device" role="status"
         data-openbitfun-component="ssh-remote" data-openbitfun-part="sourceHint">
         {deviceName && <DeviceSystemGlyph size="sm" device={{ kind: deviceKind === 'cli' ? 'execution-host' : 'desktop', name: deviceName, os: deviceOs ?? undefined, hostKind: deviceKind === 'cli' ? 'cli' : 'desktop' }} />}
-        <OverflowText>{deviceName || (deviceNameFailed ? t('workspaceSource.deviceNameUnavailable') : '')}</OverflowText>
+        <OverflowText>{deviceName}</OverflowText>
       </div>}
       {locationOptions}
     </div>

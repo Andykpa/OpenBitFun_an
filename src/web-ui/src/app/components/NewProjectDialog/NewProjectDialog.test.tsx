@@ -224,11 +224,10 @@ describe('NewProjectDialog composition', () => {
     expect(pick).not.toHaveBeenCalled();
   });
 
-  it('shows the device name below the current-computer header without repeating generic hints', async () => {
+  it('does not repeat the device name below the current-computer header', async () => {
     await render({ onPickRemoteFolder: vi.fn() });
     const row = document.querySelectorAll('[data-openbitfun-part="sourceField"]')[0];
-    expect(row.querySelector('.workspace-source-selector__device')?.textContent).toBe('Workstation');
-    expect(row.querySelector('.workspace-source-selector__device svg')?.getAttribute('data-system')).toBe('macos');
+    expect(row.querySelector('.workspace-source-selector__device')).toBeNull();
     expect(row.querySelector('.workspace-source-selector__heading')?.textContent).not.toContain('Workstation');
     expect(document.body.textContent).not.toContain('workspaceSource.currentHostHint');
     expect(document.body.textContent).not.toContain('newProject.sourceFoldersHint');
