@@ -14,6 +14,7 @@ vi.mock('@/infrastructure/i18n', () => ({
   useI18n: () => ({
     currentLanguage: 'en-US',
     formatDate: (date: Date) => date.toISOString(),
+    formatNumber: (value: number) => String(value),
     t: (key: string) => key,
   }),
 }));
