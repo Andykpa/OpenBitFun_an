@@ -3302,6 +3302,7 @@
           "note": "便籤",
           "progress": "進度",
           "metrics": "指標",
+          "chart": "圖表",
           "cronJob": "排程任務",
           "custom": "自訂"
         },

@@ -695,6 +695,14 @@
     "checklist": {
       "empty": "No items"
     },
+    "chart": {
+      "empty": "No data to chart yet",
+      "other": "Other",
+      "remaining": "Remaining",
+      "ofTotal": "of {{total}}",
+      "changeSince": "{{change}} since {{label}}",
+      "range": "{{min}} – {{max}}"
+    },
     "cron": {
       "failed": "Could not load the scheduled job.",
       "missing": "This scheduled job no longer exists.",

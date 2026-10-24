@@ -3302,6 +3302,7 @@
           "note": "Note",
           "progress": "Progress",
           "metrics": "Metrics",
+          "chart": "Chart",
           "cronJob": "Scheduled job",
           "custom": "Custom"
         },
