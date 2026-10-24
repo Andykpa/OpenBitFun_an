@@ -14,6 +14,8 @@ vi.mock('@/infrastructure/api/service-api/RemoteConnectAPI', async importOrigina
   ...await importOriginal<typeof import('@/infrastructure/api/service-api/RemoteConnectAPI')>(),
   remoteConnectAPI: { getDeviceInfo: async () => ({ device_id: 'local', device_name: 'Workstation', device_os: 'macOS' }) },
 }));
+const wslSupport = vi.hoisted(() => ({ supported: true }));
+vi.mock('@/features/ssh-remote/sshApi', () => ({ sshApi: { listWslDistributions: async () => ({ supported: wslSupport.supported, distributions: [] }) } }));
 const { pickDirectory, sourceOptions, optionsBySource } = vi.hoisted(() => ({ pickDirectory: vi.fn(), sourceOptions: [] as WorkspaceSourceOption[], optionsBySource: {} as Record<string, WorkspaceSourceOption[]> }));
 vi.mock('@/features/ssh-remote/useWorkspaceSourceOptions', () => ({
   useWorkspaceSourceOptions: (source: string) => ({ options: optionsBySource[source] || [], loading: false, error: '', refresh: vi.fn() }),
@@ -59,6 +61,7 @@ describe('NewProjectDialog composition', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.spyOn(globalAPI, 'getRecentWorkspaces').mockResolvedValue([]);
+    wslSupport.supported = true;
     sourceOptions.length = 0;
     for (const key of Object.keys(optionsBySource)) delete optionsBySource[key];
     for (const source of ['ssh', 'wsl', 'localDocker', 'remoteDocker']) {
@@ -76,6 +79,17 @@ describe('NewProjectDialog composition', () => {
   const render = async (extra = {}) => {
     await act(async () => root.render(<NewProjectDialog isOpen defaultParentPath="/srv" onClose={close} onConfirm={confirm} {...extra} />));
   };
+
+  it('disables WSL before selection when the active host does not support it', async () => {
+    wslSupport.supported = false;
+    const onSelectRemoteHost = vi.fn();
+    await render({ onPickRemoteFolder: vi.fn(), onSelectRemoteHost });
+    expect(sourceOption(1, 'wsl').disabled).toBe(true);
+    expect(document.body.textContent).not.toContain('ssh.remote.wslUnsupported');
+    act(() => sourceOption(1, 'wsl').click());
+    expect(sourceOption(1, 'system').getAttribute('aria-checked')).toBe('true');
+    expect(onSelectRemoteHost).not.toHaveBeenCalled();
+  });
 
   it('uses the single source folder name when the name is left empty', async () => {
     await render();
@@ -247,11 +261,10 @@ describe('NewProjectDialog composition', () => {
     expect(document.querySelector('[data-workspace-choice="controller-private"]')).toBeNull();
   });
 
-  it('shows the device name below the current-computer header without repeating generic hints', async () => {
+  it('does not repeat the device name below the current-computer header', async () => {
     await render({ onPickRemoteFolder: vi.fn() });
     const row = document.querySelectorAll('[data-openbitfun-part="sourceField"]')[0];
-    expect(row.querySelector('.workspace-source-selector__device')?.textContent).toBe('Workstation');
-    expect(row.querySelector('.workspace-source-selector__device svg')?.getAttribute('data-system')).toBe('macos');
+    expect(row.querySelector('.workspace-source-selector__device')).toBeNull();
     expect(row.querySelector('.workspace-source-selector__heading')?.textContent).not.toContain('Workstation');
     expect(document.body.textContent).not.toContain('workspaceSource.currentHostHint');
     expect(document.body.textContent).not.toContain('newProject.sourceFoldersHint');

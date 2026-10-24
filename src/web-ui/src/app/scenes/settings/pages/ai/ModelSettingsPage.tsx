@@ -2601,6 +2601,7 @@ const ModelSettingsPage: React.FC = () => {
 
   const apiProviderGroups = providerGroups.filter(group => !subscriptionProviderOf(group.models[0].auth));
   const subscriptionProviderGroups = providerGroups.filter(group => !!subscriptionProviderOf(group.models[0].auth));
+  const editingProviderGroup = providerGroups.find(group => editingTargetKey === `provider:${group.key}`);
   const unconfiguredSubscriptionAccounts = availableSubscriptionAccounts.filter(({ account, accountId }) => (
     !modelsUsingSubscriptionAccount(aiModels, account.provider, accountId).length
   ));
@@ -4626,7 +4627,7 @@ const ModelSettingsPage: React.FC = () => {
               <ul className="openbitfun-model-settings__import-summary" aria-label={t('acquisition.api')}>
                 {apiProviderGroups.map(group => (
                   <li key={group.key} className="openbitfun-model-settings__import-item">
-                    <Capsule size="sm" action={(
+                    <Capsule size="sm" actionPlacement="reserved" action={(
                       <Tooltip content={t('actions.deleteProvider')} trigger="hover-focus">
                         <IconButton
                           className="openbitfun-model-settings__source-pill-delete"
@@ -4682,7 +4683,7 @@ const ModelSettingsPage: React.FC = () => {
                 <ul className="openbitfun-model-settings__import-summary" aria-label={t('acquisition.subscriptions')}>
                   {subscriptionProviderGroups.map(group => (
                     <li key={group.key} className="openbitfun-model-settings__import-item">
-                      <Capsule size="sm" action={(
+                      <Capsule size="sm" actionPlacement="reserved" action={(
                         <Tooltip content={t('actions.deleteProvider')} trigger="hover-focus">
                           <IconButton
                             className="openbitfun-model-settings__source-pill-delete"
@@ -5325,6 +5326,17 @@ const ModelSettingsPage: React.FC = () => {
               </Button>
             ) : (
               <>
+                {!modelPanelDraft && editingProviderGroup && (
+                  <Button
+                    variant="outline"
+                    tone="danger"
+                    size="sm"
+                    onClick={() => void requestProviderDelete(editingProviderGroup)}
+                    disabled={isEditorSaving}
+                  >
+                    {t('actions.deleteProvider')}
+                  </Button>
+                )}
                 <Button variant="fill" size="sm" onClick={modelPanelDraft ? cancelModelPanel : requestCloseEditingModal} disabled={isEditorSaving}>
                   {t('actions.cancel')}
                 </Button>
