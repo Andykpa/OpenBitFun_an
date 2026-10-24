@@ -526,7 +526,8 @@ describe('SSHConnectionDialog', () => {
     sshApiMock.listWslDistributions.mockResolvedValue(result);
     await renderDialog();
     await selectWsl();
-    expect(container.textContent).toContain(hint);
+    if (result.supported) expect(container.textContent).toContain(hint);
+    else expect(container.textContent).not.toContain(hint);
     expect(findConnectButton()?.disabled).toBe(true);
     expect(remoteContextMock.connect).not.toHaveBeenCalled();
   });

@@ -83,7 +83,7 @@ describe('NewProjectDialog composition', () => {
     const onSelectRemoteHost = vi.fn();
     await render({ onPickRemoteFolder: vi.fn(), onSelectRemoteHost });
     expect(sourceOption(1, 'wsl').disabled).toBe(true);
-    expect(document.body.textContent).toContain('ssh.remote.wslUnsupported');
+    expect(document.body.textContent).not.toContain('ssh.remote.wslUnsupported');
     act(() => sourceOption(1, 'wsl').click());
     expect(sourceOption(1, 'system').getAttribute('aria-checked')).toBe('true');
     expect(onSelectRemoteHost).not.toHaveBeenCalled();
@@ -224,11 +224,10 @@ describe('NewProjectDialog composition', () => {
     expect(pick).not.toHaveBeenCalled();
   });
 
-  it('shows the device name below the current-computer header without repeating generic hints', async () => {
+  it('does not repeat the device name below the current-computer header', async () => {
     await render({ onPickRemoteFolder: vi.fn() });
     const row = document.querySelectorAll('[data-openbitfun-part="sourceField"]')[0];
-    expect(row.querySelector('.workspace-source-selector__device')?.textContent).toBe('Workstation');
-    expect(row.querySelector('.workspace-source-selector__device svg')?.getAttribute('data-system')).toBe('macos');
+    expect(row.querySelector('.workspace-source-selector__device')).toBeNull();
     expect(row.querySelector('.workspace-source-selector__heading')?.textContent).not.toContain('Workstation');
     expect(document.body.textContent).not.toContain('workspaceSource.currentHostHint');
     expect(document.body.textContent).not.toContain('newProject.sourceFoldersHint');

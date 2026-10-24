@@ -58,7 +58,7 @@ const DateTimePickerPopover: React.FC<DateTimePickerPopoverProps> = ({
   onSelect,
   onClose,
 }) => {
-  const { t, formatDate } = useI18n('common');
+  const { t, formatDate, formatNumber } = useI18n('common');
   const popoverRef = useRef<HTMLDivElement | null>(null);
 
   const [focusedDayMs, setFocusedDayMs] = useState(() => {
@@ -239,7 +239,7 @@ const DateTimePickerPopover: React.FC<DateTimePickerPopoverProps> = ({
               onFocus={() => setFocusedDayMs(day.getTime())}
               onClick={() => selectDay(day)}
             >
-              {formatDate(day, { day: 'numeric' })}
+              {formatNumber(day.getDate(), { useGrouping: false })}
             </button>
             </div>
           );
