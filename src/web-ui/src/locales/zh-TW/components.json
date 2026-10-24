@@ -695,6 +695,14 @@
     "checklist": {
       "empty": "暫無事項"
     },
+    "chart": {
+      "empty": "暫無可繪製的資料",
+      "other": "其他",
+      "remaining": "剩餘",
+      "ofTotal": "共 {{total}}",
+      "changeSince": "較 {{label}} {{change}}",
+      "range": "{{min}} – {{max}}"
+    },
     "cron": {
       "failed": "無法載入定時任務。",
       "missing": "該定時任務已不存在。",

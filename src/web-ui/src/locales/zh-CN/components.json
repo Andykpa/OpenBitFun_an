@@ -695,6 +695,14 @@
     "checklist": {
       "empty": "暂无事项"
     },
+    "chart": {
+      "empty": "暂无可绘制的数据",
+      "other": "其他",
+      "remaining": "剩余",
+      "ofTotal": "共 {{total}}",
+      "changeSince": "较 {{label}} {{change}}",
+      "range": "{{min}} – {{max}}"
+    },
     "cron": {
       "failed": "无法加载定时任务。",
       "missing": "该定时任务已不存在。",
