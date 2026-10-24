@@ -83,6 +83,79 @@ describe('ModelSettingsPage loading and provider actions', () => {
     vi.restoreAllMocks();
   });
 
+  it.each([false, true])('shows host accounts on the page without importing a model (account slots: %s)', async slotsSupported => {
+    const account = {
+      provider: 'codex' as const, connected: true, account: 'shared@example.invalid',
+      display_label: 'Codex', suggested_format: 'openai',
+      suggested_base_url: 'https://example.test/v1', suggested_model: 'fixture-model', api_offerings: [],
+    };
+    vi.mocked(aiApi.listSubscriptionAccounts).mockResolvedValue([account]);
+    vi.spyOn(aiApi, 'listSubscriptionAccountInstances').mockResolvedValue(slotsSupported ? [
+      { account_id: 'codex', is_default: true, account, enabled: true },
+      { account_id: 'codex:second-slot', is_default: false, account, enabled: false },
+    ] : []);
+    const update = vi.spyOn(configManager, 'updateConfig');
+    await act(async () => root.render(<ModelSettingsPage />));
+    const summary = container.querySelector('[data-testid="settings-subscription-services"]')!;
+    expect(summary.textContent).toContain('shared@example.invalid');
+    expect(summary.closest('.openbitfun-config-page-row')?.textContent).toContain(copy('acquisition.subscriptions'));
+    expect(summary.querySelector('ul')?.getAttribute('aria-label')).toBe(copy('acquisition.subscriptions'));
+    expect(summary.querySelectorAll('[data-account-id]')).toHaveLength(slotsSupported ? 2 : 1);
+    if (slotsSupported) expect(summary.textContent).toContain(copy('subscriptionAuth.pool.disabled'));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(update).not.toHaveBeenCalled();
+    await act(async () => summary.querySelector<HTMLButtonElement>('button')!.click());
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('shared@example.invalid');
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it.each(['subscription', 'subscription_pool'] as const)('merges host accounts with configured services without duplicating a %s account', async type => {
+    const account = { provider: 'codex' as const, connected: true, account: 'shared@example.invalid',
+      display_label: 'Codex', suggested_format: 'openai', suggested_base_url: 'https://example.test/v1', suggested_model: 'fixture-model', api_offerings: [] };
+    vi.mocked(aiApi.listSubscriptionAccounts).mockResolvedValue([account]);
+    vi.spyOn(aiApi, 'listSubscriptionAccountInstances').mockResolvedValue([
+      { account_id: 'codex', is_default: true, account, enabled: true },
+      { account_id: 'codex:second-slot', is_default: false, account, enabled: true },
+    ]);
+    const configured: AIModelConfig = { ...model, auth: type === 'subscription'
+      ? { type, provider: 'codex' }
+      : { type, provider: 'codex', accounts: ['codex'], revision: 0 } };
+    const values: Record<string, unknown> = {
+      'ai.models': [configured], 'ai.default_models': { primary: model.id },
+      'ai.proxy': { enabled: false, url: '', username: '', password: '' },
+      'ai.stream_idle_timeout_secs': 120, 'ai.stream_ttft_timeout_secs': 60,
+    };
+    vi.spyOn(configManager, 'hasCachedConfig').mockImplementation(path => path in values);
+    vi.spyOn(configManager, 'getCachedConfig').mockImplementation(<T,>(path: string) => values[path] as T);
+    await act(async () => root.render(<ModelSettingsPage />));
+    const summary = container.querySelector('[data-testid="settings-subscription-services"]')!;
+    expect(summary.querySelectorAll('li')).toHaveLength(2);
+    expect(summary.querySelector('[data-account-id="codex"]')).toBeNull();
+    expect(summary.querySelector('[data-account-id="codex:second-slot"]')).not.toBeNull();
+    expect(summary.querySelector(`button[aria-label="${copy('actions.deleteProvider')}: ${model.name}"]`)).not.toBeNull();
+  });
+
+  it('refreshes host accounts on focus and ignores older reads without discarding accounts on failure', async () => {
+    const account = { provider: 'codex' as const, connected: true, account: 'first@example.invalid',
+      display_label: 'Codex', suggested_format: 'openai', suggested_base_url: 'https://example.test/v1', suggested_model: 'fixture-model', api_offerings: [] };
+    const list = vi.mocked(aiApi.listSubscriptionAccounts).mockResolvedValue([account]);
+    vi.spyOn(aiApi, 'listSubscriptionAccountInstances').mockResolvedValue([]);
+    await act(async () => root.render(<ModelSettingsPage />));
+    const summary = () => container.querySelector('[data-testid="settings-subscription-services"]')!;
+    expect(summary().textContent).toContain(account.account);
+    const old = deferred();
+    list.mockImplementationOnce(() => old.promise as never).mockResolvedValueOnce([{ ...account, account: 'new@example.invalid' }]);
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    expect(summary().textContent).toContain('new@example.invalid');
+    await act(async () => old.resolve([account]));
+    expect(summary().textContent).not.toContain(account.account);
+    list.mockRejectedValueOnce(new Error('Host account read unavailable'));
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    expect(summary().textContent).toContain('new@example.invalid');
+    expect(summary().textContent).toContain(copy('acquisition.loadFailed'));
+  });
+
   it('renders a warm model pool immediately without starting a read that could overwrite edits', () => {
     const values: Record<string, unknown> = {
       'ai.models': [model], 'ai.default_models': { primary: model.id },

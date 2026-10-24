@@ -831,6 +831,7 @@
     "emptyProjectHint": "Save on the current device:",
     "invalidDirectoryName": "Use a single folder name without slashes, . or ..",
     "sameHostRequired": "Project folders must be on the same host.",
+    "assistantFolderUnavailable": "This folder belongs to an assistant workspace and cannot be added as a project. Select a different folder, or remove it and enter a name to create a new project.",
     "remoteUnavailable": "Remote folder selection is unavailable here.",
     "remoteConnectionChanged": "The remote connection changed. Select the project folders again.",
     "defaultDirectoryUnavailable": "The target device did not provide its home directory. Update or reconnect to the device and try again.",

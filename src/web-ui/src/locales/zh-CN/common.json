@@ -831,6 +831,7 @@
     "emptyProjectHint": "保存到当前设备：",
     "invalidDirectoryName": "请输入单个文件夹名称，不能包含斜杠，也不能为 . 或 ..",
     "sameHostRequired": "同一项目的文件夹必须位于同一台主机。",
+    "assistantFolderUnavailable": "此文件夹属于助理工作区，不能添加为项目。请选择其他文件夹，或移除此文件夹并输入名称以创建新项目。",
     "remoteUnavailable": "当前界面不支持选择远程文件夹。",
     "remoteConnectionChanged": "远程连接已改变，请重新选择项目文件夹。",
     "defaultDirectoryUnavailable": "目标设备未提供用户目录，请更新或重新连接该设备后重试。",

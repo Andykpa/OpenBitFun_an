@@ -68,6 +68,7 @@ vi.mock('@/features/ssh-remote', () => ({
 }));
 
 import MainNav from './MainNav';
+import { useWorkspaceSessionViewStore } from './workspaceSessionView';
 
 describe('project creation entry points', () => {
   let root: Root;
@@ -130,6 +131,16 @@ describe('project creation entry points', () => {
     act(() => root.unmount());
     host.remove();
     resetDeviceSurfaceForTest();
+  });
+
+  it.each([true, false])('reveals project groups only after successful creation (success=%s)', async succeeded => {
+    useWorkspaceSessionViewStore.getState().setGrouping('all');
+    state.createProject.mockResolvedValueOnce(succeeded);
+    state.pickDirectory.mockResolvedValueOnce('/srv/project');
+    await act(async () => window.dispatchEvent(new Event('nav:new-project')));
+    await click('actions.add');
+    await click('newProject.create');
+    expect(useWorkspaceSessionViewStore.getState().grouping).toBe(succeeded ? 'grouped' : 'all');
   });
 
   it.each(['sidebar', 'global'] as const)('%s opens the full source picker and adds a WSL folder', async entry => {

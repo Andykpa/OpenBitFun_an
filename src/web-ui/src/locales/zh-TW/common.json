@@ -831,6 +831,7 @@
     "emptyProjectHint": "儲存至目前裝置：",
     "invalidDirectoryName": "請輸入單一資料夾名稱，不可包含斜線，也不可為 . 或 ..",
     "sameHostRequired": "同一專案的資料夾必須位於同一台主機。",
+    "assistantFolderUnavailable": "此資料夾屬於助理工作區，無法新增為專案。請選擇其他資料夾，或移除此資料夾並輸入名稱以建立新專案。",
     "remoteUnavailable": "目前介面不支援選擇遠端資料夾。",
     "remoteConnectionChanged": "遠端連線已變更，請重新選擇專案資料夾。",
     "defaultDirectoryUnavailable": "目標裝置未提供使用者目錄，請更新或重新連線至該裝置後重試。",
