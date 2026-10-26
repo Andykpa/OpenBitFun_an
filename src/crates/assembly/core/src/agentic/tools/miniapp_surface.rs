@@ -174,18 +174,6 @@ impl MiniAppWebSession {
     pub fn to_value(&self) -> Value {
         self.snapshot().to_value()
     }
-
-    /// Capability gate used by the tool before it forwards an action.
-    pub fn require_capability(
-        &self,
-        capability: MiniAppWebCapability,
-    ) -> Result<(), MiniAppWebErrorCode> {
-        if self.surface.has_capability(capability) {
-            Ok(())
-        } else {
-            Err(MiniAppWebErrorCode::CapabilityMissing)
-        }
-    }
 }
 
 /// Detached view of a session. Tool responses must not hold the registry lock,
@@ -352,16 +340,6 @@ pub async fn resolve_target(
     let app_id = session.surface.app_id.clone();
     let target = session.targets.resolve(&app_id, target_id, now_ms)?;
     Ok((target.node_key, target.summary))
-}
-
-/// Invalidate every earlier handle after a reload or navigation was observed.
-pub async fn invalidate_targets(session_id: &str) -> Result<(), MiniAppWebErrorCode> {
-    let mut registry = sessions().lock().await;
-    let session = registry
-        .get_mut(session_id)
-        .ok_or(MiniAppWebErrorCode::UnknownSession)?;
-    session.targets.invalidate();
-    Ok(())
 }
 
 /// Host errors are plain strings, but the surface runtime reports typed

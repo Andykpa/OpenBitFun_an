@@ -1,15 +1,13 @@
 //! Main-Agent to MiniApp Web surface contracts.
 //!
-//! A MiniApp runs as a Web page inside the product window, so the Agent drives
-//! it with BrowserUse semantics (inspect / locate / input / wait) instead of
-//! source editing or host paths. This module owns the stable DTOs, limits, and
-//! pure helpers shared by the Agent tool, the Desktop adapter, and the Web UI
-//! surface runtime:
+//! Runtime control complements source inspection and editing through the
+//! existing MiniApp authoring owner. This module owns the stable DTOs, limits,
+//! and pure helpers for the Agent tool and Desktop surface adapter:
 //!
 //! - surface capabilities and session identity,
 //! - locator priority and sanitization,
 //! - short-lived target handles plus their staleness rules,
-//! - the optional MiniApp bridge envelope (`agent-ready` / request / response).
+//! - bridge payload limits; wire envelopes are handled by the surface runtime.
 //!
 //! Nothing here may carry a `PathManager`, source directory, draft root, or any
 //! other controller-local path.
@@ -39,13 +37,11 @@ pub const MINIAPP_WEB_DEFAULT_WAIT_MS: u64 = 200;
 pub const MINIAPP_WEB_TARGET_TTL_MS: u64 = 10 * 60 * 1000;
 /// Upper bound for a bridge request or response payload.
 pub const MINIAPP_WEB_MAX_BRIDGE_BYTES: usize = 32 * 1024;
-/// Upper bound for MiniApp-declared bridge capabilities.
-pub const MINIAPP_WEB_MAX_BRIDGE_CAPABILITIES: usize = 8;
 /// Upper bound for one bridge round trip.
 pub const MINIAPP_WEB_BRIDGE_TIMEOUT_MS: u64 = 5_000;
 /// Longest side a captured frame is scaled to before it reaches the model. A
-/// Game or Canvas MiniApp has no readable structure, so pixels are the only
-/// live observation; the bound keeps one observation readable and cheap.
+/// Canvas MiniApp may need pixels when its bridge does not expose enough state;
+/// the bound keeps one observation readable and cheap.
 pub const MINIAPP_WEB_MAX_CAPTURE_EDGE: u32 = 1024;
 /// Default longest side for a captured frame.
 pub const MINIAPP_WEB_DEFAULT_CAPTURE_EDGE: u32 = 900;
@@ -79,10 +75,6 @@ pub const MINIAPP_WEB_MAX_WATCH_SAMPLE_BYTES: usize = 4 * 1024;
 pub const MINIAPP_WEB_MAX_APPS: usize = 200;
 /// Upper bound for a discovered app description.
 pub const MINIAPP_WEB_MAX_DESCRIPTION_CHARS: usize = 200;
-
-pub const BRIDGE_READY_TYPE: &str = "openbitfun:miniapp-agent-ready";
-pub const BRIDGE_REQUEST_TYPE: &str = "openbitfun:miniapp-agent-request";
-pub const BRIDGE_RESPONSE_TYPE: &str = "openbitfun:miniapp-agent-response";
 
 /// Web surface capabilities reported by the host for one session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -709,97 +701,6 @@ impl MiniAppWebTargetRegistry {
     }
 }
 
-/// MiniApp-declared bridge capabilities, as announced in `agent-ready`.
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", default)]
-pub struct MiniAppBridgeReady {
-    pub app_id: String,
-    pub schema_version: String,
-    pub capabilities: Vec<String>,
-}
-
-impl MiniAppBridgeReady {
-    /// The announcement is untrusted: normalize declared capabilities and
-    /// reject unknown schema versions instead of guessing.
-    pub fn validated(mut self) -> Result<Self, MiniAppWebErrorCode> {
-        if self.schema_version != MINIAPP_WEB_SCHEMA_VERSION {
-            return Err(MiniAppWebErrorCode::CapabilityMissing);
-        }
-        if self.app_id.trim().is_empty() {
-            return Err(MiniAppWebErrorCode::InvalidParams);
-        }
-        let mut seen = Vec::new();
-        for capability in self.capabilities.drain(..) {
-            let normalized = capability.trim().to_ascii_lowercase();
-            if normalized.is_empty() || normalized.len() > 32 || !normalized.is_ascii() {
-                continue;
-            }
-            if !seen.contains(&normalized) {
-                seen.push(normalized);
-            }
-            if seen.len() >= MINIAPP_WEB_MAX_BRIDGE_CAPABILITIES {
-                break;
-            }
-        }
-        self.capabilities = seen;
-        Ok(self)
-    }
-}
-
-/// One bridge response paired by `requestId`.
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", default)]
-pub struct MiniAppBridgeResponse {
-    pub request_id: String,
-    pub ok: bool,
-    pub value: Option<Value>,
-    pub error: Option<String>,
-}
-
-/// Parsed bridge envelope. Unrelated `postMessage` traffic stays `Other`.
-#[derive(Clone, Debug, PartialEq)]
-pub enum MiniAppBridgeEnvelope {
-    Ready(MiniAppBridgeReady),
-    Response(MiniAppBridgeResponse),
-    Other,
-}
-
-pub fn parse_bridge_envelope(payload: &Value) -> MiniAppBridgeEnvelope {
-    let message_type = payload.get("type").and_then(Value::as_str).unwrap_or("");
-    match message_type {
-        BRIDGE_READY_TYPE => serde_json::from_value::<MiniAppBridgeReady>(payload.clone())
-            .map(MiniAppBridgeEnvelope::Ready)
-            .unwrap_or(MiniAppBridgeEnvelope::Other),
-        BRIDGE_RESPONSE_TYPE => serde_json::from_value::<MiniAppBridgeResponse>(payload.clone())
-            .map(MiniAppBridgeEnvelope::Response)
-            .unwrap_or(MiniAppBridgeEnvelope::Other),
-        _ => MiniAppBridgeEnvelope::Other,
-    }
-}
-
-/// Build the outbound bridge request. `action` is required for `act` and must be
-/// omitted for `observe`; the MiniApp decides what each action means.
-pub fn bridge_request_payload(
-    request_id: &str,
-    method: &str,
-    action: Option<Value>,
-) -> Result<Value, MiniAppWebErrorCode> {
-    if request_id.trim().is_empty() {
-        return Err(MiniAppWebErrorCode::InvalidParams);
-    }
-    let mut payload = json!({
-        "type": BRIDGE_REQUEST_TYPE,
-        "schemaVersion": MINIAPP_WEB_SCHEMA_VERSION,
-        "requestId": request_id,
-        "method": method,
-    });
-    if let Some(action) = action {
-        payload["action"] = action;
-    }
-    validate_bridge_payload_size(&payload)?;
-    Ok(payload)
-}
-
 /// Reject oversized bridge payloads before they reach the MiniApp frame.
 pub fn validate_bridge_payload_size(payload: &Value) -> Result<(), MiniAppWebErrorCode> {
     let size = payload.to_string().len();
@@ -1058,83 +959,17 @@ mod tests {
     }
 
     #[test]
-    fn bridge_ready_rejects_unknown_schema_and_normalizes_capabilities() {
-        let ready = MiniAppBridgeReady {
-            app_id: "demo".to_string(),
-            schema_version: "agent.v0".to_string(),
-            capabilities: vec!["observe".to_string()],
-        };
+    fn bridge_payload_limit_counts_serialized_utf8_bytes() {
+        let at_limit = json!("x".repeat(MINIAPP_WEB_MAX_BRIDGE_BYTES - 2));
+        assert_eq!(validate_bridge_payload_size(&at_limit), Ok(()));
+        let over_limit = json!("x".repeat(MINIAPP_WEB_MAX_BRIDGE_BYTES - 1));
         assert_eq!(
-            ready.validated(),
-            Err(MiniAppWebErrorCode::CapabilityMissing)
-        );
-
-        let ready = MiniAppBridgeReady {
-            app_id: "demo".to_string(),
-            schema_version: MINIAPP_WEB_SCHEMA_VERSION.to_string(),
-            capabilities: vec![
-                " Observe ".to_string(),
-                "observe".to_string(),
-                "ACT".to_string(),
-                "".to_string(),
-                "unexpectedly-long-capability-name-over-limit".to_string(),
-            ],
-        }
-        .validated()
-        .expect("valid announcement");
-        assert_eq!(ready.capabilities, vec!["observe", "act"]);
-    }
-
-    #[test]
-    fn bridge_envelope_distinguishes_ready_response_and_traffic() {
-        let ready = json!({
-            "type": BRIDGE_READY_TYPE,
-            "appId": "demo",
-            "schemaVersion": MINIAPP_WEB_SCHEMA_VERSION,
-            "capabilities": ["observe"],
-        });
-        assert!(matches!(
-            parse_bridge_envelope(&ready),
-            MiniAppBridgeEnvelope::Ready(_)
-        ));
-
-        let response = json!({
-            "type": BRIDGE_RESPONSE_TYPE,
-            "requestId": "req-1",
-            "ok": true,
-            "value": {"phase": "playing"},
-        });
-        match parse_bridge_envelope(&response) {
-            MiniAppBridgeEnvelope::Response(response) => {
-                assert_eq!(response.request_id, "req-1");
-                assert_eq!(response.value.unwrap()["phase"], "playing");
-            }
-            other => panic!("unexpected envelope: {other:?}"),
-        }
-
-        assert_eq!(
-            parse_bridge_envelope(&json!({"type": "openbitfun:event"})),
-            MiniAppBridgeEnvelope::Other
-        );
-    }
-
-    #[test]
-    fn bridge_requests_carry_the_schema_and_reject_oversized_actions() {
-        let request = bridge_request_payload("req-1", "observe", None).expect("request");
-        assert_eq!(request["schemaVersion"], MINIAPP_WEB_SCHEMA_VERSION);
-        assert!(request.get("action").is_none());
-
-        let act = bridge_request_payload("req-2", "act", Some(json!({"type": "restart"})))
-            .expect("act request");
-        assert_eq!(act["action"]["type"], "restart");
-
-        let oversized = json!({ "type": "noop", "blob": "x".repeat(MINIAPP_WEB_MAX_BRIDGE_BYTES) });
-        assert_eq!(
-            bridge_request_payload("req-3", "act", Some(oversized)),
+            validate_bridge_payload_size(&over_limit),
             Err(MiniAppWebErrorCode::InvalidParams)
         );
+        let multibyte = json!("界".repeat(MINIAPP_WEB_MAX_BRIDGE_BYTES / 3 + 1));
         assert_eq!(
-            bridge_request_payload("  ", "observe", None),
+            validate_bridge_payload_size(&multibyte),
             Err(MiniAppWebErrorCode::InvalidParams)
         );
     }

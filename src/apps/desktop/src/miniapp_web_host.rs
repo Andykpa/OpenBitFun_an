@@ -326,11 +326,8 @@ impl DesktopMiniAppWebHost {
         }
     }
 
-    /// Choose a fallback presentation after the controllable tab path failed.
-    ///
-    /// A tab is attempted by `open_surface` first. This helper only decides what
-    /// to do when that Web UI route is unavailable: reuse an existing window,
-    /// launch the published desktop app, or retry a tab as the final fallback.
+    /// Reuse an existing window, then an existing tab; otherwise launch the
+    /// exported desktop app when available, falling back to a new tab.
     async fn resolve_presentation(&self, app_id: &str) -> Result<Presentation, String> {
         // A window the user already has open is theirs: attach to it instead of
         // moving the app somewhere else.

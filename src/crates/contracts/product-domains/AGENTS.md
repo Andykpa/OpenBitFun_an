@@ -82,6 +82,7 @@ For MiniApp bridge/session or embedded bundle changes, use the focused contracts
 
 ```bash
 cargo test --locked -p openbitfun-product-domains --no-default-features --features miniapp --lib miniapp::agent_bridge::tests
+cargo test --locked -p openbitfun-product-domains --no-default-features --features miniapp --lib miniapp::web_surface::tests
 cargo test --locked -p openbitfun-product-domains --no-default-features --features miniapp --test miniapp_contracts
 ```
 
