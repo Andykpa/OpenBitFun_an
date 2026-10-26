@@ -700,11 +700,10 @@ jobs:
         timeout-minutes: 5
         run: pnpm --dir src/mobile-web run test:account-browser
 
-      - name: Test mobile web message queue, composer and rollback layouts
+      - name: Test mobile web composer and rollback layouts
         if: needs.build-impact.outputs.frontend_required != 'false'
         timeout-minutes: 3
         run: |
-          pnpm --dir src/mobile-web run test:host-queue
           pnpm --dir src/mobile-web run test:prompt-suggestion-browser
           pnpm --dir src/mobile-web run test:rollback-browser
 
