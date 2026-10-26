@@ -221,6 +221,7 @@
             "customization": "Create customization drafts, preview them live, and apply, sync, or discard changes",
             "versions": "Inspect version history and roll back to an earlier release",
             "agent-authoring": "Let an agent initialize, author, and validate a Mini App",
+            "agent-operate-app": "Let an agent control a Mini App using its source and live interface",
             "agent-market-submit": "Let an agent submit a completed Mini App for market review when explicitly requested",
             "publishing": "Withdraw and review market releases, and render slide pages"
           }

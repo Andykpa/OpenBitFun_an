@@ -156,6 +156,29 @@ This tool has no host-path access or arbitrary JavaScript `evaluate` action. Sou
         })
     }
 
+    fn output_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "ok": { "type": "boolean" },
+                "action": { "type": "string" },
+                "data": { "type": "object", "additionalProperties": true },
+                "error": {
+                    "type": "object",
+                    "properties": {
+                        "code": { "type": "string" },
+                        "message": { "type": "string" },
+                        "hints": { "type": "array", "items": { "type": "string" } }
+                    },
+                    "required": ["code", "message", "hints"],
+                    "additionalProperties": false
+                }
+            },
+            "required": ["ok", "action"],
+            "additionalProperties": false
+        })
+    }
+
     fn is_readonly(&self) -> bool {
         false
     }
@@ -272,6 +295,31 @@ This tool has no host-path access or arbitrary JavaScript `evaluate` action. Sou
 mod tests {
     use super::*;
     use crate::agentic::tools::implementations::miniapp_browser::actions::Action;
+
+    #[test]
+    fn output_schema_covers_live_state_and_typed_failures_without_product_full_registration() {
+        use openbitfun_product_domains::product_control::validate_operation_arguments;
+
+        let schema = MiniAppBrowserTool::new().output_schema();
+        assert_eq!(schema["type"], "object");
+        for envelope in [
+            json!({ "ok": true, "action": "observe_bridge", "data": {
+                "sessionId": "miniapp-session-1", "state": { "board": [[0, 1]], "turn": "white" }
+            } }),
+            json!({ "ok": false, "action": "click", "error": {
+                "code": "STALE_TARGET", "message": "The document changed", "hints": ["Inspect again"]
+            } }),
+        ] {
+            validate_operation_arguments(&schema, Some(&envelope)).expect("real result envelope");
+        }
+        assert!(validate_operation_arguments(
+            &schema,
+            Some(&json!({
+                "ok": false, "action": "click", "error": { "code": 5 }
+            }))
+        )
+        .is_err());
+    }
 
     #[test]
     fn schema_and_dispatcher_agree_on_the_action_set() {
