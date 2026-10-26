@@ -1,6 +1,7 @@
 import { subscribeHostCatalog } from '../services/HostCatalogSubscription';
 import {
   AppWindow as LucideAppWindow,
+  Bot as LucideBot,
   Check as LucideCheck,
   ChevronRight as LucideChevronRight,
   ChevronsUpDown as LucideChevronsUpDown,
@@ -1657,7 +1658,9 @@ const SessionListPage: React.FC<SessionListPageProps> = ({
                       <div className={`harmony-sidebar__workspace-row${current ? ' is-current' : ''}`}>
                         <MobileButton appearance="plain" block className="harmony-sidebar__workspace-main" onClick={() => void handleToggleCompactWorkspace(workspace)}>
                           <span className="harmony-sidebar__folder-icon" aria-hidden="true">
-                            <LucideFolder width="21" height="21" stroke="currentColor" aria-hidden="true" />
+                            {workspace.workspace_kind === 'assistant'
+                              ? <LucideBot width="21" height="21" stroke="currentColor" aria-hidden="true" />
+                              : <LucideFolder width="21" height="21" stroke="currentColor" aria-hidden="true" />}
                           </span>
                           <span className="harmony-sidebar__workspace-copy">
                             <span className="harmony-sidebar__row-label">{workspace.name || workspace.path}</span>
