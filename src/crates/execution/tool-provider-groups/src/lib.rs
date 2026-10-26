@@ -101,7 +101,9 @@ pub fn tool_feature_group(tool_name: &str) -> Option<ToolPackFeatureGroup> {
         }
         "WebSearch" | "WebFetch" | "ControlHub" => Some(ToolPackFeatureGroup::BrowserWeb),
         "ComputerUse" => Some(ToolPackFeatureGroup::ComputerUse),
-        "view_image" | "analyze_image" => Some(ToolPackFeatureGroup::ImageAnalysis),
+        "view_image" | "analyze_image" | "generate_image" => {
+            Some(ToolPackFeatureGroup::ImageAnalysis)
+        }
         "GenerativeUI" | "InitMiniApp" | "FinalizeMiniApp" | "PublishMiniApp"
         | "PublishAppearance" | "Playbook" => Some(ToolPackFeatureGroup::MiniApp),
         "PageDeploy" | "PagePublish" => Some(ToolPackFeatureGroup::Pages),
@@ -177,6 +179,7 @@ const PRODUCT_TOOL_PROVIDER_GROUP_PLAN: &[ToolProviderGroupPlan] = &[
             "Read",
             "view_image",
             "analyze_image",
+            "generate_image",
             "Glob",
             "Grep",
             "Write",

@@ -210,6 +210,15 @@ AI client construction and subscription credential compatibility:
 cargo test -p openbitfun-core --no-default-features --features ai-adapter-runtime,subscription-auth --lib infrastructure::ai::client_factory::tests
 ```
 
+For image-service selection and compatibility with saved subscription configurations:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git,tools-image-analysis,subscription-auth --lib agentic::image_generation::tests
+```
+
+These fixtures do not call a provider or exercise live remote hosts. Image wire
+protocol and opt-in live probes belong to the AI adapters guide.
+
 This guide owns Core verification. Select one command pattern that matches the
 change; do not run every feature variant:
 

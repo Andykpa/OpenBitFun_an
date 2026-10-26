@@ -21,6 +21,7 @@ const PRODUCT_TOOL_REGISTRATION_ORDER: &[&str] = &[
     "Read",
     "view_image",
     "analyze_image",
+    "generate_image",
     "Glob",
     "Grep",
     "Write",
@@ -111,6 +112,8 @@ impl StaticToolProviderFactory<dyn Tool> for ProductConcreteToolFactory {
             "view_image" => Some(Arc::new(ViewImageTool::new())),
             #[cfg(feature = "tools-image-analysis")]
             "analyze_image" => Some(Arc::new(AnalyzeImageTool::new())),
+            #[cfg(feature = "tools-image-analysis")]
+            "generate_image" => Some(Arc::new(GenerateImageTool::new())),
             "Glob" => Some(Arc::new(GlobTool::new())),
             "Grep" => Some(Arc::new(GrepTool::new())),
             "Write" => Some(Arc::new(FileWriteTool::new())),

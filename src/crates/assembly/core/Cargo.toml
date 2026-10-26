@@ -377,6 +377,8 @@ tools-computer-use = [
 ]
 tools-image-analysis = [
     "openbitfun-tool-packs/image-analysis",
+    "ai-adapter-runtime",
+    "openbitfun-ai-adapters/image-generation",
 ]
 tools-miniapp = [
     "dep:openbitfun-product-domains",
