@@ -85,6 +85,9 @@ pub enum MiniAppWebCapability {
     Accessibility,
     /// The host can dispatch input events into the MiniApp frame.
     Input,
+    /// Opt-in: click accepts a normalized position within a bound element.
+    /// Older hosts may ignore unknown click parameters, so callers must check this.
+    ElementPositionClick,
 }
 
 impl MiniAppWebCapability {
@@ -93,6 +96,7 @@ impl MiniAppWebCapability {
             Self::Dom => "dom",
             Self::Accessibility => "accessibility",
             Self::Input => "input",
+            Self::ElementPositionClick => "element-position-click-v1",
         }
     }
 
@@ -986,7 +990,32 @@ mod tests {
         assert!(!info.has_capability(MiniAppWebCapability::Accessibility));
         assert!(info.has_bridge_capability("observe"));
         assert!(!info.has_bridge_capability("act"));
+        assert!(!info.has_capability(MiniAppWebCapability::ElementPositionClick));
         assert_eq!(info.to_value()["surface"]["kind"], "iframe");
+    }
+
+    #[test]
+    fn positioned_click_capability_is_opt_in_and_survives_old_payload_round_trips() {
+        let legacy = json!({ "appId": "demo", "capabilities": ["dom", "input"] });
+        let old: MiniAppWebSurfaceInfo = serde_json::from_value(legacy).unwrap();
+        assert!(!old.has_capability(MiniAppWebCapability::ElementPositionClick));
+        let old_round_trip: MiniAppWebSurfaceInfo =
+            serde_json::from_value(serde_json::to_value(old).unwrap()).unwrap();
+        assert!(!old_round_trip.has_capability(MiniAppWebCapability::ElementPositionClick));
+        let payload = json!({ "appId": "demo", "capabilities": ["dom", "input", "element-position-click-v1", "future-capability"] });
+        let current: MiniAppWebSurfaceInfo = serde_json::from_value(payload).unwrap();
+        assert!(current.has_capability(MiniAppWebCapability::ElementPositionClick));
+        let round_trip: MiniAppWebSurfaceInfo =
+            serde_json::from_value(serde_json::to_value(current).unwrap()).unwrap();
+        assert_eq!(
+            round_trip.capabilities,
+            vec![
+                "dom",
+                "input",
+                "element-position-click-v1",
+                "future-capability"
+            ]
+        );
     }
 
     #[test]

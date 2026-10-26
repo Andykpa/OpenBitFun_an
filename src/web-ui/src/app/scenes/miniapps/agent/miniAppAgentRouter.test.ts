@@ -122,7 +122,7 @@ describe('MiniApp agent router', () => {
       instanceId: 'instance-1',
       width: 800,
       height: 600,
-      capabilities: ['dom', 'accessibility', 'input'],
+      capabilities: ['dom', 'accessibility', 'input', 'element-position-click-v1'],
       bridgeCapabilities: [],
       // Nothing was declared yet, so the action vocabulary is unknown, not empty.
       declaredActions: [],

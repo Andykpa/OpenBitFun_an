@@ -50,7 +50,7 @@ impl Tool for MiniAppBrowserTool {
 
     async fn description(&self) -> OpenBitFunResult<String> {
         Ok(format!(
-            r#"Control a MiniApp at the source level and through its live interface. Read its source to understand business functions and action parameters, then observe live business state and invoke semantic actions on the current instance. MiniAppBrowser operates and verifies the user-visible instance.
+            r#"Control a MiniApp at the source level and through its live interface. This is the preferred tool for OpenBitFun MiniApps, before ComputerUse. Read its source to understand business functions and action parameters, then observe live business state and invoke semantic actions on the current instance. MiniAppBrowser operates and verifies the user-visible instance.
 
 Source-aware workflow:
 1. Use `OpenBitFunControl` to `get` `feature.miniapps`, then follow its schema for `list-apps` and `inspect-app`. Inspection returns HTML, CSS, UI/worker JavaScript, dependencies, and version without a workspace checkout. Read the relevant implementation and derive the shortest reliable sequence for the task; source access does not require an edit.
@@ -67,6 +67,7 @@ Opening and identity:
 
 Fallback live controls (when no suitable semantic action exists):
 - DOM loop: open -> inspect -> find (or reuse targetIds) -> click/type/read/key/scroll -> wait -> inspect. `inspect` returns at most {MINIAPP_WEB_MAX_NODES} nodes and depth {MINIAPP_WEB_MAX_DEPTH}. Locator priority: testId, role+name, name/text, then CSS selector.
+- For SVG/Canvas or other position-sensitive elements, `click` accepts `position: {{x, y}}` as fractions of the target's bounding box (0 inclusive, 1 exclusive), gated by `element-position-click-v1`. Derive positions from the observed element/source geometry, not desktop coordinates. Omit position for an element-center click. Read element attributes or DOM changes to verify the result. Missing semantic actions alone do not justify switching to ComputerUse; establish a specific unsupported operation first.
 - `wait` gives animations/network/game loops an interval ({MINIAPP_WEB_DEFAULT_WAIT_MS}ms default, {MINIAPP_WEB_MAX_WAIT_MS}ms maximum); re-observe afterwards.
 - `watch_state` samples and deduplicates bridge state within one call (up to {MINIAPP_WEB_MAX_WATCH_MS}ms). Prefer it to repeated observation calls or an external harness when following change over time.
 - `screenshot` captures the largest canvas, not the full page ({MINIAPP_WEB_DEFAULT_CAPTURE_EDGE}px longest side by default, {MINIAPP_WEB_MAX_CAPTURE_EDGE}px maximum). It is a turn-paced image fallback, not continuous vision or access to app variables.
@@ -87,7 +88,7 @@ This tool has no host-path access or arbitrary JavaScript `evaluate` action. Sou
     }
 
     fn short_description(&self) -> String {
-        "Control the live MiniApp using its source; pair with authoring tools to read or modify code."
+        "Preferred control for OpenBitFun MiniApps: open the live app, then use bridge or DOM/input before desktop automation."
             .to_string()
     }
 
@@ -106,6 +107,16 @@ This tool has no host-path access or arbitrary JavaScript `evaluate` action. Sou
                 "name": { "type": "string", "description": "open: installed MiniApp display name, used when the id is unknown. An exact name wins; a partial name must match exactly one app." },
                 "sessionId": { "type": "string", "description": "Session returned by open. Required by every action except open, sessions, and apps." },
                 "targetId": { "type": "string", "description": "Short-lived target returned by inspect or find." },
+                "position": {
+                    "type": "object",
+                    "description": "click: optional position within the target's bounding box as fractions; requires element-position-click-v1. Omit for center.",
+                    "properties": {
+                        "x": { "type": "number", "minimum": 0, "exclusiveMaximum": 1 },
+                        "y": { "type": "number", "minimum": 0, "exclusiveMaximum": 1 }
+                    },
+                    "required": ["x", "y"],
+                    "additionalProperties": false
+                },
                 "locator": {
                     "type": "object",
                     "description": "find: highest-priority axis first. Provide testId, or role with name, or text, or a selector fallback.",

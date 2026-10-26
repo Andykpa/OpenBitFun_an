@@ -14,11 +14,11 @@ use crate::agentic::tools::miniapp_surface::{
 };
 use openbitfun_product_domains::miniapp::web_surface::{
     match_installed_app, validate_bridge_payload_size, MiniAppWebAppMatch, MiniAppWebAppSummary,
-    MiniAppWebCapture, MiniAppWebErrorCode, MiniAppWebLocator, MINIAPP_WEB_DEFAULT_CAPTURE_EDGE,
-    MINIAPP_WEB_DEFAULT_WAIT_MS, MINIAPP_WEB_DEFAULT_WATCH_MS, MINIAPP_WEB_DEFAULT_WATCH_POLL_MS,
-    MINIAPP_WEB_MAX_CAPTURE_EDGE, MINIAPP_WEB_MAX_DEPTH, MINIAPP_WEB_MAX_KEY_HOLD_MS,
-    MINIAPP_WEB_MAX_NODES, MINIAPP_WEB_MAX_WAIT_MS, MINIAPP_WEB_MAX_WATCH_MS,
-    MINIAPP_WEB_MAX_WATCH_SAMPLES, MINIAPP_WEB_MAX_WATCH_SAMPLE_BYTES,
+    MiniAppWebCapability, MiniAppWebCapture, MiniAppWebErrorCode, MiniAppWebLocator,
+    MINIAPP_WEB_DEFAULT_CAPTURE_EDGE, MINIAPP_WEB_DEFAULT_WAIT_MS, MINIAPP_WEB_DEFAULT_WATCH_MS,
+    MINIAPP_WEB_DEFAULT_WATCH_POLL_MS, MINIAPP_WEB_MAX_CAPTURE_EDGE, MINIAPP_WEB_MAX_DEPTH,
+    MINIAPP_WEB_MAX_KEY_HOLD_MS, MINIAPP_WEB_MAX_NODES, MINIAPP_WEB_MAX_WAIT_MS,
+    MINIAPP_WEB_MAX_WATCH_MS, MINIAPP_WEB_MAX_WATCH_SAMPLES, MINIAPP_WEB_MAX_WATCH_SAMPLE_BYTES,
     MINIAPP_WEB_MIN_WATCH_POLL_MS,
 };
 use serde_json::{json, Value};
@@ -428,6 +428,7 @@ async fn open(input: &Value) -> Vec<ToolResult> {
         session.capabilities.join(",")
     );
     summary.push_str("\nPrefer observe_bridge and source-informed act_bridge on this live instance; do not reload or edit source for routine operation.");
+    summary.push_str(&open_next_step(&session));
     if session.bridge_announced() {
         summary.push_str(&format!(
             "\nAgent bridge capabilities=[{}]",
@@ -467,6 +468,20 @@ async fn open(input: &Value) -> Vec<ToolResult> {
         );
     }
     ok_response(action, session.to_value(), summary)
+}
+
+fn open_next_step(session: &MiniAppWebSessionSnapshot) -> String {
+    if session.has_dom() && !session.has_bridge_capability("act") {
+        format!(
+            "\nNext: call inspect with sessionId='{}', then find/read and use the supported DOM/input controls on this MiniApp. Missing semantic actions alone do not justify ComputerUse. Establish a specific unsupported operation before considering desktop fallback.",
+            session.session_id
+        )
+    } else {
+        format!(
+            "\nNext: call observe_bridge with sessionId='{}' to resolve live state and bridge readiness, then use declared actions or supported input. Report a specific capability gap if this surface cannot perform the task; do not substitute another device's desktop.",
+            session.session_id
+        )
+    }
 }
 
 async fn close(session: &MiniAppWebSessionSnapshot) -> Vec<ToolResult> {
@@ -631,9 +646,13 @@ async fn read(session: &MiniAppWebSessionSnapshot, input: &Value) -> Vec<ToolRes
     let text = payload.get("text").cloned().unwrap_or(Value::Null);
     let value = payload.get("value").cloned().unwrap_or(Value::Null);
     let summary = format!(
-        "text={} value={}",
+        "text={} value={} attributes={}",
         text.as_str().unwrap_or("null"),
-        value.as_str().unwrap_or("null")
+        value.as_str().unwrap_or("null"),
+        payload
+            .get("attributes")
+            .cloned()
+            .unwrap_or_else(|| json!({}))
     );
     ok_response(
         action,
@@ -650,18 +669,19 @@ async fn read(session: &MiniAppWebSessionSnapshot, input: &Value) -> Vec<ToolRes
 
 async fn click(session: &MiniAppWebSessionSnapshot, input: &Value) -> Vec<ToolResult> {
     let action = Action::Click.as_str();
+    let position = match click_position(session, input) {
+        Ok(position) => position,
+        Err(response) => return response,
+    };
     let (target_id, node_key) = match node_key(Action::Click, session, input).await {
         Ok(value) => value,
         Err(response) => return response,
     };
-    match surface_call(
-        Action::Click,
-        session,
-        "click",
-        Some(json!({ "nodeKey": node_key })),
-    )
-    .await
-    {
+    let mut params = json!({ "nodeKey": node_key });
+    if let Some(position) = position {
+        params["position"] = position;
+    }
+    match surface_call(Action::Click, session, "click", Some(params)).await {
         Ok(payload) => ok_response(
             action,
             json!({ "sessionId": session.session_id, "targetId": target_id, "result": payload }),
@@ -671,6 +691,38 @@ async fn click(session: &MiniAppWebSessionSnapshot, input: &Value) -> Vec<ToolRe
         ),
         Err(response) => response,
     }
+}
+
+fn click_position(
+    session: &MiniAppWebSessionSnapshot,
+    input: &Value,
+) -> Result<Option<Value>, Vec<ToolResult>> {
+    let Some(position) = input.get("position") else {
+        return Ok(None);
+    };
+    let valid = position.is_object()
+        && ["x", "y"].iter().all(|axis| {
+            position
+                .get(axis)
+                .and_then(Value::as_f64)
+                .is_some_and(|value| value.is_finite() && (0.0..1.0).contains(&value))
+        });
+    if !valid {
+        return Err(err_response(
+            "click",
+            MiniAppWebErrorCode::InvalidParams,
+            "position requires numeric x and y fractions in [0, 1).",
+            &[],
+        ));
+    }
+    if !session.has_capability(MiniAppWebCapability::ElementPositionClick) {
+        return Err(err_response(
+            "click", MiniAppWebErrorCode::CapabilityMissing,
+            "This MiniApp host does not advertise element-position-click-v1; the positioned click was not sent.",
+            &["Use existing element/bridge controls or update the owning host. Do not retry this as a plain click: that changes the intended target position."],
+        ));
+    }
+    Ok(Some(position.clone()))
 }
 
 async fn type_text(session: &MiniAppWebSessionSnapshot, input: &Value) -> Vec<ToolResult> {
@@ -1235,6 +1287,43 @@ fn read_u64(input: &Value, key: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opened_legacy_apps_are_directed_to_dom_instead_of_desktop_fallback() {
+        let hint = open_next_step(&session(&["dom", "input"], &["auto-observe"]));
+        assert!(hint.contains("call inspect with sessionId='miniapp-session-1'"));
+        assert!(hint.contains("Missing semantic actions alone do not justify ComputerUse"));
+        let bridge = open_next_step(&session(&[], &["observe", "act"]));
+        assert!(bridge.contains("call observe_bridge"));
+        assert!(!bridge.contains("call inspect"));
+        let unavailable = open_next_step(&session(&[], &[]));
+        assert!(unavailable.contains("capability gap"));
+        assert!(unavailable.contains("another device's desktop"));
+    }
+
+    #[test]
+    fn positioned_clicks_negotiate_support_and_keep_legacy_clicks_working() {
+        let legacy = session(&["dom", "input"], &[]);
+        assert_eq!(click_position(&legacy, &json!({})).unwrap(), None);
+        let request = json!({ "position": { "x": 0.25, "y": 0.75 } });
+        let error = click_position(&legacy, &request).unwrap_err();
+        assert_eq!(error[0].content()["error"]["code"], "CAPABILITY_MISSING");
+        let current = session(&["dom", "input", "element-position-click-v1"], &[]);
+        assert_eq!(
+            click_position(&current, &request).unwrap(),
+            Some(request["position"].clone())
+        );
+        for position in [
+            json!(null),
+            json!({}),
+            json!({ "x": "0.5", "y": 0.5 }),
+            json!({ "x": -0.1, "y": 0 }),
+            json!({ "x": 0.5, "y": 1 }),
+        ] {
+            let error = click_position(&current, &json!({ "position": position })).unwrap_err();
+            assert_eq!(error[0].content()["error"]["code"], "INVALID_PARAMS");
+        }
+    }
 
     fn session(capabilities: &[&str], bridge: &[&str]) -> MiniAppWebSessionSnapshot {
         MiniAppWebSessionSnapshot {

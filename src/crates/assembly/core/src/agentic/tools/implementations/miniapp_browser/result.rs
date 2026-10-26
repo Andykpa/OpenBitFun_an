@@ -91,10 +91,11 @@ pub(super) fn surface_error(action: &str, message: String) -> Vec<ToolResult> {
             "Call inspect or find again: the MiniApp reloaded or re-rendered and earlier targetIds are stale.",
         ],
         MiniAppWebErrorCode::CapabilityMissing => &[
-            "This MiniApp frame exposes no readable DOM. Ask the MiniApp author to declare the optional agent bridge, or open it in a readable surface.",
+            "Check the current MiniApp's advertised capabilities. Use supported bridge/input controls or report the specific gap; do not reload or transfer presentation merely to obtain controls.",
         ],
         MiniAppWebErrorCode::BridgeUnavailable => &[
             "The MiniApp does not declare this bridge capability, so the host cannot read its internal state. Do not guess internal state.",
+            "If the surface advertises dom/input, call inspect and use its available element controls. A missing bridge alone does not justify ComputerUse.",
         ],
         MiniAppWebErrorCode::BridgeTimeout | MiniAppWebErrorCode::Timeout => &[
             "The MiniApp did not answer in time. Re-observe before acting again.",

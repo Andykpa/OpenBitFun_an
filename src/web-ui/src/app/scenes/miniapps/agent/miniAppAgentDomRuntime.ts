@@ -533,11 +533,41 @@ export interface InputResult {
   detail: Record<string, unknown>;
 }
 
-export function clickNode(surface: MiniAppAgentDomSurface, nodeKey: string): InputResult {
+export interface ClickPosition {
+  /** Fractions of the target's rendered bounding box, in [0, 1). */
+  x: number;
+  y: number;
+}
+
+export function clickNode(surface: MiniAppAgentDomSurface, nodeKey: string, position?: unknown): InputResult {
   const element = resolveElement(surface, nodeKey);
   assertActionable(element, 'click');
+  let point: ClickPosition | undefined;
+  if (position !== undefined) {
+    const candidate = position as ClickPosition | null;
+    if (!candidate || typeof candidate !== 'object'
+      || !Number.isFinite(candidate.x) || !Number.isFinite(candidate.y)
+      || candidate.x < 0 || candidate.x >= 1 || candidate.y < 0 || candidate.y >= 1) {
+      throw surfaceError('INVALID_PARAMS', 'click: position requires finite x and y fractions in [0, 1).');
+    }
+    point = candidate;
+  }
   const doc = element.ownerDocument;
   scrollIntoView(element);
+  const rect = element.getBoundingClientRect();
+  if (point && (!isElementVisible(element) || !Number.isFinite(rect.width) || !Number.isFinite(rect.height)
+    || rect.width <= 0 || rect.height <= 0)) {
+    throw surfaceError('INVALID_PARAMS', 'click: the target has no visible area; inspect the current MiniApp before retrying.');
+  }
+  const clientX = rect.left + rect.width * (point?.x ?? 0.5);
+  const clientY = rect.top + rect.height * (point?.y ?? 0.5);
+  // Hit testing stays inside this MiniApp document. Never redirect to a sibling
+  // element or another frame when a layout change covers the selected target.
+  const hit = point && typeof doc.elementFromPoint === 'function' ? doc.elementFromPoint(clientX, clientY) : undefined;
+  if (point && typeof doc.elementFromPoint === 'function' && (!hit || !element.contains(hit))) {
+    throw surfaceError('INVALID_PARAMS', 'click: the selected position is outside the visible target or is covered; inspect again.');
+  }
+  const dispatchTarget = hit ?? element;
   const focusable = element as HTMLElement;
   if (typeof focusable.focus === 'function') {
     try {
@@ -546,15 +576,15 @@ export function clickNode(surface: MiniAppAgentDomSurface, nodeKey: string): Inp
       // Focus is best-effort for non-focusable nodes.
     }
   }
-  const init = { bubbles: true, cancelable: true, composed: true, view: doc.defaultView, button: 0 };
-  element.dispatchEvent(createEvent(doc, 'pointerdown', { ...init, isPrimary: true }, 'PointerEvent'));
-  element.dispatchEvent(createEvent(doc, 'mousedown', init, 'MouseEvent'));
-  element.dispatchEvent(createEvent(doc, 'pointerup', { ...init, isPrimary: true }, 'PointerEvent'));
-  element.dispatchEvent(createEvent(doc, 'mouseup', init, 'MouseEvent'));
-  element.dispatchEvent(createEvent(doc, 'click', init, 'MouseEvent'));
+  const init = { bubbles: true, cancelable: true, composed: true, view: doc.defaultView, button: 0, clientX, clientY };
+  dispatchTarget.dispatchEvent(createEvent(doc, 'pointerdown', { ...init, buttons: 1, isPrimary: true, pointerType: 'mouse' }, 'PointerEvent'));
+  dispatchTarget.dispatchEvent(createEvent(doc, 'mousedown', { ...init, buttons: 1 }, 'MouseEvent'));
+  dispatchTarget.dispatchEvent(createEvent(doc, 'pointerup', { ...init, isPrimary: true, pointerType: 'mouse' }, 'PointerEvent'));
+  dispatchTarget.dispatchEvent(createEvent(doc, 'mouseup', init, 'MouseEvent'));
+  dispatchTarget.dispatchEvent(createEvent(doc, 'click', init, 'MouseEvent'));
   return {
     target: nodeKey,
-    detail: { role: nodeRole(element), name: nodeName(element) ?? null },
+    detail: { role: nodeRole(element), name: nodeName(element) ?? null, clientX, clientY },
   };
 }
 

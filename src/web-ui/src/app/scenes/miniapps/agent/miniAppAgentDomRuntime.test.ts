@@ -189,6 +189,50 @@ describe('MiniApp agent DOM runtime', () => {
     expect(events[3].at - events[2].at).toBeLessThan(30);
   });
 
+  it('delivers normalized positions as frame-local mouse coordinates, including SVG descendants', () => {
+    const surface = createSurface('<svg id="board"><circle id="stone" /></svg>');
+    const doc = surface.iframe.contentDocument!;
+    const board = doc.querySelector('svg')!;
+    const stone = doc.querySelector('circle')!;
+    vi.spyOn(board, 'getBoundingClientRect').mockReturnValue({ left: 80, top: 40, width: 400, height: 200 } as DOMRect);
+    const hitTest = vi.fn(() => stone);
+    Object.defineProperty(doc, 'elementFromPoint', { configurable: true, value: hitTest });
+    const events: MouseEvent[] = [];
+    for (const type of ['mousedown', 'mouseup', 'click']) board.addEventListener(type, event => events.push(event as MouseEvent));
+    const target = findNodes(surface, { selector: '#board' })[0].nodeKey!;
+
+    clickNode(surface, target, { x: 0.25, y: 0.75 });
+    expect(hitTest).toHaveBeenCalledWith(180, 190);
+    expect(events).toHaveLength(3);
+    for (const event of events) {
+      expect(event.clientX).toBe(180);
+      expect(event.clientY).toBe(190);
+      expect(event.target).toBe(stone);
+    }
+    events.length = 0;
+    clickNode(surface, target);
+    expect(events[2]).toMatchObject({ clientX: 280, clientY: 140 });
+  });
+
+  it('rejects invalid or obscured positions before sending any input', () => {
+    const surface = createSurface('<canvas id="game"></canvas><button id="other">Other</button>');
+    const doc = surface.iframe.contentDocument!;
+    const canvas = doc.querySelector('canvas')!;
+    const input = vi.fn();
+    canvas.addEventListener('mousedown', input);
+    canvas.addEventListener('click', input);
+    const target = findNodes(surface, { selector: '#game' })[0].nodeKey!;
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 20, top: 30, width: 200, height: 100 } as DOMRect);
+    for (const invalid of [null, {}, { x: '0.5', y: 0.5 }, { x: NaN, y: 0.5 }, { x: -0.1, y: 0 }, { x: 0.5, y: 1 }]) {
+      expect(errorCode(() => clickNode(surface, target, invalid))).toBe('INVALID_PARAMS');
+    }
+    Object.defineProperty(doc, 'elementFromPoint', { configurable: true, value: () => doc.querySelector('#other') });
+    expect(errorCode(() => clickNode(surface, target, { x: 0.5, y: 0.5 }))).toBe('INVALID_PARAMS');
+    vi.mocked(canvas.getBoundingClientRect).mockReturnValue({ left: 0, top: 0, width: 0, height: 0 } as DOMRect);
+    expect(errorCode(() => clickNode(surface, target, { x: 0.5, y: 0.5 }))).toBe('INVALID_PARAMS');
+    expect(input).not.toHaveBeenCalled();
+  });
+
   it('refuses disabled targets and unknown handles with typed errors', () => {
     const surface = createSurface();
     const stop = findNodes(surface, { selector: '#stop' })[0];

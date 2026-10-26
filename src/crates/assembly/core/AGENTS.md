@@ -382,6 +382,17 @@ cargo test --locked -p openbitfun-core --no-default-features --features agent-ru
 cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib list_workspaces
 ```
 
+For MiniAppBrowser action routing, element-position capability negotiation, and
+opened-app guidance:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git,tools-browser-web,tools-miniapp --lib miniapp_browser
+```
+
+This covers platform-neutral tool dispatch and legacy-host refusals, not native
+WebView input or live remote scenarios. The Web UI MiniApp agent fixtures cover
+actual app source and frame input.
+
 MiniApp Agent appdata workspace registration and pre-ID session compatibility:
 
 ```bash

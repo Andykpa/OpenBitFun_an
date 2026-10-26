@@ -10,6 +10,8 @@
  */
 
 export const MINIAPP_AGENT_SCHEMA_VERSION = 'agent.v1';
+/** Opt-in extension: older hosts must never silently treat a positioned click as a plain click. */
+export const MINIAPP_AGENT_ELEMENT_POSITION_CLICK = 'element-position-click-v1';
 
 export const MINIAPP_AGENT_MAX_NODES = 320;
 export const MINIAPP_AGENT_MAX_DEPTH = 12;

@@ -35,7 +35,7 @@ async function runningApp(opaque = false, source?: string, html?: string, legacy
   const observe = () => execute('bridge_observe');
   const act = (action: Record<string, unknown>) => execute('bridge_act', { action });
   const opened = await handleMiniAppAgentRequest({ requestId: 'open', action: 'open', appId }, deps);
-  return { ...rt, act, observe, opened, presentApp };
+  return { ...rt, act, observe, opened, presentApp, execute };
 }
 
 afterEach(() => {
@@ -45,9 +45,44 @@ afterEach(() => {
 });
 
 describe('source-informed business operations on a live MiniApp', () => {
+  it('plays the unchanged legacy Gomoku through bound SVG input without desktop control or a semantic bridge', async () => {
+    const root = 'crates/contracts/product-domains/src/miniapp/builtin/assets/gomoku';
+    const rt = await runningApp(false, readSource(`${root}/ui.js`), readSource(`${root}/index.html`), true);
+    expect(rt.opened.capabilities).toContain('element-position-click-v1');
+    expect((await rt.observe()).state).toBeNull();
+    const write = vi.spyOn(rt.doc, 'write');
+    const board = rt.doc.querySelector('#board')!;
+    vi.spyOn(board, 'getBoundingClientRect').mockReturnValue({ left: 80, top: 30, width: 560, height: 560 } as DOMRect);
+    const found = await rt.execute('find', { locator: { selector: '#board' } });
+    const nodeKey = (found.matches as { nodeKey: string }[])[0].nodeKey;
+
+    await rt.execute('click', { nodeKey, position: { x: 0.5, y: 0.5 } });
+    expect(board.querySelectorAll('.stone-black')).toHaveLength(1);
+    const black = board.querySelector('.stone-black')!;
+    const viewBox = board.getAttribute('viewBox')!.split(/\s+/).map(Number);
+    expect(Number(black.getAttribute('cx'))).toBe(viewBox[2] / 2);
+    expect(Number(black.getAttribute('cy'))).toBe(viewBox[3] / 2);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(board.querySelectorAll('.stone-white')).toHaveLength(1);
+
+    // An off-center position must select a different intersection, rather than
+    // silently degrading to the element's center.
+    await rt.execute('click', { nodeKey, position: { x: 0.1, y: 0.1 } });
+    expect(board.querySelectorAll('.stone-black')).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(board.querySelectorAll('.stone-white')).toHaveLength(2);
+
+    await expect(rt.execute('click', { nodeKey, position: { x: -1, y: 0.5 } })).rejects.toThrow('INVALID_PARAMS');
+    expect(board.querySelectorAll('.stone-black')).toHaveLength(2);
+    expect(rt.frame.contentDocument).toBe(rt.doc);
+    expect(rt.doc.querySelector('#board')).toBe(board);
+    expect(write).not.toHaveBeenCalled();
+    expect(rt.presentApp).toHaveBeenCalledOnce();
+  });
+
   it.each([false, true])('preserves unsaved text and document identity (opaque=%s)', async opaque => {
     const rt = await runningApp(opaque);
-    expect(rt.opened.capabilities).toEqual(opaque ? [] : ['dom', 'accessibility', 'input']);
+    expect(rt.opened.capabilities).toEqual(opaque ? [] : ['dom', 'accessibility', 'input', 'element-position-click-v1']);
     const entry = getMiniAppAgentSurface(appId);
     const write = vi.spyOn(rt.doc, 'write');
     const draft = 'Unsubmitted: alice@example.com and bob@example.com';

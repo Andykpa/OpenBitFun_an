@@ -27,6 +27,7 @@ import {
 } from './miniAppAgentSurfaceRegistry';
 import {
   MINIAPP_AGENT_DEFAULT_CAPTURE_EDGE,
+  MINIAPP_AGENT_ELEMENT_POSITION_CLICK,
   MINIAPP_AGENT_MAX_NAME_CHARS,
   MINIAPP_AGENT_MAX_TEXT_CHARS,
   MINIAPP_AGENT_SURFACE_REQUEST_ACTION,
@@ -183,7 +184,7 @@ async function openSurface(
     strictRuntime: entry.strictRuntime,
     width,
     height,
-    capabilities: readable ? ['dom', 'accessibility', 'input'] : [],
+    capabilities: readable ? ['dom', 'accessibility', 'input', MINIAPP_AGENT_ELEMENT_POSITION_CLICK] : [],
     bridgeCapabilities: entry.bridge.capabilities,
     declaredActions: entry.bridge.actions,
     ...(presented.presentedFrom ? { presentedFrom: presented.presentedFrom } : {}),
@@ -216,7 +217,7 @@ async function executeSurface(
     case 'read':
       return readNode(dom, requireNodeKey(params, 'read'), readString(params, 'attribute', 80)) as unknown as Record<string, unknown>;
     case 'click':
-      return clickNode(dom, requireNodeKey(params, 'click')) as unknown as Record<string, unknown>;
+      return clickNode(dom, requireNodeKey(params, 'click'), params.position) as unknown as Record<string, unknown>;
     case 'type':
       if (typeof params.text !== 'string') {
         throw surfaceError('INVALID_PARAMS', "type requires 'text' to be a string.");
