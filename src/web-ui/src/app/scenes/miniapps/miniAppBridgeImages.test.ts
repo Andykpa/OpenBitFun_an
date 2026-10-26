@@ -73,6 +73,18 @@ describe('injected MiniApp SDK image message ownership', () => {
     expect(run.mock.calls.map(call => call[0].imageContexts)).toEqual([images, images]);
   });
 
+  it.each([{ explicitImages: images }, { explicitImages: [] }])('does not re-inherit images after an accepted explicit attachment choice', async ({ explicitImages }) => {
+    const { app, send, run } = harness();
+    app.chat.onUserMessage(async () => {
+      await app.agent.run('first turn', { sessionId: 'deck', imageContexts: explicitImages });
+      await app.agent.run('follow-up', { sessionId: 'deck' });
+    });
+    send({ requestId: 'explicit', sessionId: 'deck', imageContexts: images });
+    await flush();
+    expect(run.mock.calls[0][0].imageContexts).toEqual(explicitImages);
+    expect(run.mock.calls[1][0]).not.toHaveProperty('imageContexts');
+  });
+
   it('does not attach another topic’s images and lets explicit request ids disambiguate concurrent messages', async () => {
     const { app, send, run } = harness();
     let release!: () => void;

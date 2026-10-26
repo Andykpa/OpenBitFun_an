@@ -106,7 +106,9 @@ pub fn build_bridge_script(
       ...(input ? {{ chatRequestId: input.requestId }} : {{}}),
       ...(images?.length ? {{ imageContexts: images }} : {{}}),
     }});
-    if (images?.length && result?.sessionId) input.sessions.add(result.sessionId);
+    // Explicit attachments (including []) also settle this message's choice
+    // for the session; a later implicit follow-up must not re-attach them.
+    if (input && result?.sessionId) input.sessions.add(result.sessionId);
     return result;
   }};
 

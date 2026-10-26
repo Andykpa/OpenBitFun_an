@@ -63,7 +63,8 @@ base64 拼进 prompt / input JSON。Runtime 负责落盘、模型输入和会话
 兼容旧 MiniApp：返回的 `onUserMessage` Promise 未完成期间，SDK 会把该消息图片自动带到
 同一会话首次成功接受的 Agent turn；后续 turn 复用已持久化上下文。消息完成后不再继承。
 并发处理同一会话的多条消息时，应传 `chatRequestId: payload.requestId` 或明确传
-`imageContexts`，SDK 不会猜测图片归属。显式空数组可禁用继承。
+`imageContexts`，SDK 不会猜测图片归属。首次成功提交时显式传入的图片（包括禁用继承的
+空数组）也会记录为该会话的附件选择，后续调用不会再自动附上同一批图片。
 
 图片必须携带像素，MiniApp 不能通过 `image_path` 获取额外的宿主文件权限。读取失败会
 保留输入草稿，不能退化为仅发送文字。Peer Device Mode 在投递消息及调用 Agent 两处检查
