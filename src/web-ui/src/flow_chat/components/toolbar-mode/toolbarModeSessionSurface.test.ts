@@ -116,7 +116,7 @@ describe('floating mini chat bubble MiniApp registration', () => {
     expect(source).toContain('registrationId: entry.claimToken!');
     expect(source).toContain('live?.token !== entry.claimToken');
     expect(source).toContain('live.sessionId !== entry.sessionId');
-    expect(source).toContain('return requestMiniAppComposerMessage(');
+    expect(source).toContain('await requestMiniAppComposerMessage(');
     expect(source).toContain('{ ...submission, token: entry.claimToken!, sessionId: entry.sessionId }');
     expect(source).toContain('{ resolveOnAgentRun: true }');
   });

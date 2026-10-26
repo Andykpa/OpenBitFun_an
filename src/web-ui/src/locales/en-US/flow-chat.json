@@ -3649,6 +3649,7 @@
     "send": "Send"
   },
   "miniAppComposer": {
+    "imagesUnsupportedPeer": "The connected device does not support image messages for MiniApps yet. Update OpenBitFun on that device and try again.",
     "placeholder": "Send a request to {{app}}…",
     "send": "Send",
     "hint": "Messages are handled by {{app}}"

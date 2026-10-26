@@ -3649,6 +3649,7 @@
     "send": "傳送"
   },
   "miniAppComposer": {
+    "imagesUnsupportedPeer": "連線的裝置暫不支援向 MiniApp 傳送圖片。請更新該裝置上的 OpenBitFun 後重試。",
     "placeholder": "把需求傳給 {{app}}…",
     "send": "傳送",
     "hint": "訊息將由 {{app}} 處理"
