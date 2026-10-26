@@ -118,6 +118,11 @@ pub fn standard_harness_tools() -> Vec<String> {
         "ReviewPlatform".to_string(),
         "OpenBitFunControl".to_string(),
         "ControlHub".to_string(),
+        // A MiniApp is a Web page this product hosts, so operating one belongs
+        // to the same surface family as ControlHub: the Agent opens the app in
+        // the window the user is watching instead of driving a copy elsewhere.
+        // The tool stays deferred and degrades honestly when no surface exists.
+        "MiniAppBrowser".to_string(),
         // Pairs with ControlHub: its `wait` sends anything repeating, or
         // further out than an hour, to Cron rather than holding the turn open
         // for the interval.

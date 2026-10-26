@@ -1,13 +1,13 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "65f1a11c6d994c382da25f2b9ad995ad0f443a5d352c2eafa10a8b9bcbf849e5",
-  "commandCount": 701,
+  "catalogDigest": "de9d03ab0cbb5268869e61d1a3e363c5210d93b9dccb2c8caccc99006074732a",
+  "commandCount": 703,
   "coverage": {
-    "commandCount": 701,
+    "commandCount": 703,
     "documentedCommandCount": 644,
-    "implementationCommandCount": 57,
-    "implementationDigest": "503b48eebc37750e50e0427d861e884dfa353a81aae32236e4bc2d7e0f5310e2"
+    "implementationCommandCount": 59,
+    "implementationDigest": "0bce9fbda3e8b517e409aec124ca0f2c3b36a7954d996400d9ccf405194dc768"
   },
   "commands": [
     {
@@ -5878,6 +5878,20 @@
       "remoteWorkspacePolicy": "RemoteRouted"
     },
     {
+      "id": "mark_miniapp_web_surface_ready",
+      "moduleId": "miniapp_web_host",
+      "capabilityId": "feature.miniapps",
+      "capabilityIds": [
+        "feature.miniapps"
+      ],
+      "documentedItemIds": [],
+      "visibility": "implementation",
+      "rustPath": "miniapp_web_host::mark_miniapp_web_surface_ready",
+      "sourceFile": "src/apps/desktop/src/miniapp_web_host.rs",
+      "signature": "fn mark_miniapp_web_surface_ready(request: Option<MiniAppWebSurfaceReadyRequest>)",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
       "id": "mark_openbitfun_control_surface_ready",
       "moduleId": "openbitfun_control_host",
       "capabilityId": null,
@@ -8005,6 +8019,20 @@
       "sourceFile": "src/apps/desktop/src/api/commands.rs",
       "signature": "fn report_ide_control_result(request: IdeControlResultRequest) -> Result<(), String>",
       "remoteWorkspacePolicy": "LegacyUnaudited"
+    },
+    {
+      "id": "report_miniapp_web_result",
+      "moduleId": "miniapp_web_host",
+      "capabilityId": "feature.miniapps",
+      "capabilityIds": [
+        "feature.miniapps"
+      ],
+      "documentedItemIds": [],
+      "visibility": "implementation",
+      "rustPath": "miniapp_web_host::report_miniapp_web_result",
+      "sourceFile": "src/apps/desktop/src/miniapp_web_host.rs",
+      "signature": "fn report_miniapp_web_result( request: ReportMiniAppWebResultRequest, ) -> Result<(), String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
       "id": "report_openbitfun_control_result",

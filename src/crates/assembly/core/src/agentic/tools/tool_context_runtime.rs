@@ -155,6 +155,25 @@ impl ToolUseContext {
         &self.primary_model_facts
     }
 
+    /// Why an image result cannot reach the model in this session, or `None`
+    /// when images are usable.
+    ///
+    /// Every capture-style tool (browser page screenshots, MiniApp frames, …)
+    /// asks this before spending a round trip: returning base64 the model never
+    /// sees is not an observation, and it invites endless parameter retries.
+    pub fn image_observation_unavailable_reason(&self) -> Option<&'static str> {
+        if !self.primary_model_supports_image_understanding() {
+            return Some("primary_model_is_text_only");
+        }
+        if !self
+            .primary_model_facts()
+            .multimodal_tool_output_supported()
+        {
+            return Some("provider_no_multimodal_tool_output");
+        }
+        None
+    }
+
     pub fn cancellation_token(&self) -> Option<&CancellationToken> {
         self.runtime_handles.cancellation_token()
     }

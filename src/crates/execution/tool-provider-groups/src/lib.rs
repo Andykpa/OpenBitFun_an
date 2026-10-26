@@ -103,7 +103,9 @@ pub fn tool_feature_group(tool_name: &str) -> Option<ToolPackFeatureGroup> {
         "ComputerUse" => Some(ToolPackFeatureGroup::ComputerUse),
         "view_image" | "analyze_image" => Some(ToolPackFeatureGroup::ImageAnalysis),
         "GenerativeUI" | "InitMiniApp" | "FinalizeMiniApp" | "PublishMiniApp"
-        | "PublishAppearance" | "Playbook" => Some(ToolPackFeatureGroup::MiniApp),
+        | "MiniAppBrowser" | "PublishAppearance" | "Playbook" => {
+            Some(ToolPackFeatureGroup::MiniApp)
+        }
         "PageDeploy" | "PagePublish" => Some(ToolPackFeatureGroup::Pages),
         "FrontendWorkbench" => Some(ToolPackFeatureGroup::Creation),
         "CreateCanvas" | "ReadCanvas" | "UpdateCanvas" | "PatchCanvas" => {
@@ -261,6 +263,7 @@ const PRODUCT_TOOL_PROVIDER_GROUP_PLAN: &[ToolProviderGroupPlan] = &[
             "InitMiniApp",
             "FinalizeMiniApp",
             "PublishMiniApp",
+            "MiniAppBrowser",
             "PublishAppearance",
             "Playbook",
         ],
@@ -571,6 +574,7 @@ mod tests {
                 "InitMiniApp",
                 "FinalizeMiniApp",
                 "PublishMiniApp",
+                "MiniAppBrowser",
                 "PublishAppearance",
                 "Playbook",
                 "PageDeploy",

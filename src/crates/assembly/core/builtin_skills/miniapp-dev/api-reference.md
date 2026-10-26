@@ -13,7 +13,7 @@ MiniApp **能且只能**用以下 API，没有任何"通用 OpenBitFun 后端通
 - `app.net.fetch` —— HTTP 请求（受 `permissions.net.allow` 域名白名单限制）
 - `app.os.info` —— 只读系统信息
 - `app.storage.get/set` —— 每应用独立 KV 存储
-- `app.agent.*` —— 小应用自有隐藏 Agent 会话；支持有界只读上下文快照
+- `app.agent.*` —— 小应用自有隐藏 Agent 会话；支持有界只读上下文快照；`app.agent.expose()` 可选地把实时状态/语义动作（含可选的动作名清单 `actions`）暴露给宿主 Agent（不接入也自动上报画布文字与帧存活）
 - `app.ai.complete / chat / cancel / getModels` —— 复用宿主 AI（无需 API Key）
 - `app.dialog.open/save/message` —— 文件对话框
 - `app.clipboard.readText/writeText` —— 剪贴板
@@ -186,6 +186,54 @@ await app.agent.run('分析当前盘面。', {
 `contextFiles` 按需读取；使用宿主给出的精确路径，不拼接固定的 `.miniapp-context` 路径。
 需要当前新闻、公告或财务依据时，Agent 仍可独立使用 `WebSearch` / `WebFetch`，并区分数据时间、
 发布时间与推断。不要用“只允许引用快照字段”的指令关闭这些研究能力。
+
+### `app.agent.expose()` — 把小应用自身的实时状态暴露给 Agent
+
+方向与 `app.agent.run()` 相反：宿主 Agent 来驱动这个小应用。注册后，Agent 端 `MiniAppBrowser`
+的 `observe_bridge` 会拿到 `observe()` 的返回值，`act_bridge` 会调用 `act(action)`。
+
+这是**可选增强**，不是接入前提：注入到每个小应用页面的运行时会自动上报一层观测（canvas 上的文字、
+动画帧是否在跑、按键/点击是否真的到达），所以未做任何改动的小应用也能被 Agent 观测与操作，
+只是那层观测没有语义标签（只能看到画出来的字，读不到「生命值」这种命名状态）。
+
+```javascript
+let score = 0;
+let wave = 1;
+
+app.agent.expose({
+  // 只暴露你愿意让 Agent 看到的字段；返回必须是可 JSON 序列化的有界对象。
+  observe: () => ({
+    score,
+    wave,
+    lives: 3,
+    player: { x: player.x, y: player.y },
+  }),
+  // 可选：列出 act 认得的动作名（就是 action.type）。不写即旧行为，Agent 会试一个再看结果。
+  actions: ['restart', 'move', 'autoplay'],
+  // 语义动作由小应用自己定义：怎么理解、允不允许，都归你判断。
+  act: (action) => {
+    if (action?.type === 'restart') { score = 0; wave = 1; return { restarted: true }; }
+    if (action?.type === 'move' && typeof action.dx === 'number') { player.x += action.dx; return { x: player.x }; }
+    return { ignored: true };
+  },
+});
+```
+
+要点：
+
+- 无需要求 `permissions.agent.*`：数据只在页面内流转，不触碰宿主能力。
+- 每个渲染帧都调用 `expose()` 只会替换处理器，不会重复注册；重启/换关后重新 `expose()` 即可对齐新状态。
+- `observe` 抛出异常会被宿主收到为可读的失败，不会挂死请求；长时间阻塞的处理会触发宿主超时。
+- 对纯 canvas、游戏或其他自定义渲染界面，自动观测能给到画出来的文字、动画循环是否在跑、输入是否到达；
+  但命名状态和语义动作需要 `expose()`。如果任务依赖连续变化的状态，应暴露完成任务所需的少量权威字段与动作，
+  避免 Agent 只能靠逐帧截图或反复试探。
+- 只返回必要的少量字段（分数、生命、关卡、关键坐标等），不要把整帧像素或大数组塞进 `observe`。
+- 对可预测的业务流程，动作可以对应完整且有界的用户意图（例如打开记录、应用筛选、提交表单），
+  让 Agent 能直接执行已知步骤，再用 `observe()` 确认结果；不要强迫它在每个低层输入后都重新观察。
+- `actions` 是可选的动作词表：写了，Agent 在 `observe_bridge` 里就能看到「这个应用认哪些动作」，
+  不必猜名字或翻源码；没写，Agent 会先发一个动作再读返回值。词表只是提示，不是白名单，
+  在 `act` 里不认的动作照样由你自己处理（例如返回 `{ ignored: true }`）。最多 32 个，
+  每个名字 trim 后 1-48 个可打印 ASCII 字符，区分大小写；接受 `['restart']` 或 `[{ type: 'restart' }]` 两种写法。
 
 ### `app.dialog.*` — 系统对话框
 

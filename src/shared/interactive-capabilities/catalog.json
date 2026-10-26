@@ -235,11 +235,13 @@
       "touch_session_activity"
     ],
     "hostBridges": [
+      "mark_miniapp_web_surface_ready",
       "mark_openbitfun_control_surface_ready",
       "mark_openbitfun_control_surface_unready",
     "miniapp_shell_call",
       "peer_host_invoke_complete",
       "product_control_invoke",
+      "report_miniapp_web_result",
       "report_openbitfun_control_result",
       "report_ide_control_result",
       "webdriver_bridge_result"
@@ -3272,6 +3274,29 @@
           "evidence": [
             "source:src/crates/assembly/core/src/agentic/tools/implementations/miniapp_publish_tool.rs#PublishMiniApp",
             "command:miniapp_market_submit_installed"
+          ]
+        },
+        {
+          "id": "agent-operate-app",
+          "titleZh": "由智能体直接操作 Mini App 界面",
+          "titleEn": "Let an agent operate a Mini App interface directly",
+          "control": {
+            "kind": "delegate",
+            "tools": [
+              "MiniAppBrowser"
+            ],
+            "workflowZh": [
+              "用户要求在 Mini App 内操作时，先用 MiniAppBrowser 的 open 打开应用并 inspect 读取可读结构，再按返回的 targetId 执行 find、read、click、type、key、scroll",
+              "只有应用声明了 bridge 能力时才使用 observe_bridge 与 act_bridge；strict runtime 或应用在独立窗口运行时如实报告界面不可读的原因，不猜测应用内部状态"
+            ],
+            "workflowEn": [
+              "When the user asks for interaction inside a Mini App, open it with MiniAppBrowser and inspect the readable structure, then act on the returned target IDs with find, read, click, type, key, and scroll",
+              "Use observe_bridge and act_bridge only when the app announces bridge capabilities; when a strict runtime or a separately presented window makes the surface unreadable, report the exact reason instead of guessing the app's internal state"
+            ]
+          },
+          "evidence": [
+            "source:src/crates/assembly/core/src/agentic/tools/implementations/miniapp_browser/mod.rs#MiniAppBrowser",
+            "source:src/crates/contracts/product-domains/src/miniapp/web_surface.rs#MiniAppWebLocator"
           ]
         },
         {
@@ -9815,6 +9840,9 @@
       "capabilityId": "setting.application.general"
     },
     "miniapp_market": {
+      "capabilityId": "feature.miniapps"
+    },
+    "miniapp_web_host": {
       "capabilityId": "feature.miniapps"
     },
     "market_image": {
