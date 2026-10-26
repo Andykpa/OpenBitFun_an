@@ -316,6 +316,12 @@ Remote session host rollback port wiring:
 
 `cargo test --locked -p openbitfun-core --no-default-features --features remote-connect --lib remote_session_host_registers_targeted_rollback_port`.
 
+For mobile/bot model-selection eligibility, legacy child records, and unknown
+session failures:
+`cargo test --locked -p openbitfun-core --no-default-features --features remote-connect,git --lib remote_model_strategy`.
+These owner fixtures preserve the unsupported child-editing boundary; they do not
+exercise a live relay or bot connection.
+
 Configuration persistence, account settings import, backup restore, legacy
 field/deletion compatibility, local-change notifications, and save/reload/model
 concurrency regressions have feature-free fixtures:

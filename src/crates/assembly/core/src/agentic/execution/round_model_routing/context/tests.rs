@@ -4,6 +4,40 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::Notify;
 
 #[test]
+fn absent_or_unavailable_tokenizer_uses_execution_local_estimates() {
+    let missing_dir = tempfile::tempdir().unwrap();
+    let missing = missing_dir.path().join("missing-tokenizer.json");
+    for path in [None, Some(missing.as_path())] {
+        let factory = RouterContextFactory::new(
+            RouterContextConfig::default(),
+            3,
+            "Classify the next step",
+            None,
+            path,
+        )
+        .unwrap();
+        let first = factory.create("first", "turn-a", "检查代码并修复🙂");
+        let other = factory.create("second", "turn-b", "Inspect code");
+        let before = first.render();
+        assert_eq!(before.counter, "estimated_tokens");
+        assert!(before.input_tokens <= before.budget_tokens);
+        assert!(before.user_prompt.contains("检查代码"));
+        let other_before = other.render().budget_tokens;
+        before
+            .token_budget
+            .as_ref()
+            .unwrap()
+            .observe_usage(before.input_tokens, 6000);
+        assert!(first.render().budget_tokens < before.budget_tokens);
+        assert_eq!(other.render().budget_tokens, other_before);
+        assert!(serde_json::to_value(before)
+            .unwrap()
+            .get("token_budget")
+            .is_none());
+    }
+}
+
+#[test]
 fn summary_generation_limit_reserves_reasoning_headroom() {
     // The provider counts reasoning and final text against the same limit.
     // A 2K final summary must not also exhaust the entire generation budget.
@@ -219,6 +253,82 @@ fn rounds(count: usize) -> Vec<Message> {
     (0..count)
         .map(|index| Message::assistant(format!("step-{index}")))
         .collect()
+}
+
+#[tokio::test]
+async fn calibrated_budget_can_trigger_summary_without_changing_cached_observations() {
+    let (mut context, _) = fixture(false);
+    context.observe(&rounds(8));
+    let pending = context.state.pending_tokens(context.factory.recent_rounds);
+    assert!(pending > 0);
+    context.factory.config.summary_trigger_tokens = pending + 1;
+    context.start_summary();
+    assert!(context.pending_summary.is_none());
+    context.token_budget.observe_usage(100, 65_536);
+    let prepared = context.render();
+    assert_eq!(prepared.budget_tokens, context.token_budget.user_budget());
+    assert!(prepared.budget_tokens < 512);
+    assert_eq!(
+        context.state.pending_tokens(context.factory.recent_rounds),
+        pending
+    );
+    context.start_summary();
+    assert!(context.pending_summary.is_some());
+}
+
+#[tokio::test]
+async fn automatic_summary_starts_before_overflow_and_preserves_the_latest_round() {
+    let (mut context, provider) = fixture(false);
+    context.token_budget = Arc::new(RouterInputBudget::new(
+        3072,
+        3072,
+        context.factory.system_tokens,
+    ));
+    context.factory.config.summary_trigger_tokens = usize::MAX;
+    let messages = (0..3)
+        .map(|index| Message::assistant(format!("{}LATEST_ROUND_{index}", "e".repeat(16_000))))
+        .collect::<Vec<_>>();
+    let original = serde_json::to_value(&messages).unwrap();
+    let prepared = context.prepare(&messages).await;
+    assert!(!prepared.history_truncated);
+    assert!(prepared.input_tokens < prepared.budget_tokens);
+    assert!(prepared.input_tokens >= prepared.budget_tokens * 3 / 4);
+    assert!(context.pending_summary.is_some());
+    assert_eq!(context.active_summary.as_ref().unwrap().through, 2);
+    assert!(prepared.user_prompt.contains("LATEST_ROUND_2"));
+
+    provider.release.notify_one();
+    settle(&mut context).await;
+    let ready = context.prepare(&messages).await;
+    assert!(!ready.history_truncated);
+    assert!(ready.input_tokens < prepared.input_tokens);
+    assert!(ready.user_prompt.contains("LATEST_ROUND_2"));
+    assert!(ready.user_prompt.contains("Found the parser regression"));
+    assert_eq!(serde_json::to_value(&messages).unwrap(), original);
+}
+
+#[tokio::test]
+async fn failed_summary_keeps_oversized_history_ineligible_for_classification() {
+    let (mut context, _) = fixture(true);
+    context.token_budget = Arc::new(RouterInputBudget::new(
+        2048,
+        2048,
+        context.factory.system_tokens,
+    ));
+    let messages = (0..8)
+        .map(|index| Message::assistant(format!("{}LATEST_ROUND_{index}", "e".repeat(1500))))
+        .collect::<Vec<_>>();
+    let prepared = context.prepare(&messages).await;
+    assert!(prepared.history_truncated);
+    assert!(context.pending_summary.is_some());
+    settle(&mut context).await;
+
+    let after = context.prepare(&messages).await;
+    assert!(after.history_truncated);
+    assert_eq!(context.state.summarized_through, 0);
+    assert!(context.state.summary.is_empty());
+    assert_eq!(context.state.entries.len(), 8);
+    assert!(after.user_prompt.contains("LATEST_ROUND_7"));
 }
 
 async fn settle(context: &mut RoundRouterContext) {
@@ -501,6 +611,7 @@ async fn queued_summary_coalesces_without_blocking_or_overtaking_other_sessions(
         base_through: 0,
         through: 1,
         pending_tokens: 1,
+        omitted_through: 0,
         prompt: String::new(),
     };
     let (_, blocker) = context
@@ -539,12 +650,49 @@ async fn queued_summary_coalesces_without_blocking_or_overtaking_other_sessions(
 }
 
 #[tokio::test]
+async fn queued_complete_summary_is_retained_when_new_observations_outgrow_the_buffer() {
+    let (mut context, provider) = fixture(false);
+    let work = RouterSummaryWork {
+        base_through: 0,
+        through: 1,
+        pending_tokens: 1,
+        omitted_through: 0,
+        prompt: String::new(),
+    };
+    let (_, blocker) = context
+        .factory
+        .summary_queue
+        .submit("blocker", work)
+        .unwrap();
+    let (_, permit) = blocker.start().await.unwrap();
+    let mut messages = rounds(125);
+    context.prepare(&messages).await;
+    let captured = context.active_summary.as_ref().unwrap().through;
+    for index in 125..135 {
+        messages.push(Message::assistant(format!("step-{index}")));
+    }
+    context.prepare(&messages).await;
+    assert!(context.state.omitted_through > 0);
+    assert_eq!(context.active_summary.as_ref().unwrap().through, captured);
+
+    drop(permit);
+    provider.release.notify_one();
+    settle(&mut context).await;
+    let recovered = context.render();
+    assert_eq!(context.state.summarized_through, captured);
+    assert_eq!(context.state.omitted_through, 0);
+    assert!(!recovered.history_truncated);
+    assert!(recovered.user_prompt.contains("step-134"));
+}
+
+#[tokio::test]
 async fn finishing_queued_summary_cancels_it_and_disabled_context_does_not_submit() {
     let (mut context, provider) = fixture(false);
     let work = RouterSummaryWork {
         base_through: 0,
         through: 1,
         pending_tokens: 1,
+        omitted_through: 0,
         prompt: String::new(),
     };
     let (_, blocker) = context

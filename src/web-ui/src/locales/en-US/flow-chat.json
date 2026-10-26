@@ -3498,7 +3498,7 @@
       "active": "Smart routing enabled; failures use the primary model",
       "ready": "Configured, not enabled",
       "notReady": "Router not ready; the current strategy remains active",
-      "configurationIssue": "Smart-mode configuration is unavailable. Check the Router service and tokenizer file.",
+      "configurationIssue": "Smart-mode configuration is unavailable. Check the Router service.",
       "unsupported": "This execution host does not support smart routing",
       "costHint": "Router and auxiliary summary calls may incur extra costs that are not included in these billing hints",
       "saveFailed": "Could not save the model strategy; try again",

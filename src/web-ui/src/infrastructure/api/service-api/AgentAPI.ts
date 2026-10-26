@@ -464,6 +464,8 @@ export interface ModelRoutingStatus {
   connected: boolean | null;
   issue: string | null;
   summaryEnabled: boolean;
+  /** Explicit execution-host capability for Router budgeting without a tokenizer file. */
+  estimatedTokenBudgetSupported?: boolean;
   /** Legacy response field; current hosts omit this retired control. */
   subagentModel?: string;
 }

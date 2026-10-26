@@ -111,7 +111,8 @@ pub struct HttpRoundModelRouterConfig {
     pub simple_threshold: f64,
     pub trace_path: Option<PathBuf>,
     pub context: RouterContextConfig,
-    pub tokenizer_path: PathBuf,
+    /// Optional exact local counter; absent or unusable paths use Router estimation.
+    pub tokenizer_path: Option<PathBuf>,
     pub proxy: Option<openbitfun_ai_adapters::types::ProxyConfig>,
     pub custom_headers: std::collections::HashMap<String, String>,
     pub skip_ssl_verify: bool,
@@ -183,13 +184,8 @@ impl HttpRoundModelRouterConfig {
                 .map(PathBuf::from),
             context: RouterContextConfig::from_env()?,
             tokenizer_path: std::env::var_os("OPENBITFUN_ROUND_ROUTER_TOKENIZER_PATH")
-                .filter(|value| !value.is_empty())
-                .map(PathBuf::from)
-                .ok_or_else(|| {
-                    OpenBitFunError::Configuration(
-                        "OPENBITFUN_ROUND_ROUTER_TOKENIZER_PATH is required".into(),
-                    )
-                })?,
+                .filter(|value| !value.to_string_lossy().trim().is_empty())
+                .map(PathBuf::from),
             proxy: None,
             custom_headers: Default::default(),
             skip_ssl_verify: false,
@@ -247,7 +243,7 @@ impl HttpRoundModelRouter {
             config.recent_rounds,
             &config.system_prompt,
             config.trace_path.clone(),
-            &config.tokenizer_path,
+            config.tokenizer_path.as_deref(),
         )?;
         Ok(Self {
             config,
@@ -264,7 +260,7 @@ impl HttpRoundModelRouter {
         input: &str,
         trace: Option<&mut RouterTraceGuard>,
     ) -> OpenBitFunResult<RouterPrediction> {
-        self.predict_for("router-connection-probe", input, trace)
+        self.predict_for("router-connection-probe", input, trace, None)
             .await
     }
 
@@ -273,7 +269,24 @@ impl HttpRoundModelRouter {
         root_session_id: &str,
         input: &str,
         mut trace: Option<&mut RouterTraceGuard>,
+        prepared: Option<&PreparedRouterContext>,
     ) -> OpenBitFunResult<RouterPrediction> {
+        if let Some(prepared) = prepared {
+            if self.config.context.summary_enabled && prepared.history_truncated {
+                return Err(OpenBitFunError::Configuration(
+                    "Router history does not fit without truncation; using the primary model until a complete context is available".into(),
+                ));
+            }
+            if prepared
+                .token_budget
+                .as_ref()
+                .is_some_and(|budget| prepared.input_tokens > budget.user_budget())
+            {
+                return Err(OpenBitFunError::Configuration(
+                    "Router input exceeds the calibrated budget; using the primary model".into(),
+                ));
+            }
+        }
         let started = Instant::now();
         let deadline = tokio::time::Instant::now()
             .checked_add(self.config.timeout)
@@ -290,14 +303,29 @@ impl HttpRoundModelRouter {
             trace.record_queue_wait(started.elapsed(), admission.is_ok());
         }
         let _permit = admission?;
-        tokio::time::timeout_at(deadline, self.client.predict(input))
+        let result = tokio::time::timeout_at(deadline, self.client.predict(input))
             .await
             .map_err(|_| {
                 OpenBitFunError::Http(
                     "Router deadline expired during classification after queue admission".into(),
                 )
-            })?
-            .map_err(map_router_error)
+            })?;
+        if let Some(prepared) = prepared {
+            if let Some(budget) = prepared.token_budget.as_ref() {
+                match &result {
+                    Ok(prediction) => {
+                        if let Some(tokens) = prediction.prompt_tokens() {
+                            budget.observe_usage(prepared.input_tokens, tokens);
+                        }
+                    }
+                    Err(RouterClientError::ContextOverflow(_)) => {
+                        budget.observe_overflow(prepared.input_tokens);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        result.map_err(map_router_error)
     }
 }
 
@@ -360,6 +388,7 @@ impl RoundModelRouter for HttpRoundModelRouter {
                 &request.root_session_id,
                 user_prompt,
                 Some(&mut trace_guard),
+                Some(&prepared),
             )
             .await
             .and_then(|prediction| {
@@ -485,6 +514,7 @@ impl RoundModelRouter for HttpRoundModelRouter {
 fn map_router_error(error: RouterClientError) -> OpenBitFunError {
     match error {
         RouterClientError::Http(message) => OpenBitFunError::Http(message),
+        RouterClientError::ContextOverflow(message) => OpenBitFunError::Http(message),
         RouterClientError::Deserialization(message) => OpenBitFunError::Deserialization(message),
     }
 }
@@ -707,6 +737,223 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn classifier_receives_only_complete_history_and_resumes_after_summary() {
+        use super::{HttpRoundModelRouter, HttpRoundModelRouterConfig};
+        use openbitfun_agent_runtime::router_context::{
+            RouterContextState, RouterEntryKind, Utf8ByteBudget,
+        };
+        use serde_json::{json, Value};
+        use std::io::{BufRead, BufReader, Read, Write};
+        use std::time::{Duration, Instant};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let router = HttpRoundModelRouter::new(HttpRoundModelRouterConfig {
+            endpoint: format!(
+                "http://{}/v1/chat/completions",
+                listener.local_addr().unwrap()
+            ),
+            model: "router-fixture".into(),
+            system_prompt: "Classify the next step".into(),
+            api_key: None,
+            timeout: Duration::from_secs(2),
+            admission: Default::default(),
+            recent_rounds: 3,
+            simple_threshold: 0.75,
+            trace_path: None,
+            tokenizer_path: None,
+            proxy: None,
+            custom_headers: Default::default(),
+            skip_ssl_verify: false,
+            context: Default::default(),
+        })
+        .unwrap();
+        let mut state = RouterContextState {
+            task: "Fix parser".into(),
+            ..Default::default()
+        };
+        for index in 0..8 {
+            state.append(format!("r{index}"), RouterEntryKind::Round,
+                json!({"round_id":index,"assistant":{"text":format!("{}LATEST_{index}","evidence ".repeat(100))}}),
+                &Utf8ByteBudget);
+        }
+        let incomplete = state.prepare(3, 4096, &Utf8ByteBudget);
+        assert!(incomplete.history_truncated);
+        let error = router
+            .predict_for("root", &incomplete.user_prompt, None, Some(&incomplete))
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("history does not fit"));
+        assert!(
+            matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+        );
+
+        let work = state.summary_work(1, 1).unwrap();
+        assert!(state.apply_summary(&work, "Earlier parser findings are summarized"));
+        let complete = state.prepare(3, 4096, &Utf8ByteBudget);
+        assert!(!complete.history_truncated);
+        let server = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let (mut stream, _) = loop {
+                match listener.accept() {
+                    Ok(connection) => break connection,
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                            && Instant::now() < deadline =>
+                    {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    result => panic!("Classifier request did not arrive: {result:?}"),
+                }
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                assert!(reader.read_line(&mut line).unwrap() > 0);
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse::<usize>().unwrap();
+                }
+            }
+            let mut body = vec![0; length];
+            reader.read_exact(&mut body).unwrap();
+            let body: Value = serde_json::from_slice(&body).unwrap();
+            let input = body["messages"][1]["content"].as_str().unwrap();
+            assert!(input.contains("Earlier parser findings are summarized"));
+            assert!(input.contains("LATEST_7"));
+            let response =
+                json!({"choices":[{"message":{"content":"{\"simple_type\":\"simple\"}"}}]})
+                    .to_string();
+            write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",response.len(),response).unwrap();
+        });
+        assert!(router
+            .predict_for("root", &complete.user_prompt, None, Some(&complete))
+            .await
+            .is_ok());
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn estimated_router_budget_learns_only_from_usage_and_context_overflow() {
+        use super::{
+            HttpRoundModelRouter, HttpRoundModelRouterConfig, RoundModelRouter, RouterContextConfig,
+        };
+        use serde_json::{json, Value};
+        use std::io::{BufRead, BufReader, Read, Write};
+        use std::time::Duration;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let router = HttpRoundModelRouter::new(HttpRoundModelRouterConfig {
+            endpoint: format!(
+                "http://{}/v1/chat/completions",
+                listener.local_addr().unwrap()
+            ),
+            model: "router-fixture".into(),
+            system_prompt: "Classify the next step".into(),
+            api_key: None,
+            timeout: Duration::from_secs(3),
+            admission: Default::default(),
+            recent_rounds: 3,
+            simple_threshold: 0.75,
+            trace_path: None,
+            tokenizer_path: None,
+            proxy: None,
+            custom_headers: Default::default(),
+            skip_ssl_verify: false,
+            context: RouterContextConfig {
+                context_window: 8192,
+                max_input_tokens: 8192,
+                summary_enabled: false,
+                ..Default::default()
+            },
+        })
+        .unwrap();
+        let server = std::thread::spawn(move || {
+            let valid = json!({"choices":[{"message":{"content":"{\"simple_type\":\"simple\"}"}}],
+                "usage":{"prompt_tokens":6000,"prompt_tokens_details":{"cached_tokens":5900}}});
+            let no_usage =
+                json!({"choices":[{"message":{"content":"{\"simple_type\":\"simple\"}"}}]});
+            for (status, response) in [
+                ("200 OK", valid),
+                ("200 OK", no_usage),
+                (
+                    "400 Bad Request",
+                    json!({"error":{"code":"invalid_request_error","message":"Invalid model"}}),
+                ),
+                (
+                    "400 Bad Request",
+                    json!({"error":{"code":"context_length_exceeded","message":"Input too long"}}),
+                ),
+            ] {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut length = 0;
+                loop {
+                    let mut line = String::new();
+                    assert!(reader.read_line(&mut line).unwrap() > 0);
+                    if line == "\r\n" {
+                        break;
+                    }
+                    if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        length = value.trim().parse::<usize>().unwrap();
+                    }
+                }
+                let mut body = vec![0; length];
+                reader.read_exact(&mut body).unwrap();
+                let body: Value = serde_json::from_slice(&body).unwrap();
+                assert_eq!(body["messages"][0]["content"], "Classify the next step");
+                assert!(body["messages"][1]["content"]
+                    .as_str()
+                    .unwrap()
+                    .contains("LATEST_REQUEST"));
+                let data = response.to_string();
+                write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", data.len(), data).unwrap();
+            }
+        });
+        let task = format!("{}LATEST_REQUEST", "evidence ".repeat(600));
+        let context = router.create_context("leaf-a", "turn", &task).unwrap();
+        let other = router.create_context("leaf-b", "turn", &task).unwrap();
+        let first = context.render();
+        router
+            .predict_for("root", &first.user_prompt, None, Some(&first))
+            .await
+            .unwrap();
+        let second = context.render();
+        assert!(second.budget_tokens < first.budget_tokens);
+        assert_eq!(other.render().budget_tokens, first.budget_tokens);
+        assert!(second.input_tokens <= second.budget_tokens);
+        router
+            .predict_for("root", &second.user_prompt, None, Some(&second))
+            .await
+            .unwrap();
+        assert_eq!(context.render().budget_tokens, second.budget_tokens);
+        assert!(router
+            .predict_for("root", &second.user_prompt, None, Some(&second))
+            .await
+            .is_err());
+        assert_eq!(context.render().budget_tokens, second.budget_tokens);
+        assert!(router
+            .predict_for("root", &second.user_prompt, None, Some(&second))
+            .await
+            .is_err());
+        assert!(context.render().budget_tokens < second.budget_tokens);
+        // Do not send a stale prepared snapshot after the server tightened its budget.
+        assert!(router
+            .predict_for("root", &second.user_prompt, None, Some(&second))
+            .await
+            .is_err());
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
     async fn http_request_preserves_system_and_protocol_with_isolated_bounded_input() {
         use super::{
             HttpRoundModelRouter, HttpRoundModelRouterConfig, RoundModelRouteRequest,
@@ -736,7 +983,7 @@ mod tests {
             recent_rounds: 3,
             simple_threshold: 0.7,
             trace_path: Some(trace_path.clone()),
-            tokenizer_path,
+            tokenizer_path: Some(tokenizer_path),
             proxy: None,
             custom_headers: Default::default(),
             skip_ssl_verify: false,

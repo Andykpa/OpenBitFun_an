@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Button, Combobox, Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogHeading, DialogTitle, Field, Input, Select, Switch } from '@openbitfun/ui';
+import { Button, Combobox, Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogHeading, DialogTitle, Field, Select } from '@openbitfun/ui';
 import { useI18n } from '@/infrastructure/i18n';
 import { agentAPI } from '@/infrastructure/api/service-api/AgentAPI';
+import { configAPI } from '@/infrastructure/api/service-api/ConfigAPI';
 import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
 import { createLogger } from '@/shared/utils/logger';
 import { configManager } from '../services/ConfigManager';
@@ -10,10 +11,10 @@ import { filterSelectableTextChatModels } from '../services/modelCategory';
 import { useModelSelectPresentation } from './ModelSelectPresentation';
 import './ModelRouterSettings.scss';
 
-const DEFAULTS: ModelRoutingConfig = { default_mode: null, router_model_id: null, tokenizer_path: '', simple_threshold: 0.75, timeout_ms: 10000, summary_enabled: false };
+const DEFAULTS: ModelRoutingConfig = { default_mode: null, router_model_id: null, simple_threshold: 0.75, timeout_ms: 10000, summary_enabled: true };
 const log = createLogger('ModelRouterSettings');
 
-/** All paths and credentials belong to the selected execution host. */
+/** Router configuration belongs to the selected execution host. */
 export function ModelRouterSettings({ models, onClose, onSaved, onManageModels }: {
   models: AIModelConfig[]; onClose: () => void; onSaved: () => void; onManageModels?: () => void;
 }) {
@@ -52,6 +53,22 @@ export function ModelRouterSettings({ models, onClose, onSaved, onManageModels }
       const support = await agentAPI.getModelRoutingStatus();
       if (!surface.isCurrent()) return;
       if (support.apiVersion !== 1) { setMessage(t('router.unsupported')); return; }
+      const requireTokenBudgetSupport = (current: ModelRoutingConfig) => {
+        if (support.estimatedTokenBudgetSupported !== true
+          && (typeof current.tokenizer_path !== 'string' || !current.tokenizer_path.trim())) {
+          failureMessage = t('router.tokenBudgetUnsupported');
+          throw new Error('Execution host requires a Router tokenizer file');
+        }
+      };
+      if (support.estimatedTokenBudgetSupported !== true) {
+        // Bypass the editor/cache snapshot before writing either model roles or routing.
+        const current: unknown = await configAPI.getConfig('ai.model_routing');
+        if (!surface.isCurrent()) return;
+        if (!current || typeof current !== 'object' || Array.isArray(current)) {
+          throw new Error('Router configuration is unavailable on the execution host');
+        }
+        requireTokenBudgetSupport(current as ModelRoutingConfig);
+      }
       failureMessage = t('router.saveFailed');
       const changedRoles = Object.fromEntries((['primary', 'economy'] as const)
         .filter(role => (roleDraft[role] || null) !== (initialRoles[role] || null))
@@ -62,11 +79,15 @@ export function ModelRouterSettings({ models, onClose, onSaved, onManageModels }
         setInitialRoles({ ...roleDraft });
         onSaved();
       }
-      await configManager.updateConfig<ModelRoutingConfig>('ai.model_routing', current => ({
-        ...DEFAULTS, ...current, router_model_id: draft.router_model_id || null,
-        tokenizer_path: draft.tokenizer_path.trim(),
-        summary_enabled: draft.summary_enabled,
-      }));
+      await configManager.updateConfig<ModelRoutingConfig>('ai.model_routing', current => {
+        // Recheck the fresh mutation value in case a legacy path changed after validation.
+        requireTokenBudgetSupport(current);
+        return {
+          ...DEFAULTS, ...current, router_model_id: draft.router_model_id || null,
+          // Keep automatic history preparation enabled on older execution hosts too.
+          summary_enabled: true,
+        };
+      });
       if (!surface.isCurrent()) return;
       onSaved();
       if (probe) {
@@ -101,14 +122,6 @@ export function ModelRouterSettings({ models, onClose, onSaved, onManageModels }
             onValueChange={value => setDraft(current => current && { ...current, router_model_id: String(value) || null })}
             options={[{ value: '', label: t('router.unconfigured') }, ...models.filter((model): model is AIModelConfig & { id: string } => Boolean(model.id) && model.enabled && (!model.auth || model.auth.type === 'api_key'))
               .map(model => ({ value: model.id, label: `${model.model_name} · ${model.name}` }))]} />
-        </Field>
-        <Field label={t('router.tokenizer')} description={t('router.tokenizerHint')} controlWidth="fill">
-          <Input size="sm" aria-label={t('router.tokenizer')} value={draft?.tokenizer_path ?? ''} disabled={busy || !draft}
-            onValueChange={value => setDraft(current => current && { ...current, tokenizer_path: value })} />
-        </Field>
-        <Field orientation="horizontal" label={t('router.summary')} description={t('router.summaryHint')}>
-          <Switch aria-label={t('router.summary')} checked={draft?.summary_enabled ?? false} disabled={busy || !draft}
-            onCheckedChange={checked => setDraft(current => current && { ...current, summary_enabled: checked })} />
         </Field>
         {message && <div className="model-router-settings__status" role="status" aria-label={t('router.status')}
           data-openbitfun-component="model-router-settings" data-openbitfun-part="status">

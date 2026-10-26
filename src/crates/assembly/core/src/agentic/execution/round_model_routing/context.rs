@@ -13,8 +13,9 @@ use log::warn;
 #[cfg(test)]
 use openbitfun_agent_runtime::router_context::Utf8ByteBudget;
 use openbitfun_agent_runtime::router_context::{
-    CachedRouterTokenCounter, PreparedRouterContext, RouterCompressionRecord, RouterContextState,
-    RouterEntryKind, RouterSummaryWork, RouterTokenCounter,
+    CachedRouterTokenCounter, EstimatedRouterTokens, PreparedRouterContext,
+    RouterCompressionRecord, RouterContextState, RouterEntryKind, RouterInputBudget,
+    RouterSummaryWork, RouterTokenCounter,
 };
 use openbitfun_agent_runtime::router_summary_queue::{RouterSummaryQueue, RouterSummaryUpdate};
 use openbitfun_agent_tools::effective_tool_invocation;
@@ -346,7 +347,7 @@ impl SummaryProvider for ConfiguredSummaryProvider {
 pub(super) struct RouterContextFactory {
     config: RouterContextConfig,
     recent_rounds: usize,
-    input_budget_tokens: usize,
+    system_tokens: usize,
     counter: Arc<dyn RouterTokenCounter>,
     summary_provider: Arc<dyn SummaryProvider>,
     summary_queue: Arc<RouterSummaryQueue<RouterSummaryWork>>,
@@ -359,17 +360,23 @@ impl RouterContextFactory {
         recent_rounds: usize,
         system_prompt: &str,
         trace_path: Option<PathBuf>,
-        tokenizer_path: &std::path::Path,
+        tokenizer_path: Option<&std::path::Path>,
     ) -> OpenBitFunResult<Self> {
-        let counter: Arc<dyn RouterTokenCounter> = Arc::new(TokenizerCounter {
-            tokenizer: LocalTokenizer::from_file(&tokenizer_path).map_err(|error| {
-                OpenBitFunError::Configuration(format!(
-                    "Failed to load Router tokenizer from {}: {error}",
-                    tokenizer_path.display()
-                ))
-            })?,
-            failed: AtomicBool::new(false),
-        });
+        let counter: Arc<dyn RouterTokenCounter> =
+            match tokenizer_path.map(LocalTokenizer::from_file) {
+                Some(Ok(tokenizer)) => Arc::new(TokenizerCounter {
+                    tokenizer,
+                    failed: AtomicBool::new(false),
+                }),
+                result => {
+                    if result.is_some() {
+                        warn!(
+                        "Configured Router tokenizer is unavailable; using estimated token budgets"
+                    );
+                    }
+                    Arc::new(EstimatedRouterTokens)
+                }
+            };
         Self::new_with_counter(config, recent_rounds, system_prompt, trace_path, counter)
     }
 
@@ -388,17 +395,13 @@ impl RouterContextFactory {
         }
         // The configured cap may match the service's full context window. Derive
         // the usable user-prompt budget after fixed system/output/template costs.
-        let fixed_tokens = counter.count(system_prompt).saturating_add(128 + 256);
-        let available_input_tokens =
-            config
-                .context_window
-                .checked_sub(fixed_tokens)
-                .ok_or_else(|| {
-                    OpenBitFunError::Configuration(
-                "Router system prompt + output/template reserve exhausts its context window".into(),
-            )
-                })?;
-        let input_budget_tokens = config.max_input_tokens.min(available_input_tokens);
+        let system_tokens = counter.count(system_prompt);
+        let input_budget_tokens = RouterInputBudget::new(
+            config.context_window,
+            config.max_input_tokens,
+            system_tokens,
+        )
+        .user_budget();
         if input_budget_tokens < 512 {
             return Err(OpenBitFunError::Configuration(
                 "Router context window leaves fewer than 512 tokens for the user prompt".into(),
@@ -409,7 +412,7 @@ impl RouterContextFactory {
         Ok(Self {
             config,
             recent_rounds,
-            input_budget_tokens,
+            system_tokens,
             counter,
             summary_provider: Arc::new(ConfiguredSummaryProvider),
             summary_queue: SUMMARY_QUEUE
@@ -428,6 +431,11 @@ impl RouterContextFactory {
         let mut factory = self.clone();
         factory.counter = Arc::new(CachedRouterTokenCounter::new(self.counter.clone()));
         RoundRouterContext {
+            token_budget: Arc::new(RouterInputBudget::new(
+                self.config.context_window,
+                self.config.max_input_tokens,
+                self.system_tokens,
+            )),
             factory,
             root_session_id: session_id.into(),
             parent_session_id: None,
@@ -452,6 +460,7 @@ impl RouterContextFactory {
 
 /// Owned by one execution generation. Dropping it aborts only its auxiliary request.
 pub struct RoundRouterContext {
+    token_budget: Arc<RouterInputBudget>,
     root_session_id: String,
     parent_session_id: Option<String>,
     factory: RouterContextFactory,
@@ -624,7 +633,10 @@ impl RoundRouterContext {
         let mut compression_records = self.poll_summary().await.into_iter().collect::<Vec<_>>();
         let summary_apply_ms = phase.elapsed().as_millis() as u64;
         let phase = Instant::now();
-        self.start_summary();
+        let mut prepared = self.render();
+        let render_ms = phase.elapsed().as_millis() as u64;
+        let phase = Instant::now();
+        self.start_summary_for(&prepared);
         if let Some(active) = &self.active_summary {
             let status = if self
                 .summary_update
@@ -641,14 +653,12 @@ impl RoundRouterContext {
         let phase = Instant::now();
         self.queue_save();
         let checkpoint_ms = phase.elapsed().as_millis() as u64;
-        let phase = Instant::now();
-        let mut prepared = self.render();
         prepared.compression_records = compression_records;
         prepared.preparation.observe_ms = observe_ms;
         prepared.preparation.summary_apply_ms = summary_apply_ms;
         prepared.preparation.summary_prepare_ms = summary_prepare_ms;
         prepared.preparation.checkpoint_ms = checkpoint_ms;
-        prepared.preparation.render_ms = phase.elapsed().as_millis() as u64;
+        prepared.preparation.render_ms = render_ms;
         prepared.preparation.tokens = self.factory.counter.metrics().since(token_metrics);
         prepared.preparation_ms = started.elapsed().as_millis() as u64;
         prepared
@@ -681,11 +691,17 @@ impl RoundRouterContext {
     }
 
     pub(super) fn render(&self) -> PreparedRouterContext {
-        self.state.prepare(
+        let budget = self.token_budget.user_budget();
+        let mut prepared = self.state.prepare(
             self.factory.recent_rounds,
-            self.factory.input_budget_tokens,
+            budget,
             self.factory.counter.as_ref(),
-        )
+        );
+        // State rendering retains a minimum protocol envelope; HTTP admission
+        // rejects it when calibration leaves less room than that envelope.
+        prepared.budget_tokens = budget;
+        prepared.token_budget = Some(self.token_budget.clone());
+        prepared
     }
 
     fn queue_save(&mut self) {
@@ -768,7 +784,13 @@ impl RoundRouterContext {
         }
     }
 
+    #[cfg(test)]
     fn start_summary(&mut self) {
+        let prepared = self.render();
+        self.start_summary_for(&prepared);
+    }
+
+    fn start_summary_for(&mut self, prepared: &PreparedRouterContext) {
         if !self.factory.config.summary_enabled
             || (self.pending_summary.is_some()
                 && !self
@@ -778,15 +800,43 @@ impl RoundRouterContext {
         {
             return;
         }
-        let Some(work) = self.state.summary_work(
-            self.factory.recent_rounds,
-            self.factory.config.summary_trigger_tokens,
-        ) else {
+        // Start before the complete prompt fills the budget. Under pressure,
+        // summarize older rounds while keeping the latest completed round intact.
+        let under_pressure = prepared.history_truncated
+            || prepared.input_tokens
+                >= prepared
+                    .budget_tokens
+                    .saturating_sub(prepared.budget_tokens / 4);
+        let recent_rounds = if under_pressure {
+            1
+        } else {
+            self.factory.recent_rounds
+        };
+        let trigger = if under_pressure {
+            1
+        } else {
+            self.factory
+                .config
+                .summary_trigger_tokens
+                .min(self.token_budget.user_budget() / 2)
+                .max(1)
+        };
+        let Some(work) = self.state.summary_work(recent_rounds, trigger) else {
             return;
         };
         // A waiting session retains its position while its payload advances. Once
         // running, the immutable snapshot is applied only to its captured prefix.
         if self.pending_summary.is_some() {
+            // Keep a complete queued snapshot if it can still recover observations
+            // evicted by backpressure. A newer snapshot with a gap cannot replace it.
+            if work.omitted_through != 0
+                && self
+                    .active_summary
+                    .as_ref()
+                    .is_some_and(|snapshot| snapshot.through >= work.omitted_through)
+            {
+                return;
+            }
             if self
                 .summary_update
                 .as_ref()

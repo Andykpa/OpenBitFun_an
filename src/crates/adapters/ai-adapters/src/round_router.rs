@@ -10,17 +10,21 @@ use std::time::Duration;
 const SIMPLE_TOKEN_ID: u32 = 22_944;
 const NON_SIMPLE_FIRST_TOKEN_ID: u32 = 6_280;
 const ROUTER_TOP_LOGPROBS: usize = 20;
+const MAX_ERROR_BODY_BYTES: usize = 16 * 1024;
 
 #[derive(Debug)]
 pub enum RouterClientError {
     Http(String),
+    ContextOverflow(String),
     Deserialization(String),
 }
 
 impl std::fmt::Display for RouterClientError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Http(message) | Self::Deserialization(message) => formatter.write_str(message),
+            Self::Http(message)
+            | Self::ContextOverflow(message)
+            | Self::Deserialization(message) => formatter.write_str(message),
         }
     }
 }
@@ -34,6 +38,19 @@ pub struct RouterPrediction {
     pub recovered: bool,
     pub raw_output: String,
     pub usage: Option<Value>,
+}
+
+impl RouterPrediction {
+    /// Total provider-reported prompt usage, including any cached input tokens.
+    /// Error-message estimates and alternative/cache-only fields are not usage.
+    pub fn prompt_tokens(&self) -> Option<usize> {
+        self.usage
+            .as_ref()?
+            .get("prompt_tokens")?
+            .as_u64()
+            .filter(|tokens| *tokens > 0)
+            .and_then(|tokens| usize::try_from(tokens).ok())
+    }
 }
 
 pub struct RouterHttpClient {
@@ -142,17 +159,19 @@ impl RouterHttpClient {
         for (name, value) in &self.custom_headers {
             request = request.header(name, value);
         }
-        let response = request
-            .send()
-            .await
-            .map_err(|error| RouterClientError::Http(format!("Router request failed: {error}")))?
-            .error_for_status()
-            .map_err(|error| RouterClientError::Http(format!("Router returned an error: {error}")))?
+        let response = request.send().await.map_err(|error| {
+            RouterClientError::Http(format!("Router request failed: {}", error.without_url()))
+        })?;
+        if !response.status().is_success() {
+            return Err(classify_http_failure(response).await);
+        }
+        let response = response
             .json::<OpenAiChatResponse>()
             .await
             .map_err(|error| {
                 RouterClientError::Deserialization(format!(
-                    "Failed to decode Router response: {error}"
+                    "Failed to decode Router response: {}",
+                    error.without_url()
                 ))
             })?;
         let choice = response.choices.first().ok_or_else(|| {
@@ -174,6 +193,68 @@ impl RouterHttpClient {
             usage: response.usage,
         })
     }
+}
+
+async fn classify_http_failure(mut response: reqwest::Response) -> RouterClientError {
+    let status = response.status().as_u16();
+    // Authentication, throttling and service failures take precedence over any
+    // provider text. A generic oversized HTTP payload is not a model context error.
+    if matches!(status, 400 | 413 | 422) {
+        let mut body = Vec::new();
+        loop {
+            match response.chunk().await {
+                Ok(Some(chunk))
+                    if body.len().saturating_add(chunk.len()) <= MAX_ERROR_BODY_BYTES =>
+                {
+                    body.extend_from_slice(&chunk);
+                }
+                Ok(None) => {
+                    if is_context_overflow_body(&body) {
+                        // Do not include provider messages, request echoes, URLs or credentials.
+                        return RouterClientError::ContextOverflow(format!(
+                            "Router input exceeds the model context window (HTTP {status})"
+                        ));
+                    }
+                    break;
+                }
+                Ok(Some(_)) | Err(_) => break,
+            }
+        }
+    }
+    RouterClientError::Http(format!("Router returned HTTP {status}"))
+}
+
+fn is_context_overflow_body(body: &[u8]) -> bool {
+    let Ok(value) = serde_json::from_slice::<Value>(body) else {
+        return false;
+    };
+    let error = value.get("error").unwrap_or(&value);
+    let code = error.get("code").and_then(Value::as_str);
+    let kind = error.get("type").and_then(Value::as_str);
+    let overflow_code = |code: &str| {
+        matches!(
+            code,
+            "context_length_exceeded" | "model_context_window_exceeded" | "context_window_exceeded"
+        )
+    };
+    if code.is_some_and(overflow_code) || kind.is_some_and(overflow_code) {
+        return true;
+    }
+    // Message fallback is confined to OpenAI/vLLM request-validation errors.
+    // Never reinterpret an explicit quota/authentication/other provider code.
+    if code.is_some_and(|code| !matches!(code, "invalid_request_error" | "BadRequestError"))
+        || kind.is_some_and(|kind| !matches!(kind, "invalid_request_error" | "BadRequestError"))
+    {
+        return false;
+    }
+    let Some(message) = error.get("message").and_then(Value::as_str) else {
+        return false;
+    };
+    let message = message.trim().to_ascii_lowercase();
+    message.starts_with("this model's maximum context length is ")
+        && (message.contains("however, you requested ")
+            || message.contains("however, your prompt contains ")
+            || message.contains("but the prompt contains "))
 }
 
 #[derive(Debug, Serialize)]
@@ -388,6 +469,85 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn prompt_usage_requires_positive_total_input_and_keeps_cached_tokens_included() {
+        let prediction = |usage| RouterPrediction {
+            generated_simple: true,
+            simple_probability: None,
+            recovered: false,
+            raw_output: String::new(),
+            usage,
+        };
+        assert_eq!(prediction(None).prompt_tokens(), None);
+        for usage in [
+            json!({}),
+            json!({"prompt_tokens": null}),
+            json!({"prompt_tokens": 0}),
+            json!({"prompt_tokens": -1}),
+            json!({"prompt_tokens": 42.0}),
+            json!({"prompt_tokens": "42"}),
+            json!({"input_tokens": 42}),
+            json!({"prompt_cache_hit_tokens": 42, "completion_tokens": 8}),
+            json!({"error": {"message": "Requested 42 tokens"}}),
+        ] {
+            assert_eq!(
+                prediction(Some(usage.clone())).prompt_tokens(),
+                None,
+                "{usage}"
+            );
+        }
+        for usage in [
+            json!({"prompt_tokens": 42}),
+            json!({"prompt_tokens": 42, "completion_tokens": 8, "total_tokens": 50}),
+            json!({"prompt_tokens": 42, "prompt_tokens_details": {"cached_tokens": 30}}),
+            json!({"prompt_tokens": 42, "prompt_cache_hit_tokens": 30, "prompt_cache_miss_tokens": 12}),
+        ] {
+            assert_eq!(
+                prediction(Some(usage.clone())).prompt_tokens(),
+                Some(42),
+                "{usage}"
+            );
+        }
+    }
+
+    #[test]
+    fn overflow_detection_requires_explicit_provider_context_evidence() {
+        for error in [
+            json!({"error": {"code": "context_length_exceeded", "message": "Request failed"}}),
+            json!({"type": "model_context_window_exceeded"}),
+            json!({"error": {"code": "context_window_exceeded"}}),
+            json!({"object": "error", "type": "BadRequestError", "code": 400,
+                "message": "This model's maximum context length is 4096 tokens. However, you requested 5000 tokens."}),
+            json!({"error": {"type": "BadRequestError", "code": 400,
+                "message": "This model's maximum context length is 4096 tokens. However, your prompt contains at least 4097 input tokens."}}),
+            json!({"type": "BadRequestError", "message":
+                "This model's maximum context length is 4096 tokens, but the prompt contains 5000 input tokens"}),
+        ] {
+            assert!(
+                is_context_overflow_body(&serde_json::to_vec(&error).unwrap()),
+                "{error}"
+            );
+        }
+        for error in [
+            json!({"error": {"code": "invalid_request_error", "message": "Unsupported field"}}),
+            json!({"error": {"message": "Request Entity Too Large"}}),
+            json!({"error": {"message": "max_tokens exceeds the permitted output limit"}}),
+            json!({"error": {"message": "Invalid prompt: context_length_exceeded was quoted"}}),
+            json!({"error": {"code": "invalid_api_key", "message":
+                "This model's maximum context length is 4096 tokens. However, you requested 5000 tokens."}}),
+            json!({"error": {"message": "This model's maximum context length is 4096 tokens."}}),
+        ] {
+            assert!(
+                !is_context_overflow_body(&serde_json::to_vec(&error).unwrap()),
+                "{error}"
+            );
+        }
+        assert!(!is_context_overflow_body(b"context_length_exceeded"));
+        assert!(!is_context_overflow_body(
+            br#"{"error":{"code":"context_length_exceeded"}"#
+        ));
+    }
+
     #[tokio::test]
     async fn http_transport_preserves_auth_protocol_and_error_categories() {
         use axum::{
@@ -418,8 +578,20 @@ mod tests {
                     assert!(!headers.contains_key("authorization"));
                 }
                 let valid = json!({"choices": [{"message": {"content": "{\"simple_type\":\"simple\"}"}}], "usage": {"prompt_tokens": 42}});
+                let overflow = json!({"error": {"code": "context_length_exceeded",
+                    "message": "fixture-secret-key and echoed isolated input"}});
                 match model {
                     "http_error" => (StatusCode::SERVICE_UNAVAILABLE, String::from("unavailable")),
+                    "overflow" => (StatusCode::BAD_REQUEST, overflow.to_string()),
+                    "ordinary_400" => (StatusCode::BAD_REQUEST, json!({"error": {"message": "Unsupported field"}}).to_string()),
+                    "ordinary_413" => (StatusCode::PAYLOAD_TOO_LARGE, String::from("Request Entity Too Large")),
+                    "overflow_413" => (StatusCode::PAYLOAD_TOO_LARGE, overflow.to_string()),
+                    "auth_error" => (StatusCode::UNAUTHORIZED, overflow.to_string()),
+                    "permission_error" => (StatusCode::FORBIDDEN, overflow.to_string()),
+                    "rate_limit" => (StatusCode::TOO_MANY_REQUESTS, overflow.to_string()),
+                    "service_error" => (StatusCode::SERVICE_UNAVAILABLE, overflow.to_string()),
+                    "oversized_error" => (StatusCode::BAD_REQUEST,
+                        json!({"error": {"code": "context_length_exceeded", "message": "x".repeat(MAX_ERROR_BODY_BYTES)}}).to_string()),
                     "bad_json" => (StatusCode::OK, String::from("not json")),
                     "empty_choices" => (StatusCode::OK, json!({"choices": []}).to_string()),
                     "missing_content" => (StatusCode::OK, json!({"choices": [{"message": {}}]}).to_string()),
@@ -442,6 +614,15 @@ mod tests {
             "unauthenticated",
             "authenticated",
             "http_error",
+            "overflow",
+            "ordinary_400",
+            "ordinary_413",
+            "overflow_413",
+            "auth_error",
+            "permission_error",
+            "rate_limit",
+            "service_error",
+            "oversized_error",
             "bad_json",
             "empty_choices",
             "missing_content",
@@ -454,7 +635,7 @@ mod tests {
                 Duration::from_secs(3)
             };
             let client = RouterHttpClient::new(
-                endpoint.clone(),
+                format!("{endpoint}?api_key=fixture-query-secret"),
                 model.into(),
                 "fixed system".into(),
                 (model == "authenticated").then(|| "fixture-key".into()),
@@ -468,12 +649,30 @@ mod tests {
                     assert!(prediction.generated_simple);
                     assert_eq!(prediction.simple_probability, None);
                     assert!(!prediction.recovered);
+                    assert_eq!(prediction.prompt_tokens(), Some(42));
                     assert_eq!(prediction.usage.unwrap()["prompt_tokens"], 42);
                 }
-                "http_error" | "timeout" => assert!(
-                    matches!(result, Err(RouterClientError::Http(_))),
-                    "{model}: {result:?}"
-                ),
+                "overflow" | "overflow_413" => {
+                    assert!(
+                        matches!(result, Err(RouterClientError::ContextOverflow(_))),
+                        "{result:?}"
+                    );
+                    let error = result.unwrap_err().to_string();
+                    assert!(!error.contains("fixture-secret-key"));
+                    assert!(!error.contains("isolated input"));
+                    assert!(!error.contains("fixture-query-secret"));
+                }
+                "http_error" | "timeout" | "ordinary_400" | "ordinary_413" | "auth_error"
+                | "permission_error" | "rate_limit" | "service_error" | "oversized_error" => {
+                    assert!(
+                        matches!(result, Err(RouterClientError::Http(_))),
+                        "{model}: {result:?}"
+                    );
+                    assert!(!result
+                        .unwrap_err()
+                        .to_string()
+                        .contains("fixture-query-secret"));
+                }
                 _ => assert!(
                     matches!(result, Err(RouterClientError::Deserialization(_))),
                     "{model}: {result:?}"

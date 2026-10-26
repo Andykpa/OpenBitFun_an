@@ -127,14 +127,14 @@ describe('ModelSettingsPage loading and provider actions', () => {
   });
 
   it('opens the shared smart configuration dialog and saves without enabling routing', async () => {
-    let routing: ModelRoutingConfig = { default_mode: 'manual', router_model_id: null, tokenizer_path: '',
+    let routing: ModelRoutingConfig = { default_mode: 'manual', router_model_id: null,
       simple_threshold: .75, timeout_ms: 10000, summary_enabled: false };
     vi.spyOn(configManager, 'getConfigs').mockResolvedValue({ 'ai.model_routing': routing, 'ai.default_models': { primary: model.id } });
     const updateConfig = vi.spyOn(configManager, 'updateConfig').mockImplementation(async <T,>(path: string, update: (current: T) => T) => {
       expect(path).toBe('ai.model_routing'); routing = update(routing as T) as ModelRoutingConfig; return routing as T;
     });
     vi.spyOn(agentAPI, 'getModelRoutingStatus').mockResolvedValue({ apiVersion: 1, mode: 'manual', defaultMode: 'manual',
-      ready: false, issue: null, connected: null, summaryEnabled: false });
+      ready: false, issue: null, connected: null, summaryEnabled: false, estimatedTokenBudgetSupported: true });
     const updateSession = vi.spyOn(agentAPI, 'updateSessionModel');
     await act(async () => root.render(<ModelSettingsPage />));
     await act(async () => { reads.get('ai.models')!.resolve([model]); reads.get('ai.default_models')!.resolve({ primary: model.id }); });
@@ -143,14 +143,10 @@ describe('ModelSettingsPage loading and provider actions', () => {
     const dialog = document.querySelector<HTMLElement>('.model-router-settings')!.closest('[role="dialog"]')!;
     expect(dialog.textContent).toContain(copy('router.title'));
     expect(updateConfig).not.toHaveBeenCalled();
-    const tokenizer = dialog.querySelector<HTMLInputElement>(`[aria-label="${copy('router.tokenizer')}"]`)!;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(tokenizer, '/host/tokenizer.json');
-      tokenizer.dispatchEvent(new Event('input', { bubbles: true }));
-    });
     await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(element => element.textContent === copy('router.save'))!.click());
     expect(document.querySelector('.model-router-settings')).toBeNull();
-    expect(routing.tokenizer_path).toBe('/host/tokenizer.json');
+    expect(routing).not.toHaveProperty('tokenizer_path');
+    expect(routing.summary_enabled).toBe(true);
     expect(routing.default_mode).toBe('manual');
     expect(updateConfig).toHaveBeenCalledOnce(); expect(updateSession).not.toHaveBeenCalled();
     expect(configManager.getOptionalConfig).toHaveBeenCalledTimes(4);

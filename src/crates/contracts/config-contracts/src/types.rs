@@ -1101,14 +1101,16 @@ pub struct ModelRoutingConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_mode: Option<String>,
     pub router_model_id: Option<String>,
-    /// Path on the execution host, not on a remote controller or workspace.
+    /// Optional exact-tokenizer override on the execution host. Empty or unavailable
+    /// paths use automatic estimates; retain this legacy field for older installs.
     pub tokenizer_path: String,
     pub simple_threshold: f64,
     pub timeout_ms: u64,
     /// Legacy smart-subagent setting retained for persisted-data compatibility only.
     /// Subagent selection follows agent_model_selections; this field has no runtime effect.
     pub subagent_model: String,
-    /// Optional auxiliary summaries use the economy model, with separate usage.
+    /// Compatibility switch for older hosts. Product smart mode maintains
+    /// economy-model routing summaries automatically; preserve legacy values on read.
     pub summary_enabled: bool,
 }
 
@@ -1121,7 +1123,7 @@ impl Default for ModelRoutingConfig {
             simple_threshold: 0.75,
             timeout_ms: 10_000,
             subagent_model: "primary".into(),
-            summary_enabled: false,
+            summary_enabled: true,
         }
     }
 }
@@ -2321,6 +2323,70 @@ impl AIModelConfig {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn model_routing_summary_defaults_to_automatic_and_preserves_old_switch_values() {
+        let legacy: super::ModelRoutingConfig =
+            serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(legacy.summary_enabled);
+        for enabled in [false, true] {
+            let payload = serde_json::json!({
+                "model_routing": {
+                    "router_model_id": "router",
+                    "summary_enabled": enabled,
+                    "simple_threshold": 0.8
+                }
+            });
+            let config: super::AIConfig = serde_json::from_value(payload).unwrap();
+            assert_eq!(config.model_routing.summary_enabled, enabled);
+            let saved = serde_json::to_value(config).unwrap();
+            assert_eq!(saved["model_routing"]["summary_enabled"], enabled);
+            assert_eq!(saved["model_routing"]["router_model_id"], "router");
+            let restored: super::AIConfig = serde_json::from_value(saved).unwrap();
+            assert_eq!(restored.model_routing.summary_enabled, enabled);
+        }
+    }
+
+    #[test]
+    fn model_routing_tokenizer_override_is_optional_and_legacy_paths_round_trip() {
+        for payload in [
+            serde_json::json!({}),
+            serde_json::json!({"model_routing": {}}),
+            serde_json::json!({"model_routing": {"router_model_id": "router"}}),
+        ] {
+            let config: super::AIConfig = serde_json::from_value(payload).unwrap();
+            assert!(config.model_routing.tokenizer_path.is_empty());
+            let round_trip: super::AIConfig =
+                serde_json::from_value(serde_json::to_value(config).unwrap()).unwrap();
+            assert!(round_trip.model_routing.tokenizer_path.is_empty());
+        }
+        for path in [
+            "/execution-host/tokenizer.json",
+            "missing/legacy-tokenizer.json",
+            " \t ",
+        ] {
+            let payload = serde_json::json!({
+                "model_routing": {
+                    "router_model_id": "router",
+                    "tokenizer_path": path,
+                    "simple_threshold": 0.8,
+                    "timeout_ms": 12_000
+                }
+            });
+            let config: super::AIConfig = serde_json::from_value(payload.clone()).unwrap();
+            let saved = serde_json::to_value(config).unwrap();
+            for key in [
+                "router_model_id",
+                "tokenizer_path",
+                "simple_threshold",
+                "timeout_ms",
+            ] {
+                assert_eq!(saved["model_routing"][key], payload["model_routing"][key]);
+            }
+            let round_trip: super::AIConfig = serde_json::from_value(saved).unwrap();
+            assert_eq!(round_trip.model_routing.tokenizer_path, path);
+        }
+    }
+
     #[test]
     fn model_routing_defaults_preserve_legacy_and_future_settings() {
         assert_eq!(

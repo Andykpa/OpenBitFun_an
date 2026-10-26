@@ -1030,39 +1030,40 @@ fn remote_chat_history_turn_from_core_turn(
 }
 
 #[cfg(feature = "remote-connect")]
-async fn resolve_session_model_selection(
-    session_id: &str,
-) -> (Option<String>, Option<String>, Option<String>) {
-    let Some(coordinator) = get_global_coordinator() else {
-        return (None, None, None);
-    };
+async fn resolve_session_model_selection(session_id: &str) -> Result<Session, String> {
+    let coordinator = get_global_coordinator()
+        .ok_or_else(|| "Runtime is unavailable for session model selection".to_string())?;
     let session_manager = coordinator.get_session_manager();
 
     if let Some(session) = session_manager.get_session(session_id) {
-        return (
-            normalize_remote_session_model_id(session.config.model_id.as_deref()),
-            session.config.reasoning_preset.clone(),
-            session.config.model_routing.clone(),
-        );
+        return Ok(session);
     }
 
-    let Some(session_storage_dir) =
-        CoreServiceAgentRuntime::resolve_session_storage_dir(session_id).await
-    else {
-        return (None, None, None);
-    };
+    let session_storage_dir = CoreServiceAgentRuntime::resolve_session_storage_dir(session_id)
+        .await
+        .ok_or_else(|| format!("Session storage is unavailable: {session_id}"))?;
     coordinator
         .restore_session_view_from_storage_path_timed(&session_storage_dir, session_id)
         .await
-        .ok()
-        .map(|(session, _, _)| {
-            (
-                normalize_remote_session_model_id(session.config.model_id.as_deref()),
-                session.config.reasoning_preset,
-                session.config.model_routing,
-            )
-        })
-        .unwrap_or_default()
+        .map(|(session, _, _)| session)
+        .map_err(|error| format!("Failed to read session model selection: {error}"))
+}
+
+#[cfg(feature = "remote-connect")]
+fn ensure_remote_model_strategy_editable(session: &Session) -> Result<(), String> {
+    use crate::agentic::execution::round_model_routing::configuration::{
+        routing_enabled, session_eligible,
+    };
+    if session.kind == SessionKind::Subagent {
+        return Err("Subagent models are configured independently. Editing them is not supported from mobile or bot controls; use the GUI model selector".into());
+    }
+    if session_eligible(session)
+        && routing_enabled(session.config.model_routing.as_deref())
+            .map_err(|error| error.to_string())?
+    {
+        return Err("Smart routing is active. Model strategy editing is not supported from mobile or bot controls; use the GUI model selector".into());
+    }
+    Ok(())
 }
 
 #[cfg(feature = "remote-connect")]
@@ -2292,21 +2293,18 @@ impl CoreServiceAgentRuntime {
             })
             .collect();
 
-        let (session_model_id, session_reasoning_preset, routing_mode) =
-            if let Some(session_id) = session_id {
-                resolve_session_model_selection(session_id).await
-            } else {
-                (None, None, None)
-            };
-        if !include_host_catalogs
-            && session_id.is_some()
-            && crate::agentic::execution::round_model_routing::configuration::routing_enabled(
-                routing_mode.as_deref(),
+        let (session_model_id, session_reasoning_preset) = if let Some(session_id) = session_id {
+            let session = resolve_session_model_selection(session_id).await?;
+            if !include_host_catalogs {
+                ensure_remote_model_strategy_editable(&session)?;
+            }
+            (
+                normalize_remote_session_model_id(session.config.model_id.as_deref()),
+                session.config.reasoning_preset,
             )
-            .map_err(|error| error.to_string())?
-        {
-            return Err("Smart routing is active. Model strategy editing is not supported from mobile or bot controls; use the GUI model selector".into());
-        }
+        } else {
+            (None, None)
+        };
         Ok(build_remote_model_catalog(RemoteModelCatalogFacts {
             last_modified_ms: global_config.last_modified.timestamp_millis(),
             source_version: Some(models_dev.version),
@@ -2345,14 +2343,8 @@ impl CoreServiceAgentRuntime {
         model_id: &str,
         reasoning_preset: Option<Option<&str>>,
     ) -> Result<RemoteSessionModelSelection, String> {
-        let (_, _, routing_mode) = resolve_session_model_selection(session_id).await;
-        if crate::agentic::execution::round_model_routing::configuration::routing_enabled(
-            routing_mode.as_deref(),
-        )
-        .map_err(|error| error.to_string())?
-        {
-            return Err("Smart routing is active. Model strategy editing is not supported from mobile or bot controls; use the GUI model selector".into());
-        }
+        let session = resolve_session_model_selection(session_id).await?;
+        ensure_remote_model_strategy_editable(&session)?;
         let ai_config = if remote_model_selection_needs_config(model_id)
             || reasoning_preset.is_some_and(|preset| preset.is_some())
         {
@@ -4413,6 +4405,43 @@ mod tests {
 
         assert!(body.contains("restore_session_view_from_storage_path_timed"));
         assert!(!body.contains("restore_session_from_storage_path"));
+    }
+
+    #[test]
+    fn remote_model_strategy_guard_distinguishes_legacy_children_from_smart_main_sessions() {
+        use crate::agentic::core::SessionConfig;
+
+        let mut session = Session::new(
+            "Model selection".into(),
+            "Standard".into(),
+            SessionConfig {
+                model_id: Some("saved-model".into()),
+                model_routing: Some("manual".into()),
+                ..Default::default()
+            },
+        );
+        assert!(ensure_remote_model_strategy_editable(&session).is_ok());
+        session.config.model_routing = Some("smart".into());
+        assert!(ensure_remote_model_strategy_editable(&session)
+            .unwrap_err()
+            .contains("Smart routing is active"));
+
+        session.kind = SessionKind::Subagent;
+        session.config.delegation_model_routing = Some("smart".into());
+        for mode in ["smart", "manual", "future-mode"] {
+            session.config.model_routing = Some(mode.into());
+            let before = serde_json::to_value(&session.config).unwrap();
+            let error = ensure_remote_model_strategy_editable(&session).unwrap_err();
+            assert!(error.contains("Subagent models are configured independently"));
+            assert!(!error.contains("Smart routing is active"));
+            assert_eq!(serde_json::to_value(&session.config).unwrap(), before);
+        }
+    }
+
+    #[tokio::test]
+    async fn remote_model_strategy_lookup_never_treats_an_unknown_session_as_editable() {
+        let result = resolve_session_model_selection(&uuid::Uuid::new_v4().to_string()).await;
+        assert!(result.is_err());
     }
 
     #[test]

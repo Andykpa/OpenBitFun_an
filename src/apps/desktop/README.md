@@ -5,31 +5,46 @@ For development commands, see [AGENTS.md](AGENTS.md) and the repository
 
 ## Model selection and smart routing
 
-The composer model selector remembers the strategy for new conversations by
-default. Use **Only this conversation** for a temporary choice. Manual mode uses
-the primary model for the main conversation and the fast model for ordinary
-subagents; explicit subagent overrides still apply. Smart mode chooses between
-the primary model and an independently configured economy model for each main
-conversation step. Role assignments are shared across conversations.
-In smart mode, new subagents default to the primary model. Under **Advanced →
-Default subagent model**, choose **Follow primary model** or **Follow economy
-model**. This host-wide setting also applies to nested subagents; individual
-agent settings and explicit model/inherit requests take precedence. Existing
-subagents keep their chosen model or pool when resumed. Subagents follow their
-own configuration and do not participate in per-step Router classification or
-Router summaries. Smart mode does not require a fast model.
+Smart mode chooses between the primary model and an independently configured
+economy model for each main conversation step. Switching smart mode on or off
+changes the current conversation or draft, without changing the strategy default
+for future conversations. There is no remember-selection or scope control.
+Before a conversation or draft exists, the host strategy default owns the
+selection. Manual model and pool choices retain their existing session and
+future-default saving rules. Primary/economy role bindings remain shared model
+configuration.
+
+Subagents keep their independent explicit model or pool selection, agent/default
+settings, inheritance and Fork rules. Ordinary fresh subagents retain the fast
+model fallback; enabling smart mode does not replace it with the primary or economy
+model. Existing subagents retain their own binding when resumed. They do not
+participate in Router classification or Router summaries. The legacy
+`ai.model_routing.subagent_model` field remains readable for compatibility but
+does not control subagent selection, and the GUI exposes no smart-subagent setting.
 Choices made in a new conversation draft are applied on its execution host
-before the first message is sent, including temporary session-only strategies.
+before the first message is sent.
 
 In **Settings → AI → Models**, add the Router as an API-key model, then open
-**Router service** to select it and enter the matching `tokenizer.json` path on
-the machine running OpenBitFun. The Router must support the classifier protocol
+**Router service** to select it. No tokenizer file or remote tokenization endpoint
+is required. OpenBitFun estimates the input locally and uses the service's full
+prompt usage to tighten the budget independently for each execution.
+The Router must support the classifier protocol
 described in [the deployment guide](../../../deploy/model-router/README.md).
 Save and test the connection, configure an economy model, and enable smart mode
 in the composer. Saving configuration alone does not prove connectivity. Router
 request failures fall back to the primary model; each response records its
-actual model and fallback status. Optional Router context summaries use the
-economy model and add requests. Billing hints do not establish actual charges.
+actual model and fallback status. Smart mode automatically maintains Router
+context summaries with the economy model before input fills the budget. If the
+complete context still fits, pending or failed summaries do not interrupt routing;
+otherwise the current round uses the primary model until complete context is available.
+Billing hints do not establish actual charges.
+
+Older execution hosts without `estimatedTokenBudgetSupported` can continue saving
+Router settings when a tokenizer path is already configured; the GUI preserves
+that path. Without an existing path, the GUI asks you to upgrade the execution
+host and blocks saving those settings. Upgrading only the controller does not
+add this capability to the host.
+
 Persisted conversations carry their independent Router summary into the next
 smart turn. Recovery validates the visible conversation history; reverting or
 forking never imports an abandoned or another conversation's summary. Legacy
@@ -53,11 +68,10 @@ overrides and persistence details are in the deployment guide linked above.
 
 Peer Device Mode applies configuration on the execution host and requires a host
 advertising smart-routing support. SSH/Docker workspaces also use their owning
-OpenBitFun runtime's Router configuration, not a tokenizer path on the
+OpenBitFun runtime's Router configuration, not configuration or local files on the
 controller. Mobile and bot model editors explicitly reject changes to smart
 sessions; use the GUI to change the strategy. External agents and approved
-immutable dispatch jobs retain their existing model bindings. Older Peer hosts
-that do not advertise subagent-default support show this setting as unavailable.
+immutable dispatch jobs retain their existing model bindings.
 Local fixture tests do not establish live remote execution or classifier quality.
 Before production evaluation, compare fixed-primary and routed main conversations for
 completion quality, total latency, model/cache usage and auxiliary request cost.

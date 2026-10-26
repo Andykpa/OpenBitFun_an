@@ -26,6 +26,7 @@
     "economy": {
       "label": "经济模型",
       "description": "智能模式中的轻量步骤使用，与子任务的快速模型独立",
+      "placeholder": "请选择经济模型",
       "notSet": "尚未配置"
     }
   },

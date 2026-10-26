@@ -364,7 +364,7 @@ mod tests {
                 summary_enabled: false,
                 ..Default::default()
             },
-            tokenizer_path,
+            tokenizer_path: Some(tokenizer_path),
             proxy: None,
             custom_headers: Default::default(),
             skip_ssl_verify: false,

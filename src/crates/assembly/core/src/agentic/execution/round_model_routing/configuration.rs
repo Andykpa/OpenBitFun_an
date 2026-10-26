@@ -52,10 +52,10 @@ pub fn economy_model_id(config: &AIConfig, legacy: bool) -> OpenBitFunResult<Str
 
 fn product_config(config: &AIConfig) -> OpenBitFunResult<HttpRoundModelRouterConfig> {
     let setup = &config.model_routing;
-    let summary_model_id = setup
-        .summary_enabled
-        .then(|| economy_model_id(config, false))
-        .transpose()?;
+    // Product smart mode maintains its routing history automatically. Keep the
+    // persisted switch readable for older hosts without letting it disable the
+    // current runtime's history preparation.
+    let summary_model_id = Some(economy_model_id(config, false)?);
     let model = setup
         .router_model_id
         .as_deref()
@@ -73,11 +73,6 @@ fn product_config(config: &AIConfig) -> OpenBitFunResult<HttpRoundModelRouterCon
     if !matches!(model.auth, AuthConfig::ApiKey) {
         return Err(OpenBitFunError::Configuration(
             "Router requires an API-key service; subscription authentication is unsupported".into(),
-        ));
-    }
-    if setup.tokenizer_path.trim().is_empty() {
-        return Err(OpenBitFunError::Configuration(
-            "Configure the Router tokenizer.json path on the execution host".into(),
         ));
     }
     if !(0.0..=1.0).contains(&setup.simple_threshold) || setup.timeout_ms == 0 {
@@ -107,6 +102,11 @@ fn product_config(config: &AIConfig) -> OpenBitFunResult<HttpRoundModelRouterCon
     } else {
         format!("{base}/v1/chat/completions")
     };
+    let context_defaults = RouterContextConfig::default();
+    let context_window = model
+        .context_window
+        .map(|tokens| tokens as usize)
+        .unwrap_or(context_defaults.context_window);
     Ok(HttpRoundModelRouterConfig {
         endpoint,
         model: model.model_name.clone(),
@@ -118,11 +118,14 @@ fn product_config(config: &AIConfig) -> OpenBitFunResult<HttpRoundModelRouterCon
         simple_threshold: setup.simple_threshold,
         trace_path: None,
         context: RouterContextConfig {
-            summary_enabled: setup.summary_enabled,
+            context_window,
+            max_input_tokens: context_defaults.max_input_tokens.min(context_window),
+            summary_enabled: true,
             summary_model_id,
-            ..Default::default()
+            ..context_defaults
         },
-        tokenizer_path: PathBuf::from(&setup.tokenizer_path),
+        tokenizer_path: (!setup.tokenizer_path.trim().is_empty())
+            .then(|| PathBuf::from(&setup.tokenizer_path)),
         proxy: Some(config.proxy.clone()),
         custom_headers: model.custom_headers.clone().unwrap_or_default(),
         skip_ssl_verify: model.skip_ssl_verify,
@@ -194,6 +197,8 @@ pub struct ModelRoutingStatus {
     /// Only an explicit protocol probe establishes a connection, not a config read.
     pub connected: Option<bool>,
     pub summary_enabled: bool,
+    /// Older hosts may still require a locally configured tokenizer file.
+    pub estimated_token_budget_supported: bool,
     /// Older clients use presence as a feature gate; current hosts no longer expose this control.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subagent_model: Option<String>,
@@ -254,7 +259,8 @@ pub async fn status(
         ready: false,
         issue: None,
         connected: None,
-        summary_enabled: config.model_routing.summary_enabled,
+        summary_enabled: true,
+        estimated_token_budget_supported: true,
         subagent_model: None,
     };
     let check = async {
@@ -264,6 +270,8 @@ pub async fn status(
             return Err(OpenBitFunError::Configuration("Configure an enabled primary model before using smart mode".into()));
         }
         let router = configured_router(&config).await?;
+        // Environment-only installations retain their explicit summary policy.
+        result.summary_enabled = router.config.context.summary_enabled;
         if probe {
             let prediction = router.predict("Task: inspect a file and explain its purpose", None).await?;
             if prediction.simple_probability.is_none() {
@@ -328,15 +336,7 @@ mod tests {
         });
         config.model_routing.router_model_id = Some("router-service".into());
         config.model_routing.tokenizer_path = "/execution-host/tokenizer.json".into();
-        let router = product_config(&config).unwrap();
-        assert_eq!(
-            router.endpoint,
-            "https://router.example.invalid/v1/chat/completions"
-        );
-        assert_eq!(router.api_key.as_deref(), Some("fixture-token"));
-        assert_eq!(router.model, "router-fixture");
-        assert!(!router.context.summary_enabled);
-        config.model_routing.summary_enabled = true;
+        config.model_routing.summary_enabled = false;
         assert!(product_config(&config)
             .unwrap_err()
             .to_string()
@@ -349,16 +349,77 @@ mod tests {
         config.default_models.economy = Some("economy-fixture".into());
         let router = product_config(&config).unwrap();
         assert_eq!(
+            router.endpoint,
+            "https://router.example.invalid/v1/chat/completions"
+        );
+        assert_eq!(router.api_key.as_deref(), Some("fixture-token"));
+        assert_eq!(router.model, "router-fixture");
+        assert_eq!(
+            router.tokenizer_path.as_deref(),
+            Some(std::path::Path::new("/execution-host/tokenizer.json"))
+        );
+        assert!(router.context.summary_enabled);
+        assert_eq!(
             router.context.summary_model_id.as_deref(),
             Some("economy-fixture")
         );
+        // Reading an old opt-out never resets its persisted record or task defaults.
+        assert!(!config.model_routing.summary_enabled);
         assert!(config.default_models.fast.is_none());
-        config.model_routing.summary_enabled = false;
         config.models[0].custom_request_body = Some("{}".into());
         assert!(product_config(&config).is_err());
         config.models[0].custom_request_body = None;
         config.model_routing.simple_threshold = f64::NAN;
         assert!(product_config(&config).is_err());
+    }
+
+    #[tokio::test]
+    async fn product_router_without_tokenizer_prepares_context_using_the_model_window() {
+        let directory = tempfile::tempdir().unwrap();
+        let missing_path = directory.path().join("legacy-tokenizer.json");
+        let missing_path = missing_path.to_str().unwrap();
+        let mut config = AIConfig::default();
+        config.models.push(AIModelConfig {
+            id: "router-service".into(),
+            enabled: true,
+            base_url: "https://router.example.invalid/v1".into(),
+            model_name: "router-fixture".into(),
+            ..Default::default()
+        });
+        config.model_routing.router_model_id = Some("router-service".into());
+        config.models.push(AIModelConfig {
+            id: "economy-fixture".into(),
+            enabled: true,
+            ..Default::default()
+        });
+        config.default_models.economy = Some("economy-fixture".into());
+        for (window, expected_window, expected_input) in [
+            (None, 65_536, 65_536),
+            (Some(8_192), 8_192, 8_192),
+            (Some(131_072), 131_072, 65_536),
+        ] {
+            config.models[0].context_window = window;
+            for tokenizer_path in ["", " \t ", missing_path] {
+                config.model_routing.tokenizer_path = tokenizer_path.into();
+                let router_config = product_config(&config).unwrap();
+                assert_eq!(
+                    router_config.tokenizer_path.is_none(),
+                    tokenizer_path.trim().is_empty()
+                );
+                assert_eq!(router_config.context.context_window, expected_window);
+                assert_eq!(router_config.context.max_input_tokens, expected_input);
+                let router = HttpRoundModelRouter::new(router_config).unwrap();
+                let mut context = router
+                    .create_context("session", "turn", "Inspect the parser")
+                    .unwrap();
+                let prepared = context.prepare(&[]).await;
+                assert!(prepared.user_prompt.contains("Inspect the parser"));
+                assert!(prepared.input_tokens > 0);
+                assert!(prepared.input_tokens <= prepared.budget_tokens);
+                assert!(prepared.budget_tokens < expected_window);
+                assert_eq!(config.model_routing.tokenizer_path, tokenizer_path);
+            }
+        }
     }
 
     #[test]

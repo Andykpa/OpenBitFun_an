@@ -3582,21 +3582,25 @@ impl ExecutionEngine {
         let routing_allowed = selected_pool.is_none()
             && context.subagent_parent_info.is_none()
             && super::round_model_routing::configuration::session_eligible(&session);
-        let (configured_routing, routing_setup_failure) = match super::round_model_routing::configuration::prepare_turn(
-            session.config.model_routing.as_deref(),
-            routing_allowed,
-        )
-        .await {
-            Ok(routing) => (routing, None),
-            Err(error) => {
-                warn!("Router configuration is unavailable; using the admitted primary model: session_id={}, error={}", context.session_id, error);
-                (None, Some("router_configuration_unavailable".to_string()))
-            }
-        };
+        let (configured_routing, routing_setup_failure) =
+            match super::round_model_routing::configuration::prepare_turn(
+                session.config.model_routing.as_deref(),
+                routing_allowed,
+            )
+            .await
+            {
+                Ok(routing) => (routing, None),
+                Err(error) => {
+                    warn!("Router configuration is unavailable; using the admitted primary model: session_id={}, error={}", context.session_id, error);
+                    (None, Some("router_configuration_unavailable".to_string()))
+                }
+            };
         let turn_router = if let Some(routing) = configured_routing.as_ref() {
             Some(routing.router.clone())
-        } else if routing_allowed && routing_setup_failure.is_none()
-            && session.config.model_routing.as_deref() != Some("manual") {
+        } else if routing_allowed
+            && routing_setup_failure.is_none()
+            && session.config.model_routing.as_deref() != Some("manual")
+        {
             self.round_model_router.clone()
         } else {
             None
@@ -3915,7 +3919,9 @@ impl ExecutionEngine {
                     };
                     if route == RoundModelRoute::Economy {
                         if let Some(reason) = Self::routing_capability_fallback(
-                            &messages, &baseline_primary_model_facts, &model_facts,
+                            &messages,
+                            &baseline_primary_model_facts,
+                            &model_facts,
                         ) {
                             route = RoundModelRoute::Primary;
                             model_id = baseline_model_id.clone();
@@ -3929,13 +3935,13 @@ impl ExecutionEngine {
                         model_id,
                         ai_client,
                         model_facts,
-                        routing: (turn_router.is_some() || routing_setup_failure.is_some()).then(|| {
-                            openbitfun_events::agentic::ModelRoutingDecision {
+                        routing: (turn_router.is_some() || routing_setup_failure.is_some()).then(
+                            || openbitfun_events::agentic::ModelRoutingDecision {
                                 route: route.model_selector().into(),
                                 latency_ms: routing_started.elapsed().as_millis() as u64,
                                 fallback_reason,
-                            }
-                        }),
+                            },
+                        ),
                     };
                     active_round_model = Some(selected_model.clone());
                     selected_model

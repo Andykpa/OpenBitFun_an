@@ -6,18 +6,25 @@ OpenBitFun 连接已经运行的 OpenAI-compatible Router 服务，不会在客�
 
 ## GUI 配置
 
-在“设置 → AI → 模型”中添加 Router 服务模型，再打开“路由服务”选择该配置，填写
-执行 OpenBitFun 主机上的 `tokenizer.json` 路径并检查连接。GUI 智能模式使用独立的
-`ai.default_models.economy`，只为主对话按步骤选择模型。智能模式中新启动、未单独配置的
-子代理默认跟随主力模型，可在模型选择的高级选项中改为跟随经济模型，对应
-`ai.model_routing.subagent_model`（`primary` / `economy`，缺省为 `primary`）。
-该设置在执行主机上共享，也用于嵌套子代理；单独配置、显式指定和已有子代理的模型选择
-保持不变。子代理本身不参与 Router 分类或 Router 辅助摘要，按自身模型或模型池配置执行。
-手动模式仍保留快速模型分工。辅助摘要默认关闭；开启后额外调用经济模型，无需配置快速模型。
+在“设置 → AI → 模型”中添加 Router 服务模型，再打开“路由服务”选择该配置并检查连接。
+客户端不需要下载模型权重或分词文件，也不要求服务提供 `/tokenize` 接口。GUI 智能模式使用独立的
+`ai.default_models.economy`，只为主对话按步骤选择模型。子代理继续按显式模型或模型池、
+Agent/默认配置、继承和 Fork 规则独立执行；普通新建子代理保留原有快速模型兜底，
+不会因为主对话开启智能模式而改用主力或经济模型。已有子代理恢复时保留自己的绑定。
+子代理不参与 Router 分类或 Router 辅助摘要。旧 `ai.model_routing.subagent_model` 字段
+仅保留读取兼容，不再影响选择，GUI 也不提供对应的高级选项。
+GUI 智能模式自动使用经济模型整理路由历史，该摘要请求不依赖快速模型配置。
+旧 `summary_enabled` 字段保留读取兼容；GUI 保存时写入 `true`，使旧执行主机也启用摘要。
 GUI 内置提示词由 Core 随程序打包，不依赖本部署目录存在。
 
-会话显式选择“手动指定”时，即使存在 Router 环境变量，也不调用 Router。记住的策略
-只用于新会话，旧会话保留原来的选择。尚未设置 GUI 策略的旧安装仍支持下面的环境变量
+旧执行主机未声明 `estimatedTokenBudgetSupported` 时，已有 tokenizer 路径可保留并继续
+保存配置；没有已保存路径时，GUI 会提示升级执行主机并拒绝保存。只升级控制端不会让旧主机
+获得无分词文件运行的能力。
+
+会话显式选择“手动指定”时，即使存在 Router 环境变量，也不调用 Router。智能模式开关
+只改变当前主对话或草稿的策略，不修改后续会话的策略默认值，也没有“记住选择”或范围选项。
+尚无会话或草稿时由宿主策略默认值负责选择；手动选择具体模型或模型池仍沿用原有的会话和
+后续默认值保存规则。尚未设置 GUI 策略的旧安装仍支持下面的环境变量
 方式，并保留 `fast` 候选回退到主力模型的原有行为。以下启动参数及摘要默认值描述的是
 环境变量部署方式；GUI 配置优先使用所选 Router 模型的地址、凭证、代理和请求头。
 
@@ -41,12 +48,17 @@ cargo build --locked -p openbitfun-cli --bin openbitfun
 
 ## 连接远程 Router
 
-通过环境变量传入 Router API URL；只有 Router 要求鉴权时才设置 API key：
+通过环境变量传入 Router API URL 和服务所需的凭证：
 
 ```bash
-export ROUTER_API_URL='http://<router-host>:<port>/v1'
-# export ROUTER_API_KEY='<仅在需要鉴权时填写>'
+export ROUTER_API_URL='https://<router-host>/v1'
+# ROUTER_API_KEY 由执行环境的凭证管理注入，不要写进仓库
 ```
+
+地址必须能从**实际执行 OpenBitFun turn 的主机**访问。`localhost` 指该执行主机；
+远程工作区、Peer 或 Detached Dispatch 场景不能用控制端的本地地址代替。
+脚本接受以 `/v1` 结尾的服务地址或完整的 `/v1/chat/completions` 地址。
+仅在受控本机或私有网络调试时使用明文 HTTP。
 
 然后进入需要 OpenBitFun 操作的目标代码仓库，直接启动完整的交互式 OpenBitFun：
 
@@ -76,11 +88,87 @@ Router 的单行 JSON 输出由 OpenBitFun 内部请求和 `router_system_prompt
 
 ## Router 服务兼容要求
 
-阈值路由除了标准的 `chat/completions` 内容外，还依赖 vLLM 提供的 `logprobs`、
-`top_logprobs`、`return_token_ids` 和 `return_tokens_as_token_ids` 扩展字段。当前
-`simple` / `non_simple` 的 token ID 与 `router-best` 使用的 tokenizer 绑定；更换
-Router 模型或 tokenizer 后，需要先核对这两个 token ID。服务不返回完整置信度数据时，
-OpenBitFun 会保守地选择主力模型。
+这不是任意聊天模型都能替代的服务。部署者需要提供经过对应路由任务训练的 checkpoint，
+并固定权重 revision、tokenizer revision、chat template 和本目录的系统提示词。`router-best`
+只是客户端请求的服务别名，不是可自动下载的公开模型地址。部署记录应保存这些资源的版本
+或文件校验值；更换其中任何一项都需要重新做协议与分类质量验证。
+
+当前适配器向 `/v1/chat/completions` 发送非流式请求：两个字符串消息（system 和 user），
+`temperature=0`、`top_p=1`、`max_tokens=128`、`stop=["\n"]`，
+`logprobs=true`、`top_logprobs=20`、`return_token_ids=true`、
+`return_tokens_as_token_ids=true`，以及 `chat_template_kwargs={"enable_thinking":false}`。
+这些 token ID 和模板参数属于 vLLM 扩展，普通 OpenAI-compatible 网关可能过滤它们；
+网关必须保留请求字段及返回的 logprobs、token IDs、usage。
+[vLLM Chat Completion 协议](https://docs.vllm.ai/en/latest/api/vllm/entrypoints/openai/chat_completion/protocol/)
+
+响应正文的第一行应为 `{"simple_type":"simple"}` 或 `{"simple_type":"non_simple"}`。
+阈值判断还要求在分类标签所在的生成位置同时返回两个候选的 log probability：
+`simple` 对应 token ID **22944**，`non_simple` 的首 token 对应 **6280**。
+适配器读取 `choices[0].token_ids` 和 `choices[0].logprobs.content`，其中候选 token 用
+`token_id:22944` / `token_id:6280` 表示，再对这两个候选归一化计算 simple 概率。
+不能只返回 JSON 标签或自行填写一个置信度。更换 tokenizer 后，即使文本标签相同，token ID
+也可能不同；需要核对并适配客户端协议，不能仅改服务名称。缺少完整置信度时回退主力模型。
+协议实现见 [`round_router.rs`](../../src/crates/adapters/ai-adapters/src/round_router.rs)。
+
+### 部署 vLLM 服务
+
+下面是部署参数示例，不是已经部署或经过容量测试的实例。先准备包含正确 tokenizer 和聊天模板
+的不可变本地 checkpoint；GPU 容量、模型支持的窗口及已安装 vLLM 版本需由部署者确认。
+本仓库不包含模型权重，也不指定尚未确认的下载地址。
+
+```bash
+# VLLM_API_KEY 通过部署系统的凭证管理注入
+vllm serve /srv/models/router-checkpoint \
+  --served-model-name router-best \
+  --host 127.0.0.1 \
+  --port 8001 \
+  --max-model-len 65536 \
+  --max-num-seqs 2 \
+  --max-logprobs 20 \
+  --logprobs-mode raw_logprobs \
+  --return-tokens-as-token-ids \
+  --generation-config vllm
+```
+
+`--max-model-len` 包含输入与输出，需与 OpenBitFun 配置同步；`--generation-config vllm`
+避免 checkpoint 附带的生成配置覆盖服务默认值。使用 Hub 仓库时指定准确的 `--revision`
+和 `--tokenizer-revision`；若显式传入 `--chat-template`，必须使用与训练匹配的模板。
+不要换成通用模板来“修复”格式错误，`enable_thinking=false` 的实际效果也由模板决定。
+参数以固定版本的 `vllm serve --help=all` 为准。
+[vLLM 服务参数](https://docs.vllm.ai/en/latest/cli/serve/)
+
+示例绑定本机回环地址，通过有身份验证的 TLS 反向代理向执行主机开放所需 API。
+不要在 URL 中嵌入凭证。vLLM 的 API key 不覆盖所有管理接口，不能据此把整个服务端口公开；
+代理应只开放产品需要的路径。
+[vLLM 安全说明](https://docs.vllm.ai/en/latest/usage/security/)
+
+`--max-num-seqs` 控制推理调度，不等于 HTTP 等待队列有界。支持
+`--max-num-queued-reqs` 的 vLLM 版本可限制单个 API 服务进程的等待与活动请求总数，
+超额返回 503；旧版本应在代理层提供有界队列。这些都不是跨多个 API 进程或多个实例的
+全局配额，多台 OpenBitFun 主机共用服务时应在入口统一限制容量。服务端等待时间应能落在
+客户端的请求期限内；容量数字需要实测，不能从本机并发配置推断服务吞吐量。
+[vLLM 队列参数](https://docs.vllm.ai/en/latest/cli/serve/)
+
+### 用量与错误响应
+
+成功响应应保留 `usage.prompt_tokens`，表示经过服务端聊天模板处理后的**完整输入**，
+包含 system、user、特殊 token 和模板开销。缓存命中 token 也是输入的一部分，不应扣除，
+也不应重复加算；`completion_tokens` 或 `total_tokens` 不能代替输入用量。vLLM 的非流式
+Chat Completion 用实际 prompt token IDs 生成这一计数。
+[vLLM 用量生成实现](https://docs.vllm.ai/en/latest/api/vllm/entrypoints/openai/chat_completion/serving/)
+
+上下文超限应保留非 2xx 状态和结构化错误体，最好由服务或网关提供稳定的超限错误码，
+例如 `error.code="context_length_exceeded"`，以及能够保证准确的上下文上限、输入和输出预算。
+不同 vLLM 版本的错误结构并不完全相同，部分版本的 `error.code` 只是 HTTP 数字状态码；
+不能把所有 400 都当作上下文超限，也不能把错误文案里的 “at least” 数量当作完整输入 usage。
+代理不得把错误改为 200、登录 HTML 或只有通用文字的错误页。
+[vLLM 错误响应实现](https://docs.vllm.ai/en/v0.16.0/api/vllm/entrypoints/openai/engine/serving/)、
+[vLLM 输入长度校验](https://docs.vllm.ai/en/latest/api/vllm/renderers/)
+
+客户端不依赖远程计数接口，不会为每条观察或每次裁剪调用 `/tokenize`。服务端只需在正常
+分类响应中保留用量，在失败时保留可识别的错误；客户端的预算校准行为见下文。
+
+## 客户端默认值与并发
 
 默认 Router 客户端配置如下：
 
@@ -92,7 +180,7 @@ Router 模型：       router-best
 Simple 阈值：       0.75
 请求超时：          10000 ms（排队与网络请求合计）
 同服务路由并发：    2；最多等待 32 个请求
-Fast 增量摘要：     开启；离开最近窗口的内容累计达到 8192 tokens
+Fast 增量摘要：     开启；触发门槛上限 8192 个预算 tokens，预算收紧时可提前触发
 历史摘要目标：      约 4096 tokens 以内（正文目标，不包含推理）
 摘要生成上限：      16384 tokens（推理与正文合计）
 摘要推理档位：      auto（可独立指定 fast 模型支持的 preset）
@@ -107,11 +195,10 @@ Fast 增量摘要：     开启；离开最近窗口的内容累计达到 8192 t
 未指定正文目标时取生成上限的一半与 4096 的较小值，以兼容已有的较小生成上限；显式目标
 必须为正数且不大于生成上限。直接运行宿主时使用相应的 `OPENBITFUN_ROUND_ROUTER_*` 变量。
 
-这些默认值来自训练数据和配置，而不是模型理论窗口：训练时的 system prompt 为 1580
-tokens，数据中 user prompt 最大 26517 tokens，完整 chat 输入最大 28110 tokens，SFT
-`max_length` 为 28672。线上 vLLM 的 `--max-model-len` 与 OpenBitFun 配置上限均设为 65536；
-OpenBitFun 会从中扣除固定 system prompt、128 个输出 tokens 和 256 个 chat-template 预留，
-所得值才是动态 user prompt 的实际兜底上限。通常输入远低于该值，不会为了上限进行补齐。
+65536 是当前客户端默认值，不代表任意部署的真实窗口或训练长度。应按实际服务配置设置
+输入上限和上下文窗口；OpenBitFun 会扣除固定 system prompt、128 个输出 tokens、
+256 个 chat-template 预留和额外的估算余量，再结合服务端反馈收紧动态 user prompt 预算。模板预留是本地估算，
+不是对任意模型模板的精确保证。通常输入远低于上限，不会为了上限进行补齐。
 
 同一执行宿主访问同一 Router API 地址时共享并发额度，模型名称或凭证变化不会建立新的并发池。
 不同会话的请求可以并发；额度用完后按根会话轮转，同组请求按入队顺序等待，不需要等
@@ -131,7 +218,7 @@ OpenBitFun 会从中扣除固定 system prompt、128 个输出 tokens 和 256 �
 最新用户纠偏；最近 3 轮包含 assistant 文本/推理、工具名/参数/结果和错误标记，最新一轮
 优先保留细节。后台结果、用户 steering、失败恢复反馈也作为独立观察保留。大字符串按
 预算保留头尾并标记省略，工具结果优先使用实际提供给 Agent 的版本，不发送图片二进制。
-超过 64KiB 的大字符串先做带标记的头尾投影，避免在路由边界反复 tokenize 整份大日志。
+超过 64KiB 的大字符串先做带标记的头尾投影，避免在路由边界反复计数整份大日志。
 
 Router 有自己的去重游标、待摘要增量和历史摘要，按主对话 session UUID 隔离。
 Fork 可读取复制的历史，但不继承父 Router checkpoint 或摘要游标。
@@ -139,21 +226,28 @@ Fork 可读取复制的历史，但不继承父 Router checkpoint 或摘要游�
 Router 不读取主 Agent 的 compression summary，不调用主 Agent 压缩器，
 不改主消息、主压缩配置或主压缩触发条件。
 
-每条观察先完成与 Router 输入一致的确定性预处理，再由 Router 自己的 tokenizer 计算并
-保存 token 数。离开最近 3 轮的旧轨迹累计达到 8192 tokens 后，发起一次独立、无工具的后台
-摘要请求。GUI 配置固定使用经济模型，旧环境变量模式使用 **fast** 模型。摘要基于旧 Router
+每条观察先完成与 Router 输入一致的确定性预处理，再在本地计数并保存预算 token 数，默认
+使用估算。离开最近 3 轮的旧轨迹达到触发门槛后，发起一次独立、无工具的后台摘要请求。
+门槛取配置值（默认 8192）与当前 user prompt 预算一半的较小值，最低为 1；预算校准收紧时
+可以提前触发，无需重算或改变已经缓存的观察计数。完整输入达到预算的四分之三，或已经无法
+完整容纳时，会提前整理最近一轮之前的历史，保留最新完整轮次的细节。
+GUI 配置固定使用经济模型，旧环境变量模式使用 **fast** 模型。摘要基于旧 Router
 摘要和本次旧轨迹快照，将新摘要控制在约 4096 tokens，并单独预留推理空间，默认生成上限
 为 16384 tokens。
 不能把正文目标直接当作推理模型的整个生成预算。压缩触发只累计 pending
 history，不计算也不持久化 summary 的 tokens。
-摘要尚未完成时直接使用旧摘要加待处理增量，不等待模型返回。每个进程最多同时执行两个
+摘要尚未完成时，完整上下文仍能装下就继续使用旧摘要加待处理增量，不等待模型返回。
+开启自动摘要的路由不会把整体裁剪后的历史发给分类服务；只有完整历史仍放不下或存在未覆盖的
+历史缺口时，该轮回退主力模型，后续摘要真正补齐后恢复分类。单条超长日志的带标记投影仍可使用。
+已丢失的历史不会被后来的摘要伪装成已恢复。每个进程最多同时执行两个
 摘要请求，另有最多 128 个等待会话；每个会话最多一个等待项，同会话不能同时执行两个摘要。
-等待中的新观察仅在同一会话内合并，保留队列位置；调度按根会话轮转，不合并不同会话的摘要。
+等待中的新观察仅在同一会话内合并，保留队列位置；新观察已经有历史缺口时，保留能够补齐该缺口的
+既有排队快照，完成后再整理新增内容。调度按根会话轮转，不合并不同会话的摘要。
 每个根最多等待 8 个摘要，空闲槽可以借用；活跃会话不会反复抢占其他会话。
 取消或结束执行会移除该执行代的等待项并终止其活动请求。队列满时保留原增量，后续轮次
 重试入队，不阻塞主任务。摘要失败、超时、辅助模型未配置或返回空/截断内容时
 保留原状态；同一 Router round 内不会循环重试，下一轮会重新压缩现有的 summary + pending，
-不需要再累计 8192 个新 tokens，也不回退到主力模型做摘要。摘要请求使用辅助模型
+不需要重新积累一份触发量，也不回退到主力模型做摘要。摘要请求使用辅助模型
 本身的 provider 和采样配置，不套用主 Agent 的 reasoning preset。可通过
 `OPENBITFUN_ROUND_ROUTER_SUMMARY_REASONING_PRESET=low` 给摘要单独选择已支持的推理档位；
 未设置或 `auto` 时保留模型默认。显式选择不可用时摘要失败并保留历史，不静默退回默认档位。
@@ -182,22 +276,35 @@ history，不计算也不持久化 summary 的 tokens。
 等待磁盘。Router 分类请求
 本身仍然需要等待返回，才能决定本轮模型；这与准备历史摘要的辅助请求不同。
 
-### 准确 token 预算
+### 本地估算与服务端用量校准
 
-OpenBitFun 不在 Git 仓库或二进制中内嵌 tokenizer。编译不需要该资源；运行前只需将当前
-`router-best` 对应的 `tokenizer.json` 下载到 `deploy/model-router/tokenizer.json`。启动脚本
-会把该路径传给 `OPENBITFUN_ROUND_ROUTER_TOKENIZER_PATH`；也可以通过
-`ROUTER_TOKENIZER_PATH=/absolute/path/tokenizer.json` 覆盖。直接启动 CLI 或 Desktop 时必须
-显式设置 `OPENBITFUN_ROUND_ROUTER_TOKENIZER_PATH`。无需下载模型权重，但 tokenizer 必须与
-服务端 Router 模型一致，否则 token 预算会失真。当前文件的 SHA-256 应为
-`aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4`。预算会单独预留固定
-system prompt、128 输出 tokens 和 256 模板 tokens。
+默认使用可移植的本地保守估算，无需下载 `tokenizer.json`。增量去重、摘要触发和裁剪继续在
+应用内完成，服务端负责其模型的实际分词和上下文上限校验。把 tokenizer 留在服务端不意味着
+把主对话、子代理或 Router 的会话状态交给服务端管理。
+
+每次 execution 有独立的预算校准状态。服务端成功响应后，完整的 `usage.prompt_tokens` 用于
+记录估算偏差的高水位，只能收紧后续输入预算；缺少或无效 usage 时继续保守估算，不按零处理。
+Router 会随着摘要更新重新排列输入，因此不能直接套用主模型请求的“相同前缀 usage 锚点”。
+本地估算和模板预留仍可能低估，服务端返回的实际用量才是计数依据；估算值不用于冒充账单。
+
+可识别的上下文超限会使本次路由回退到主力模型，并收紧该 execution 后续轮次的 Router
+输入预算；不会在本轮反复裁剪并重发 HTTP 请求。普通网络错误、鉴权错误、限流或其他
+无法确认原因的 400 仍按原路径回退，不应当作精确的输入长度证据。
+
+旧配置中的 tokenizer 路径仍可作为可选高级设置读取。使用启动脚本时可显式设置
+`ROUTER_TOKENIZER_PATH=/absolute/path/tokenizer.json`，直接启动宿主时对应
+`OPENBITFUN_ROUND_ROUTER_TOKENIZER_PATH`；启动脚本不会默认注入任何分词文件路径，显式设置
+`ROUTER_TOKENIZER_PATH` 才会覆盖继承的宿主变量。文件应与服务端模型一致。文件不可用时记录警告并
+回退到估算，不会因此要求用户下载文件或阻止智能模式。即使使用本地 tokenizer，服务端模板
+和特殊 token 开销仍需要预留与校准。
 
 CLI 与 Desktop 共用此 Core 路径；无需分别实现压缩。在不经启动脚本的 Desktop/CLI 宿主上，
 使用对应的 `OPENBITFUN_ROUND_ROUTER_*` 环境变量（例如 `..._MAX_INPUT_TOKENS`、
 `..._SUMMARY_TRIGGER_TOKENS`）。远程工作区、远程控制、Peer 或 Detached Dispatch 均由
 **真正执行 turn 的宿主**准备
-Router 上下文并访问 Router/fast API。这里是宿主侧实现约束；各远程场景仍需部署后的端到端
+Router 上下文并访问 Router/辅助摘要 API，其配置、凭证及可选本地资源均属于执行宿主。
+主对话和每个子代理的执行模型上下文仍走各自既有的应用侧压缩流程，不与 Router 摘要合并。
+这里是宿主侧实现约束；各远程场景仍需部署后的端到端
 smoke 验证。
 
 评测程序只需传入真实任务描述，不要逐轮自行构造 Router 输入。`ROUTER_TRACE_PATH` 的每条
@@ -212,13 +319,15 @@ smoke 验证。
 以及 `response.finish_reason`、`text_chars`、`reasoning_chars`、`tool_call_count` 和
 `incomplete_reason`。后者区分 `output_limit`、`empty_text` 与 `tool_calls`；诊断字段不保存
 推理正文。`usage.reasoningTokenCount` 只在 provider 确实返回时记录，不用字符数伪造 token 数。
+本地预算 token 数应按记录的计数方式解释，不能与服务端 usage 混为一谈。
 未返回 usage 的请求保持缺失，不能按零计费。可设 `ROUTER_SUMMARY_ENABLED=false` 对照纯规则
 裁剪版本；固定 Router system prompt 和 `simple/non_simple` 决策协议不变。
 
 ## 数据与安全
 
-Router 与 fast 摘要请求可能包含任务原文、历史摘要、推理文本、工具参数和工具结果，因此只应
-使用受信任的服务。启用 Router 也默认启用上述 fast 辅助调用；可单独关闭。sidecar 保存独立
+Router 与辅助摘要请求可能包含任务原文、历史摘要、推理文本、工具参数和工具结果，因此只应
+使用受信任的服务。环境变量部署默认启用 fast 辅助调用，仍兼容原有显式开关；GUI 智能模式自动维护摘要。
+sidecar 保存独立
 摘要与裁剪后的增量；启用 `ROUTER_TRACE_PATH` 后，本地 trace 也会记录完整 Router 输入和输出；
 评测结束后请按数据敏感级别妥善保管或清理该文件。
 
@@ -233,3 +342,7 @@ Router 与 fast 摘要请求可能包含任务原文、历史摘要、推理文�
 这不代表分类器质量已通过真实任务评测。接入真实 Router 后，应对同一组
 检索、修改、审查和嵌套任务比较全主力与自动路由的完成质量、总耗时、缓存命中、执行
 模型用量与 Router/摘要额外用量；服务没有返回用量时保持未知，不推算为零。
+
+本次改动尚未获得可用于联调的真实 Router 服务。部署后还需验证实际模型与模板、两个标签
+token ID、完整 logprobs、prompt usage、超限错误，以及多宿主并发和取消后的服务端资源释放。
+这些协议 smoke 与分类质量评测应分别记录；本地模拟测试不能证明远程部署或质量已经通过。

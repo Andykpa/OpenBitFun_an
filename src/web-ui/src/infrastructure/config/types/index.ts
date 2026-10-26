@@ -378,7 +378,8 @@ export interface ModelRoutingConfig {
   /** Retained legacy data; subagent selection uses its existing configuration. */
   subagent_model?: string;
   router_model_id?: string | null;
-  tokenizer_path: string;
+  /** Legacy optional override; the GUI preserves it without exposing an input. */
+  tokenizer_path?: string;
   simple_threshold: number;
   timeout_ms: number;
   summary_enabled: boolean;

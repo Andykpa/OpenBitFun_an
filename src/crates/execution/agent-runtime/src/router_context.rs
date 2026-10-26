@@ -1,5 +1,8 @@
 //! Router-only, incremental context. Never contains or mutates agent compression state.
 
+mod token_budget;
+pub use token_budget::{EstimatedRouterTokens, RouterInputBudget};
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -276,6 +279,7 @@ pub struct RouterContextState {
     pub summarized_through: u64,
     pub next_sequence: u64,
     pub observed_rounds: u64,
+    /// Highest observation dropped without coverage from an accepted summary.
     pub omitted_through: u64,
     pub entries: VecDeque<RouterEntry>,
     pub seen_message_ids: HashSet<String>,
@@ -305,6 +309,9 @@ impl Default for RouterContextState {
 pub struct RouterSummaryWork {
     pub base_through: u64,
     pub through: u64,
+    /// Missing history when this immutable summary input was captured. A later
+    /// summary cannot recover observations that were already absent here.
+    pub omitted_through: u64,
     pub pending_tokens: usize,
     pub prompt: String,
 }
@@ -337,6 +344,9 @@ pub struct RouterCompressionRecord {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PreparedRouterContext {
+    /// Execution-local feedback channel; never persisted or exposed in traces.
+    #[serde(skip)]
+    pub token_budget: Option<Arc<RouterInputBudget>>,
     /// Trace writers emit the actual input separately from these budget/cursor facts.
     #[serde(skip_serializing)]
     pub user_prompt: String,
@@ -344,6 +354,10 @@ pub struct PreparedRouterContext {
     pub preparation: RouterPreparationMetrics,
     pub input_tokens: usize,
     pub budget_tokens: usize,
+    /// The complete retained history did not fit, or dropped observations are not
+    /// covered by an accepted summary. Bounded projections of individual logs
+    /// remain normal Router input and do not set this fact.
+    pub history_truncated: bool,
     pub pending_tokens: usize,
     pub entry_tokens: Vec<RouterEntryTokenRecord>,
     pub compression_records: Vec<RouterCompressionRecord>,
@@ -462,6 +476,7 @@ impl RouterContextState {
         Some(RouterSummaryWork {
             base_through: self.summarized_through,
             through,
+            omitted_through: self.omitted_through,
             pending_tokens,
             prompt: format!(
                 "Task:\n{}\n\nPrevious router summary:\n{}\n\nObserved entries through sequence {through}:\n{}\n\nPreviously omitted through sequence: {}",
@@ -484,6 +499,11 @@ impl RouterContextState {
         self.summary = summary.trim().to_string();
         self.summarized_through = work.through;
         self.entries.retain(|entry| entry.sequence > work.through);
+        // A summary captured before backpressure can retain observations later
+        // evicted from the buffer. A snapshot captured after a gap cannot fill it.
+        if work.omitted_through == 0 && self.omitted_through <= work.through {
+            self.omitted_through = 0;
+        }
         true
     }
 
@@ -579,10 +599,12 @@ impl RouterContextState {
         );
         if counter.count(&full_prompt) <= max_tokens {
             return PreparedRouterContext {
+                token_budget: None,
                 preparation_ms: 0,
                 preparation: RouterPreparationMetrics::default(),
                 input_tokens: counter.count(&full_prompt),
                 budget_tokens: max_tokens,
+                history_truncated: self.omitted_through != 0,
                 pending_tokens,
                 entry_tokens,
                 compression_records: Vec::new(),
@@ -644,10 +666,12 @@ impl RouterContextState {
             recent_budget /= 2;
         };
         PreparedRouterContext {
+            token_budget: None,
             preparation_ms: 0,
             preparation: RouterPreparationMetrics::default(),
             input_tokens: counter.count(&user_prompt),
             budget_tokens: max_tokens,
+            history_truncated: true,
             pending_tokens,
             entry_tokens,
             compression_records: Vec::new(),
@@ -1198,6 +1222,114 @@ mod tests {
     }
 
     #[test]
+    fn bounded_log_projection_is_complete_router_input() {
+        let mut state = RouterContextState {
+            task: "Inspect the failing parser test".into(),
+            ..Default::default()
+        };
+        state.append(
+            "long-log".into(),
+            RouterEntryKind::Round,
+            json!({
+                "tool_results": [{
+                    "tool_name": "ReadFile",
+                    "result_for_assistant": "large log entry\n".repeat(10_000)
+                }]
+            }),
+            &Utf8ByteBudget,
+        );
+        let prepared = state.prepare(3, 4096, &Utf8ByteBudget);
+        assert!(prepared.user_prompt.contains("omitted"));
+        assert!(prepared.input_tokens <= prepared.budget_tokens);
+        assert!(!prepared.history_truncated);
+    }
+
+    #[test]
+    fn accepted_summary_restores_complete_input_after_history_outgrows_budget() {
+        let mut state = RouterContextState {
+            task: "Inspect parser behavior".into(),
+            ..Default::default()
+        };
+        for index in 0..60 {
+            append_round(&mut state, index);
+        }
+        let latest = "Do not edit; inspect the failing test first";
+        state.append(
+            "latest".into(),
+            RouterEntryKind::UserUpdate,
+            json!(latest),
+            &Utf8ByteBudget,
+        );
+        let before = state.prepare(3, 2048, &Utf8ByteBudget);
+        assert!(before.history_truncated);
+        assert!(before.input_tokens <= before.budget_tokens);
+        assert!(before.user_prompt.contains(latest));
+
+        let work = state.summary_work(3, 1).unwrap();
+        assert!(state.apply_summary(&work, "Earlier parser inspection identified a failing test"));
+        let after = state.prepare(3, 2048, &Utf8ByteBudget);
+        assert!(!after.history_truncated);
+        assert!(after.user_prompt.contains(latest));
+        assert!(after.user_prompt.contains("step-59"));
+        assert!(after.input_tokens <= after.budget_tokens);
+    }
+
+    #[test]
+    fn captured_summary_only_recovers_dropped_observations_inside_its_snapshot() {
+        for total_rounds in [200, 240] {
+            let mut state = RouterContextState::default();
+            for index in 0..100 {
+                append_round(&mut state, index);
+            }
+            let captured = state.summary_work(3, 1).unwrap();
+            for index in 100..total_rounds {
+                append_round(&mut state, index);
+            }
+            let omitted_before = state.omitted_through;
+            assert!(omitted_before > 0);
+            assert!(state.prepare(3, 65_536, &Utf8ByteBudget).history_truncated);
+            assert!(state.apply_summary(&captured, "Captured parser history through step 96"));
+            let prepared = state.prepare(3, 65_536, &Utf8ByteBudget);
+            if total_rounds == 200 {
+                assert!(!prepared.history_truncated);
+                assert_eq!(prepared.omitted_through, 0);
+            } else {
+                assert!(prepared.history_truncated);
+                assert_eq!(prepared.omitted_through, omitted_before);
+            }
+            assert!(prepared
+                .user_prompt
+                .contains(&format!("step-{}", total_rounds - 1)));
+        }
+    }
+
+    #[test]
+    fn a_new_summary_cannot_recover_history_missing_before_its_snapshot() {
+        // Legacy sidecars and current buffer backpressure use the same explicit
+        // missing-history cursor; deserialization must preserve that evidence.
+        let mut state: RouterContextState = serde_json::from_str(
+            r#"{"task":"Inspect parser","omitted_through":72,"next_sequence":73}"#,
+        )
+        .unwrap();
+        for index in 72..80 {
+            append_round(&mut state, index);
+        }
+        let captured = state.summary_work(3, 1).unwrap();
+        assert_eq!(captured.omitted_through, 72);
+        assert!(state.apply_summary(
+            &captured,
+            "Available parser evidence after a missing prefix"
+        ));
+        let prepared = state.prepare(3, 65_536, &Utf8ByteBudget);
+        assert!(prepared.history_truncated);
+        assert_eq!(prepared.omitted_through, 72);
+        assert!(prepared
+            .user_prompt
+            .contains("Earlier observations omitted through sequence: 72"));
+        assert!(prepared.input_tokens <= prepared.budget_tokens);
+    }
+
+    #[test]
     fn huge_multilingual_context_is_bounded_and_latest_update_survives() {
         let mut state = RouterContextState {
             task: "任务 code 🦀 ".repeat(10_000),
@@ -1231,6 +1363,76 @@ mod tests {
             .prepare(3, 4096, &Utf8ByteBudget)
             .user_prompt
             .contains("Do not edit"));
+    }
+
+    #[test]
+    fn estimated_multilingual_context_keeps_latest_steering_after_usage_calibration_and_restore() {
+        let counter = CachedRouterTokenCounter::new(Arc::new(EstimatedRouterTokens));
+        let mut state = RouterContextState {
+            task: "Inspect parser behavior ASCII identifiers 中文上下文 🦀🙂 ".repeat(10_000),
+            ..Default::default()
+        };
+        let output = "identifier_0123456789 punctuation={}[] 中文执行结果 🦀🙂 ".repeat(4_000);
+        assert!(output.len() > 65_536);
+        for index in 0..10 {
+            state.append(
+                format!("round-{index}"),
+                RouterEntryKind::Round,
+                json!({
+                    "round_id": index,
+                    "assistant": {"text": format!("Inspect parser step {index}")},
+                    "tool_results": [{
+                        "tool_name": "ExecCommand",
+                        "is_error": index == 9,
+                        "result_for_assistant": format!("{output}\nAssertionError: parser evidence {index}")
+                    }]
+                }),
+                &counter,
+            );
+        }
+        let latest = "VERIFY_ONLY 最新要求：只检查解析器，不修改代码 🙂";
+        state.append(
+            "latest".into(),
+            RouterEntryKind::UserUpdate,
+            json!(latest),
+            &counter,
+        );
+
+        let budget = RouterInputBudget::new(8_192, 8_192, counter.count("Classify the next step"));
+        let before = state.prepare(3, budget.user_budget(), &counter);
+        assert!(before.input_tokens <= before.budget_tokens);
+        assert!(before.user_prompt.contains(latest));
+        let pending_before = state.pending_tokens(3);
+        budget.observe_usage(before.input_tokens, (before.input_tokens + 512) * 2);
+        assert!(budget.user_budget() < before.budget_tokens);
+        assert_eq!(state.pending_tokens(3), pending_before);
+        let after = state.prepare(3, budget.user_budget(), &counter);
+        assert!(after.input_tokens <= after.budget_tokens);
+        assert!(after.user_prompt.contains(latest));
+        serde_json::from_str::<Value>(
+            after
+                .user_prompt
+                .split("## Recent trajectory\n")
+                .nth(1)
+                .unwrap(),
+        )
+        .unwrap();
+
+        // Legacy sidecars have no projected token counts. Recount with the new
+        // execution's estimator rather than trusting zero/default metadata.
+        let mut checkpoint = serde_json::to_value(&state).unwrap();
+        for entry in checkpoint["entries"].as_array_mut().unwrap() {
+            entry.as_object_mut().unwrap().remove("token_count");
+        }
+        let mut restored: RouterContextState = serde_json::from_value(checkpoint).unwrap();
+        assert_eq!(restored.pending_tokens(3), 0);
+        let restored_counter = CachedRouterTokenCounter::new(Arc::new(EstimatedRouterTokens));
+        restored.refresh_token_counts(&restored_counter);
+        assert_eq!(restored.pending_tokens(3), pending_before);
+        let restored_prompt = restored.prepare(3, budget.user_budget(), &restored_counter);
+        assert!(restored_prompt.input_tokens <= restored_prompt.budget_tokens);
+        assert_eq!(restored_prompt.user_prompt, after.user_prompt);
+        assert!(restored_prompt.user_prompt.contains(latest));
     }
 
     #[test]

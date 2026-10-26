@@ -26,6 +26,7 @@
     "economy": {
       "label": "Economy model",
       "description": "Handles lightweight steps in smart mode, independently of the fast subagent model",
+      "placeholder": "Select economy model",
       "notSet": "Not configured"
     }
   },

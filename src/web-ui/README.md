@@ -204,8 +204,16 @@ explicit, default, inherited and Fork model configuration.
 Smart mode adds primary/economy bindings and Router status as items
 inside that mode. Before configuration, it shows a centered **Configure smart
 mode** action, matching the model-pool empty state. Its configuration dialog
-contains the primary/economy bindings in one row, Router service and tokenizer
-settings, and a summary switch on the right. Pricing, economy threshold and timeout
+contains the primary/economy bindings in one row and the Router service.
+Smart mode automatically maintains Router history summaries with the economy
+model. Pending summaries do not prevent routing while complete history fits;
+only an input that cannot fit completely falls back to the primary model.
+No tokenizer file is required: the execution host estimates
+input locally and tightens its budget using complete Router prompt usage.
+Legacy tokenizer paths remain optional overrides. Older hosts without
+`estimatedTokenBudgetSupported` may retain an already configured path; without
+one, saving is blocked with an execution-host upgrade message.
+Pricing, economy threshold and timeout
 controls are no longer exposed; existing saved values remain intact. The default-models
 section has no separate Router or billing entry. Settings → Models → Smart mode
 opens the same configuration dialog. Once configured, a centered switch

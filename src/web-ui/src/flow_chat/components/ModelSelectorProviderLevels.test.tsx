@@ -21,7 +21,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const routingHost = vi.hoisted(() => ({ apiVersion: 1, mode: 'manual' as 'manual' | 'smart',
   defaultMode: 'manual' as 'manual' | 'smart', ready: false, connected: null, issue: null as string | null,
-  summaryEnabled: false, subagentModel: 'primary' }));
+  summaryEnabled: false, subagentModel: 'primary', estimatedTokenBudgetSupported: true }));
 
 const poolApiMocks = vi.hoisted(() => ({
   supported: false,

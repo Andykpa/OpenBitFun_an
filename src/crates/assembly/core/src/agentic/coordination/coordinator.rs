@@ -22491,7 +22491,25 @@ mod tests {
 
     #[tokio::test]
     async fn reused_subagent_legacy_smart_keeps_target_until_explicit_model_replacement() {
-        assert_reused_subagent_model_selection(Some("smart")).await;
+        // Typed target replacement validates the selected configured model.
+        // Supply the same host-owned configuration a real runtime has loaded.
+        let mut config = AIConfig::default();
+        config.models = ["main-model", "worker-model", "parent-model"]
+            .into_iter()
+            .map(|id| AIModelConfig {
+                id: id.into(),
+                enabled: true,
+                ..Default::default()
+            })
+            .collect();
+        config.default_models.primary = Some("main-model".into());
+        config.default_models.fast = Some("worker-model".into());
+        TEST_MODEL_RESOLUTION_AI_CONFIG
+            .scope(
+                config,
+                assert_reused_subagent_model_selection(Some("smart")),
+            )
+            .await;
     }
 
     async fn assert_reused_subagent_model_selection(legacy_routing: Option<&str>) {
