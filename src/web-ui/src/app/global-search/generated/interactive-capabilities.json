@@ -4,7 +4,7 @@
   "title": "OpenBitFun Playbook",
   "origin": "https://playbook.openbitfun.com",
   "source": "src/shared/interactive-capabilities/catalog.json",
-  "digest": "de9d03ab0cbb5268869e61d1a3e363c5210d93b9dccb2c8caccc99006074732a",
+  "digest": "261ffda57f9fb9de2ccfb430e88cd34c4c3e0d112fd8cf75dfd830189872d6e1",
   "ownerDigest": "4e1ace270088acecbd333d2c8aced0547dddb0fd6bae778bec24f2b0fb48ea91",
   "searchAcceptance": [
     {
@@ -22998,20 +22998,20 @@
         },
         {
           "id": "agent-operate-app",
-          "titleZh": "由智能体直接操作 Mini App 界面",
-          "titleEn": "Let an agent operate a Mini App interface directly",
+          "titleZh": "由智能体结合源码控制 Mini App",
+          "titleEn": "Let an agent control a Mini App using its source and live interface",
           "control": {
             "kind": "delegate",
             "tools": [
               "MiniAppBrowser"
             ],
             "workflowZh": [
-              "用户要求在 Mini App 内操作时，先用 MiniAppBrowser 的 open 打开应用并 inspect 读取可读结构，再按返回的 targetId 执行 find、read、click、type、key、scroll",
-              "只有应用声明了 bridge 能力时才使用 observe_bridge 与 act_bridge；strict runtime 或应用在独立窗口运行时如实报告界面不可读的原因，不猜测应用内部状态"
+              "先用 OpenBitFunControl 的 get 查询 feature.miniapps，并按 schema 用 inspect-app 浏览源码、理解状态和动作；需要时用 update-app 携带 expectedVersion 修改代码或增加控制接口，本地受管文件修改则通过 FinalizeMiniApp 完成更新",
+              "用 MiniAppBrowser 的 open 连接用户正在使用的实例，通过 bridge 状态或可用的 DOM 操作执行任务并验证结果；更新后重新获取 targetId。自动观测仅代表活动，应用状态和语义动作由应用声明；源码或呈现能力不可用时如实说明"
             ],
             "workflowEn": [
-              "When the user asks for interaction inside a Mini App, open it with MiniAppBrowser and inspect the readable structure, then act on the returned target IDs with find, read, click, type, key, and scroll",
-              "Use observe_bridge and act_bridge only when the app announces bridge capabilities; when a strict runtime or a separately presented window makes the surface unreadable, report the exact reason instead of guessing the app's internal state"
+              "Use OpenBitFunControl get for feature.miniapps, then follow its schema to inspect-app source and understand state and actions; when needed, modify code or add controls with update-app and expectedVersion, or finalize managed local file edits with FinalizeMiniApp",
+              "Open the user-visible instance with MiniAppBrowser, execute and verify through bridge state or available DOM controls, and reacquire target IDs after updates. Automatic observations show activity only; application state and semantic actions are app-declared. Report unavailable source or surface capabilities explicitly"
             ]
           }
         },
@@ -23360,8 +23360,8 @@
         "Let an agent initialize, author, and validate a Mini App",
         "在用户明确要求时由智能体提交已完成的 Mini App 到市场审核",
         "Let an agent submit a completed Mini App for market review when explicitly requested",
-        "由智能体直接操作 Mini App 界面",
-        "Let an agent operate a Mini App interface directly",
+        "由智能体结合源码控制 Mini App",
+        "Let an agent control a Mini App using its source and live interface",
         "撤回和审查市场发布，并可渲染幻灯片页面",
         "Withdraw and review market releases, and render slide pages",
         "打开 Mini Apps",
@@ -23389,10 +23389,10 @@
         "Call PublishMiniApp only after an explicit request to submit externally, with the completed app, license, and release notes",
         "When authentication, validation, or upload returns a resumable state, show the exact next step and never report pending authorization or review as published",
         "MiniAppBrowser",
-        "用户要求在 Mini App 内操作时，先用 MiniAppBrowser 的 open 打开应用并 inspect 读取可读结构，再按返回的 targetId 执行 find、read、click、type、key、scroll",
-        "只有应用声明了 bridge 能力时才使用 observe_bridge 与 act_bridge；strict runtime 或应用在独立窗口运行时如实报告界面不可读的原因，不猜测应用内部状态",
-        "When the user asks for interaction inside a Mini App, open it with MiniAppBrowser and inspect the readable structure, then act on the returned target IDs with find, read, click, type, key, and scroll",
-        "Use observe_bridge and act_bridge only when the app announces bridge capabilities; when a strict runtime or a separately presented window makes the surface unreadable, report the exact reason instead of guessing the app's internal state"
+        "先用 OpenBitFunControl 的 get 查询 feature.miniapps，并按 schema 用 inspect-app 浏览源码、理解状态和动作；需要时用 update-app 携带 expectedVersion 修改代码或增加控制接口，本地受管文件修改则通过 FinalizeMiniApp 完成更新",
+        "用 MiniAppBrowser 的 open 连接用户正在使用的实例，通过 bridge 状态或可用的 DOM 操作执行任务并验证结果；更新后重新获取 targetId。自动观测仅代表活动，应用状态和语义动作由应用声明；源码或呈现能力不可用时如实说明",
+        "Use OpenBitFunControl get for feature.miniapps, then follow its schema to inspect-app source and understand state and actions; when needed, modify code or add controls with update-app and expectedVersion, or finalize managed local file edits with FinalizeMiniApp",
+        "Open the user-visible instance with MiniAppBrowser, execute and verify through bridge state or available DOM controls, and reacquire target IDs after updates. Automatic observations show activity only; application state and semantic actions are app-declared. Report unavailable source or surface capabilities explicitly"
       ],
       "docsUrl": "https://playbook.openbitfun.com/capabilities/feature.miniapps/"
     },

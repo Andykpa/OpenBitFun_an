@@ -1,8 +1,7 @@
-//! MiniAppBrowser tool — drive a MiniApp the way BrowserUse drives a Web page.
+//! MiniAppBrowser tool — control the live MiniApp using knowledge of its source.
 //!
-//! A MiniApp is a Web page hosted by the product window, so the Agent controls
-//! it with inspect / locate / input / wait semantics instead of editing source
-//! or touching host paths. Layering:
+//! Source inspection and edits use the existing MiniApp authoring owner; this
+//! tool operates and verifies the user-visible instance. Layering:
 //!
 //! - [`crate::agentic::tools::miniapp_surface`] owns the host
 //!   port, sessions, target handles, capability facts, and the method whitelist.
@@ -51,14 +50,20 @@ impl Tool for MiniAppBrowserTool {
 
     async fn description(&self) -> OpenBitFunResult<String> {
         Ok(format!(
-            r#"Operate an installed MiniApp like a Web page: open it, read its structure, locate elements, then click, type, send keys, or scroll. This is the primary way to use a MiniApp; do not modify its source unless the user asks.
+            r#"Control a MiniApp at the source level as well as through its live interface. Read its source to understand behavior, state, and action handlers; when useful for the user's task, modify its code, add semantic controls, or expose application state through the existing authoring tools. MiniAppBrowser operates and verifies the user-visible instance; source reading and editing use OpenBitFunControl or the managed file workflow below.
 
 `open` drives the same copy the user sees, and picks where that copy lives in this order: the app's own window if it is already open, the tab already showing it, the desktop app the user published from this MiniApp (launched as a normal app), and only then a new tab. Never launch a copy of the app in a separate or headless browser: that runs something the user cannot see, and its state never matches the app on their screen.
 
 Addressing an app: call `apps` when you do not know the id. It lists installed MiniApps with the id that addresses each one. `open` accepts `appId` or the app's `name`, resolves an exact id or name first, accepts a unique partial name, and reports candidates instead of guessing when several apps match. If the app is already open in one of its own windows or in a tab, `open` attaches to that presentation instead of starting a second copy, so you drive the instance the user has on screen.
 
-Typical loop: open(appId) -> inspect -> find (or reuse targetIds from inspect) -> click/type/read -> wait -> inspect.
-For any MiniApp task, first check whether the user has provided or authorized access to the app source through the available workspace/context. When source is available, inspect the relevant UI, data, state transitions, and action handlers; derive the shortest reliable sequence that fulfills the request and execute it directly. Do not spend turns repeatedly probing behavior that source inspection can settle. Use the live MiniApp to enter the workflow and confirm completion or meaningful checkpoints. If source is unavailable, use DOM or declared bridge actions to identify a direct path; use observe-act cycles only for genuinely dynamic or uncertain steps. Prefer structured state over pixels; screenshot is a fallback only when the available state cannot confirm progress.
+Source-aware workflow:
+1. Discover the source through `OpenBitFunControl`: `get` the `feature.miniapps` capability and follow its returned schema for `list-apps` and `inspect-app`. `inspect-app` returns the installed app's HTML, CSS, UI JavaScript, worker JavaScript, dependencies, and version; no workspace checkout is needed. Read the relevant implementation and derive the shortest reliable sequence for the task.
+2. Use existing handlers and controls when they suffice. Source-level control also includes changing behavior, fixing code, adding an app-owned automation action, or exposing bounded state with `window.app.agent.expose`. Make changes that serve the user's request; reading source does not require changing it.
+3. Apply source edits with `update-app`, using the inspected `appId` and version as `expectedVersion`, and send only changed fields. The owning host compiles, saves, and notifies the UI. Preserve unrelated source, permissions, and user data; never delete/recreate an app to update it. If using an existing managed local app directory instead, read/edit its source and call `FinalizeMiniApp` with the same app id. An explicit customization draft stays in its draft directory and is applied by the customization panel, not FinalizeMiniApp.
+4. Open or reattach to the user's live app and confirm the requested outcome through bridge state or DOM observations. After an update reloads the document, reacquire targetIds. Source explains the implementation; it does not prove the current runtime state. Reserve observe-act cycles for genuinely dynamic or uncertain steps, and screenshots for decisions that structured state cannot answer.
+If structured source access is unavailable, report that limitation and use the available live controls. Do not assume installed-app source is present in the workspace. Remote workspaces/controllers must use the owning host's structured operations instead of editing host paths with local file tools.
+
+Live interface loop when needed: open(appId) -> inspect -> find (or reuse targetIds) -> click/type/read -> wait -> inspect.
 
 Following something that keeps changing: `watch_state` samples the app's own state inside one call (window up to {MINIAPP_WEB_MAX_WATCH_MS}ms, deduplicated by state) and returns the timeline. Use it instead of calling `observe_bridge` in a loop, and instead of writing a harness script. Do not load the app's HTML in a separate browser, Chrome, CDP, or headless run to "verify" it: that renders a copy the user cannot see, on a different clock, with no bridge and no host state, so its result is not evidence about the app they have open. If you need a long observation window, ask `watch_state` for it.
 
@@ -82,15 +87,14 @@ Scope: this tool cannot read host paths, credentials, or other MiniApps, and it 
 Live state and auto-play:
 - Observation works on an unchanged MiniApp. Every frame already reports automatic observations through `observe_bridge`: whether animation callbacks are running (`frames`, `frameAgeMs`), whether dispatched input actually reached it (`input`, `inputCount`), plus viewport and canvas sizes for mapping coordinates onto a screenshot. `state` is null in that mode and `canvasTextUnavailable` is true: activity is not evidence of scores, lives, game phase, or current Canvas text. No app edit or manifest permission is required for activity observations.
 - An app that wants labeled, authoritative state announces it from inside itself: `window.app.agent.expose({{ observe: () => ({{ score, lives, wave }}), act: (action) => ... }})`. The `window.app` runtime is injected into every MiniApp frame, including the strict runtime. Once the app calls `expose`, `observe_bridge` returns that JSON under `state` and `act_bridge` runs the actions the app itself accepts. The same call may list `actions: ['restart', 'autoplay']`, the action types it answers, which then arrive as `declaredActions`. That is what makes a fast-moving app playable at full speed: read real state instead of sampling frames, and let the app resolve timing inside one call.
-- When the user authorizes source changes, add `expose` through the MiniApp authoring owner (update its source, then finalize the file edit) to observe application state: expose bounded state such as player position, score, lives, and game phase, plus semantic actions such as jump/restart when the game can apply them itself. This is faster and more reliable than pixel sampling. Do not try to inject scripts from this tool; there is no `evaluate`.
-- The action vocabulary belongs to the app. `observe_bridge` returns `declaredActions`, the action types the app said its `act` accepts, so read them there first and use those names; an empty list means the app declared nothing, not that it accepts nothing. Do not assume installed-app source is present in the workspace or bypass host boundaries to find it. When source has been explicitly provided or authorized and is available through the normal file/context tools, use it to plan instead of guessing. Keep source-derived actions bounded and execute them against the user's live instance; use bridge observations to confirm the outcome, not as a mandatory round trip after every input.
+- The action vocabulary belongs to the app. `observe_bridge` returns `declaredActions`, the action types the app said its `act` accepts, so read them there first and use those names; an empty list means the app declared nothing, not that it accepts nothing. Keep source-derived actions bounded and execute them against the user's live instance; use bridge observations to confirm the outcome, not as a mandatory round trip after every input.
 - A fresh `open` on the app's own window may report `bridgeAnnounced: false` and empty capabilities: the window answers the bridge, the document just has not declared anything yet in this session. `observe_bridge` is the authoritative answer, so call it before concluding the surface is inert.
 - Without useful bridge state the limit is turn-paced: one small input, then observe again; use a screenshot only when pixels are needed. Say so plainly instead of claiming you can follow continuous motion."#
         ))
     }
 
     fn short_description(&self) -> String {
-        "Open, read, and interact with a MiniApp in the user's own window, as a Web page."
+        "Control the live MiniApp using its source; pair with authoring tools to read or modify code."
             .to_string()
     }
 
@@ -329,12 +333,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn description_prefers_source_derived_workflows_when_authorized() {
+    async fn description_connects_source_control_to_existing_authoring_owner() {
         let description = MiniAppBrowserTool::new()
             .description()
             .await
             .expect("tool description");
-        assert!(description.contains("For any MiniApp task"));
+        assert!(description.contains("Control a MiniApp at the source level"));
+        assert!(description.contains("OpenBitFunControl"));
+        assert!(description.contains("inspect-app"));
+        assert!(description.contains("update-app"));
+        assert!(description.contains("expectedVersion"));
+        assert!(description.contains("FinalizeMiniApp"));
         assert!(description.contains("derive the shortest reliable sequence"));
         assert!(description.contains("genuinely dynamic or uncertain steps"));
         assert!(description.contains("Do not assume installed-app source is present"));

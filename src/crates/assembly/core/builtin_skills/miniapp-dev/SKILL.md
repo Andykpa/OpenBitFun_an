@@ -100,6 +100,12 @@ description: 'Generate and refine OpenBitFun MiniApps. Use when the user wants a
 
 ### 4. 选择正确的编辑流程
 
+MiniApp 控制也包括源码级控制：浏览源码理解 UI、状态和动作处理器，直接规划操作，
+必要时修改实现、修复逻辑或增加 `window.app.agent.expose` 状态与语义动作。
+先用下述 `inspect-app` 读取源码；需要修改时沿用对应更新流程，
+再用 `MiniAppBrowser` 连接用户正在使用的实例验证结果。
+源码说明实现，不能代替对当前运行状态的确认；更新后重新获取界面 targetId。
+
 先判断当前任务属于哪一种，不要混用：
 
 #### 已打包客户端的直接管理（优先）
