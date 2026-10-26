@@ -299,6 +299,13 @@ These fixtures exercise both pool strategies, inherited bindings, read-only prev
 Agent tool restrictions, and native/tool-assisted image paths. They do not contact
 providers or exercise live SSH, relay, peer, or dispatch connections.
 
+For built-in MiniApp image-tool parity and five-image native/tool-assisted input,
+include the concrete image-tool owner in the same focused fixture:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git,tools-image-analysis --lib -- image_input input_model_tests
+```
+
 For model selector latency, run the catalog and session mutation owner fixtures:
 
 ```bash

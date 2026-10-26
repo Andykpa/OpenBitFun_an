@@ -669,6 +669,7 @@
     "retry": "重试",
     "addImage": "添加图片",
     "maxImagesWarning": "最多只能选择{{count}}张图片",
+    "imageOnlyPrompt": "请参考附带的图片。",
     "imagePasteFailed": "图片粘贴失败",
     "clipboardImageToolsUnavailable": "无法读取剪贴板图片：请安装 wl-clipboard（Wayland）或 xclip（X11）后重试。",
     "externalFiles": {
@@ -3648,6 +3649,7 @@
     "send": "发送"
   },
   "miniAppComposer": {
+    "imagesUnsupportedPeer": "连接的设备暂不支持向 MiniApp 发送图片。请更新该设备上的 OpenBitFun 后重试。",
     "placeholder": "把需求发给 {{app}}…",
     "send": "发送",
     "hint": "消息将由 {{app}} 处理"

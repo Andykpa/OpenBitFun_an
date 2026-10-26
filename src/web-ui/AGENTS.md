@@ -149,6 +149,15 @@ pnpm --dir src/web-ui run test:run src/flow_chat/selection/FlowChatSelectionBar.
 
 These DOM fixtures do not establish native WebView rendering or live remote behavior.
 
+For Hi-to-MiniApp image preparation, SDK inheritance, admission and peer compatibility:
+
+```bash
+pnpm --dir src/web-ui run test:run src/app/scenes/miniapps/miniAppComposerMessages.test.ts src/app/scenes/miniapps/miniAppBridgeImages.test.ts src/app/scenes/miniapps/hooks/useMiniAppBridge.test.tsx src/infrastructure/api/service-api/MiniAppAPI.test.ts src/flow_chat/utils/imagePayload.test.ts src/infrastructure/api/adapters/peer-device-adapter.test.ts
+```
+
+These tests exercise production JS with host/transport fixtures; they do not establish
+live model, SSH workspace, Remote Control, Peer Device or Detached Dispatch behavior.
+
 For Appearance descriptor changes, also exercise production registration; its ID
 and property validation goes beyond the static DOM audit:
 
