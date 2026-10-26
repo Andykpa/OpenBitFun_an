@@ -13,7 +13,7 @@ MiniApp **能且只能**用以下 API，没有任何"通用 OpenBitFun 后端通
 - `app.net.fetch` —— HTTP 请求（受 `permissions.net.allow` 域名白名单限制）
 - `app.os.info` —— 只读系统信息
 - `app.storage.get/set` —— 每应用独立 KV 存储
-- `app.agent.*` —— 小应用自有隐藏 Agent 会话；支持有界只读上下文快照；`app.agent.expose()` 可选地把实时状态/语义动作（含可选的动作名清单 `actions`）暴露给宿主 Agent（不接入也自动上报画布文字与帧存活）
+- `app.agent.*` —— 小应用自有隐藏 Agent 会话；支持有界只读上下文快照；`app.agent.expose()` 可选地把实时状态/语义动作（含可选的动作名清单 `actions`）暴露给宿主 Agent（不接入也自动上报动画活动与输入回显，但不推断画布当前文字）
 - `app.ai.complete / chat / cancel / getModels` —— 复用宿主 AI（无需 API Key）
 - `app.dialog.open/save/message` —— 文件对话框
 - `app.clipboard.readText/writeText` —— 剪贴板
@@ -192,9 +192,9 @@ await app.agent.run('分析当前盘面。', {
 方向与 `app.agent.run()` 相反：宿主 Agent 来驱动这个小应用。注册后，Agent 端 `MiniAppBrowser`
 的 `observe_bridge` 会拿到 `observe()` 的返回值，`act_bridge` 会调用 `act(action)`。
 
-这是**可选增强**，不是接入前提：注入到每个小应用页面的运行时会自动上报一层观测（canvas 上的文字、
-动画帧是否在跑、按键/点击是否真的到达），所以未做任何改动的小应用也能被 Agent 观测与操作，
-只是那层观测没有语义标签（只能看到画出来的字，读不到「生命值」这种命名状态）。
+这是**可选增强**，不是接入前提：注入运行时会自动上报动画活动和输入回显。
+这些只是活动信息，不能证明当前画布文字、分数、生命值或游戏阶段；需要实时业务状态时使用 `observe()`，
+或在可读取的标签页中使用 DOM / 截图。严格隔离页面和独立窗口不提供 DOM / 截图能力。
 
 ```javascript
 let score = 0;
@@ -224,7 +224,7 @@ app.agent.expose({
 - 无需要求 `permissions.agent.*`：数据只在页面内流转，不触碰宿主能力。
 - 每个渲染帧都调用 `expose()` 只会替换处理器，不会重复注册；重启/换关后重新 `expose()` 即可对齐新状态。
 - `observe` 抛出异常会被宿主收到为可读的失败，不会挂死请求；长时间阻塞的处理会触发宿主超时。
-- 对纯 canvas、游戏或其他自定义渲染界面，自动观测能给到画出来的文字、动画循环是否在跑、输入是否到达；
+- 对纯 canvas、游戏或其他自定义渲染界面，自动观测仅报告动画活动、输入回显和画布尺寸；`canvasTextUnavailable: true` 明确表示不读取当前画布文字。
   但命名状态和语义动作需要 `expose()`。如果任务依赖连续变化的状态，应暴露完成任务所需的少量权威字段与动作，
   避免 Agent 只能靠逐帧截图或反复试探。
 - 只返回必要的少量字段（分数、生命、关卡、关键坐标等），不要把整帧像素或大数组塞进 `observe`。

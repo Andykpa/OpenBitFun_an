@@ -92,51 +92,14 @@ pub fn build_bridge_script(
   // automatic observation below.
   let _agentBridge = null;
 
-  // Automatic observation. Every MiniApp gets this without changing a line of
-  // app code: what the app draws as text, whether its frame loop is still
-  // running, and whether dispatched input reached it. That is enough to follow a
-  // Canvas game that stores state only in pixels. Nothing here reads app
-  // internals, and all four buffers are bounded so a long-running loop cannot
-  // grow memory.
-  const _AUTO_TEXT_LIMIT = 240;
-  const _AUTO_TEXT_MAX_CHARS = 96;
+  // Automatic observation reports activity, not application state. Canvas draw
+  // calls are not a live text model: clearing, compositing and multiple canvases
+  // make a draw-call history misleading. Use declared state or pixels instead.
   const _AUTO_CANVAS_LIMIT = 4;
-  const _autoText = new Map();
   let _autoFrames = 0;
   let _autoFrameAt = 0;
   let _autoInput = null;
   let _autoInputCount = 0;
-
-  const _autoTextAt = (text, x, y) => {{
-    if (typeof text !== 'string') return;
-    const value = text.trim();
-    if (!value || value.length > _AUTO_TEXT_MAX_CHARS) return;
-    const cx = Math.round(Number(x) || 0);
-    const cy = Math.round(Number(y) || 0);
-    const key = cx + ',' + cy;
-    if (!_autoText.has(key) && _autoText.size >= _AUTO_TEXT_LIMIT) {{
-      const oldest = _autoText.keys().next().value;
-      if (oldest !== undefined) _autoText.delete(oldest);
-    }}
-    // Same position keeps its slot and only refreshes the text, so a score that
-    // redraws every frame stays one entry instead of flooding the buffer.
-    _autoText.set(key, {{ text: value, x: cx, y: cy }});
-  }};
-
-  const _autoWrapDrawText = (method) => {{
-    if (typeof CanvasRenderingContext2D === 'undefined') return;
-    const proto = CanvasRenderingContext2D.prototype;
-    const original = proto[method];
-    if (typeof original !== 'function' || original.__openbitfunAuto === true) return;
-    const wrapped = function (text, x, y) {{
-      try {{ _autoTextAt(text, x, y); }} catch (_error) {{}}
-      return original.apply(this, arguments);
-    }};
-    wrapped.__openbitfunAuto = true;
-    proto[method] = wrapped;
-  }};
-  _autoWrapDrawText('fillText');
-  _autoWrapDrawText('strokeText');
 
   // A frozen loop and a running one look identical in a single screenshot.
   const _autoRequestFrame = window.requestAnimationFrame;
@@ -183,7 +146,9 @@ pub fn build_bridge_script(
   // Agent map them onto a screenshot instead of guessing the scale.
   const _autoSnapshot = () => ({{
     source: _agentBridge && _agentBridge.observe ? 'declared' : 'auto',
-    canvasText: Array.from(_autoText.values()).sort((a, b) => a.y - b.y || a.x - b.x),
+    // Keep the legacy array shape, but explicitly report the observation gap.
+    canvasText: [],
+    canvasTextUnavailable: true,
     frames: _autoFrames,
     frameAgeMs: _autoFrameAt ? Date.now() - _autoFrameAt : null,
     input: _autoInput,
@@ -324,7 +289,7 @@ pub fn build_bridge_script(
       // Reverse direction: expose bounded live state to the OpenBitFun Agent and
       // accept semantic actions from it. Only what the handlers return is
       // visible; the host never inspects app internals. Optional: every frame
-      // already reports automatic observations (drawn text, loop liveness, input
+      // already reports automatic observations (loop liveness, input
       // echo), and expose() layers labels and exact actions on top of that.
       //   app.agent.expose({{
       //     observe: () => ({{ score, lives, wave, player: {{ x, y }} }}),
@@ -491,6 +456,7 @@ pub fn build_bridge_script(
   // refusal instead of a hung request. Observation always answers, because the
   // automatic half does not depend on the app declaring anything.
   window.addEventListener('message', (e) => {{
+    if (e.source !== window.parent) return;
     const data = e.data;
     if (!data || data.type !== 'openbitfun:miniapp-agent-request') return;
     const reply = (ok, value, error) => {{
@@ -502,6 +468,10 @@ pub fn build_bridge_script(
         error: error ? String(error) : undefined,
       }}, '*');
     }};
+    if (data.schemaVersion !== 'agent.v1') {{
+      reply(false, null, 'Unsupported agent bridge schema version');
+      return;
+    }}
     if (data.method === 'observe') {{
       // One envelope for every app: `state` is the app's own declaration (null
       // when it declared nothing) and `auto` is what this runtime observed.
@@ -543,13 +513,14 @@ pub fn build_bridge_script(
       const action = data.action && typeof data.action === 'object' ? data.action : {{}};
       const rawKey = typeof action.key === 'string' ? action.key : '';
       const trimmedKey = rawKey === ' ' ? ' ' : rawKey.trim();
-      const aliases = {{ space: ' ', spacebar: ' ', esc: 'Escape', return: 'Enter', left: 'ArrowLeft', right: 'ArrowRight', up: 'ArrowUp', down: 'ArrowDown' }};
-      const key = aliases[trimmedKey.toLowerCase()] || trimmedKey;
+      const keyContract = {agent_key_contract};
+      const key = keyContract.aliases[trimmedKey.toLowerCase()] || trimmedKey;
       if (!key) {{ reply(false, null, 'Input requires a non-empty key'); return; }}
       const modifiers = Array.isArray(action.modifiers) ? action.modifiers : [];
       const init = {{
         key,
-        code: key === ' ' ? 'Space' : key,
+        code: keyContract.codes[key.toLowerCase()]
+          || (/^[a-z]$/i.test(key) ? 'Key' + key.toUpperCase() : /^[0-9]$/.test(key) ? 'Digit' + key : key),
         bubbles: true,
         cancelable: true,
         altKey: modifiers.some(value => String(value).toLowerCase() === 'alt'),
@@ -563,7 +534,7 @@ pub fn build_bridge_script(
         : document.body;
       try {{
         target.dispatchEvent(new KeyboardEvent('keydown', init));
-        if (!['Alt', 'Control', 'Meta', 'Shift'].includes(key)) target.dispatchEvent(new KeyboardEvent('keypress', init));
+        if (!['alt', 'control', 'meta', 'shift'].includes(key.toLowerCase())) target.dispatchEvent(new KeyboardEvent('keypress', init));
         Promise.resolve()
           .then(() => holdMs > 0 ? new Promise(resolve => setTimeout(resolve, holdMs)) : undefined)
           .then(() => {{
@@ -590,7 +561,8 @@ pub fn build_bridge_script(
         app_data_esc = app_data_esc,
         workspace_esc = workspace_esc,
         appearance_mode_esc = appearance_mode_esc,
-        platform_esc = platform_esc
+        platform_esc = platform_esc,
+        agent_key_contract = include_str!("../../../../../shared/miniapp-agent/keys.json"),
     )
 }
 

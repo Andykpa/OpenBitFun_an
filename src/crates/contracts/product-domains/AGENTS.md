@@ -84,3 +84,14 @@ For MiniApp bridge/session or embedded bundle changes, use the focused contracts
 cargo test --locked -p openbitfun-product-domains --no-default-features --features miniapp --lib miniapp::agent_bridge::tests
 cargo test --locked -p openbitfun-product-domains --no-default-features --features miniapp --test miniapp_contracts
 ```
+
+For executable MiniApp bridge changes, also run the injected-script behavior
+fixtures (parent/schema validation, tab/window keyboard parity, and observation
+semantics):
+
+```bash
+pnpm --dir src/web-ui run test:run src/app/scenes/miniapps/agent/miniAppAgentInjectedRuntime.test.ts
+```
+
+These DOM fixtures execute the embedded script template; they do not establish
+native WebView or live remote behavior.

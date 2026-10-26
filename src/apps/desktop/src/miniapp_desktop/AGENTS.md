@@ -58,8 +58,8 @@ protocol a tab uses and answers with `agentResponse`, so one MiniApp answers
 identically wherever it is presented. `agent_window` routes a call only to a
 ready Window whose Shell advertised the capability, and only when the command is
 bound to that instance; every other presentation stays with the Web UI tab
-runtime. DOM, pixel, and synthetic-input actions are refused on a window
-presentation instead of being faked. Polls are bounded long polls woken by the
+runtime. DOM, pixel, click/type/scroll actions are refused on a window;
+key input is delivered through the injected frame runtime. Polls are bounded long polls woken by the
 lease's `notify`, so a relayed request costs one IPC round trip rather than a
 heartbeat; keep that bound and keep `poll` answering `released` when the lease is
 gone.
@@ -71,6 +71,14 @@ claim execution. The Shell checks the delivery expiry and document generation
 after claiming, and rejects pending requests when replacing content. Keep the
 poll cursor across content reloads of the same host/view; consume a reload event
 before restarting. Host and Shell are upgraded together for this protocol.
+
+The injected runtime accepts Agent requests only from `window.parent` with
+schema `agent.v1`. Tab and Shell key mappings share
+`src/shared/miniapp-agent/keys.json`; their event delivery stays in the owning
+runtime. Automatic observations report animation/input activity, not current
+Canvas text. Keep the legacy `canvasText` array empty and report
+`canvasTextUnavailable: true`; authoritative app state comes from `expose()`.
+Do not restore Canvas drawing interception to approximate a screen model.
 
 A window answers for two different ids, and they are not interchangeable: the
 `view_id` identifies the view lease, the `instance_id` identifies the running

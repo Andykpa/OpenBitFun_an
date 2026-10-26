@@ -622,11 +622,11 @@ fn miniapp_bridge_observes_an_unchanged_app() {
     // injected runtime collects a bounded picture of what the app already does.
     assert!(bridge.contains("auto-observe"));
     assert!(bridge.contains("_autoSnapshot"));
-    assert!(bridge.contains("fillText"));
-    assert!(bridge.contains("strokeText"));
+    assert!(!bridge.contains("CanvasRenderingContext2D.prototype"));
+    assert!(bridge.contains("canvasTextUnavailable: true"));
     assert!(bridge.contains("requestAnimationFrame"));
     assert!(bridge.contains("frameAgeMs"));
-    assert!(bridge.contains("_autoTextAt"));
+    assert!(!bridge.contains("_autoTextAt"));
     // One envelope for every app: declared state plus automatic observation.
     assert!(bridge.contains("{ state: null, auto: _autoSnapshot() }"));
     assert!(bridge.contains("_announceAgentBridge();"));

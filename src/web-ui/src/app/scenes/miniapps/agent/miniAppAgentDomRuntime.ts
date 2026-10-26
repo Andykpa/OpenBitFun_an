@@ -12,6 +12,8 @@
  * - every failure is a typed error, never a silent no-op.
  */
 
+import keyContract from '../../../../../../shared/miniapp-agent/keys.json';
+
 import {
   MINIAPP_AGENT_MAX_DEPTH,
   MINIAPP_AGENT_MAX_KEY_HOLD_MS,
@@ -612,35 +614,8 @@ export function typeIntoNode(
 
 const MODIFIER_KEYS = new Set(['alt', 'control', 'meta', 'shift']);
 
-/**
- * `KeyboardEvent.code` for keys whose DOM name is not a single character. A game
- * almost always keys off `code`, so sending `Key ` for Space or leaving arrows
- * unmapped makes the app ignore input entirely.
- */
-const KEY_CODES: Record<string, string> = {
-  ' ': 'Space',
-  space: 'Space',
-  spacebar: 'Space',
-  enter: 'Enter',
-  return: 'Enter',
-  escape: 'Escape',
-  esc: 'Escape',
-  tab: 'Tab',
-  backspace: 'Backspace',
-  delete: 'Delete',
-  arrowleft: 'ArrowLeft',
-  left: 'ArrowLeft',
-  arrowright: 'ArrowRight',
-  right: 'ArrowRight',
-  arrowup: 'ArrowUp',
-  up: 'ArrowUp',
-  arrowdown: 'ArrowDown',
-  down: 'ArrowDown',
-  shift: 'ShiftLeft',
-  control: 'ControlLeft',
-  alt: 'AltLeft',
-  meta: 'MetaLeft',
-};
+const KEY_CODES: Record<string, string> = keyContract.codes;
+const KEY_VALUE_ALIASES: Record<string, string> = keyContract.aliases;
 
 function keyCodeFor(key: string): string {
   const known = KEY_CODES[key.toLowerCase()];
@@ -659,18 +634,6 @@ function delay(ms: number): Promise<void> {
   });
 }
 
-/** DOM `key` values that differ from the name a caller is likely to pass. */
-const KEY_VALUE_ALIASES: Record<string, string> = {
-  space: ' ',
-  spacebar: ' ',
-  esc: 'Escape',
-  return: 'Enter',
-  left: 'ArrowLeft',
-  right: 'ArrowRight',
-  up: 'ArrowUp',
-  down: 'ArrowDown',
-};
-
 export interface KeyOptions {
   modifiers?: string[];
   /** Keep the key down this long before releasing it (ms). */
@@ -688,6 +651,7 @@ export async function pressKey(
   if (!normalizedKey) {
     throw surfaceError('INVALID_PARAMS', 'key: the key name is required.');
   }
+  const keyValue = KEY_VALUE_ALIASES[normalizedKey.toLowerCase()] ?? normalizedKey;
   const target = (doc.activeElement ?? doc.body ?? doc.documentElement) as Element | null;
   if (!target) {
     throw surfaceError('SURFACE_UNAVAILABLE', 'key: the MiniApp document has no focus target.');
@@ -696,8 +660,8 @@ export async function pressKey(
     .map((modifier) => modifier.trim().toLowerCase())
     .filter((modifier) => MODIFIER_KEYS.has(modifier));
   const init = {
-    key: KEY_VALUE_ALIASES[normalizedKey.toLowerCase()] ?? normalizedKey,
-    code: keyCodeFor(normalizedKey),
+    key: keyValue,
+    code: keyCodeFor(keyValue),
     bubbles: true,
     cancelable: true,
     composed: true,

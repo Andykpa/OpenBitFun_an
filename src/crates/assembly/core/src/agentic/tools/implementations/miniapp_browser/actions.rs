@@ -436,7 +436,7 @@ async fn open(input: &Value) -> Vec<ToolResult> {
         let declared_actions = session.has_bridge_capability("act");
         if !declared_state {
             summary.push_str(
-                "\nobserve_bridge reports automatic observation only (drawn text, animation liveness, input echo). It still needs the app to declare state before it can report scores or lives by name.",
+                "\nobserve_bridge reports automatic observation only (animation liveness, input echo; Canvas text is unavailable). It still needs the app to declare state before it can report scores or lives by name.",
             );
         }
         if !declared_actions {
@@ -955,34 +955,14 @@ fn describe_declared_actions(actions: &Value) -> String {
     format!("declared actions: {joined}")
 }
 
-/// Render the automatic half of an observation in one glanceable line: what the
-/// app draws as text, whether its loop is alive, and whether input arrived.
+/// Summarize animation activity and input delivery. Legacy canvas text is draw history,
+/// never evidence of current screen content.
 fn describe_auto_observation(auto: &Value) -> String {
     if auto.is_null() {
         return "none (the MiniApp did not report automatic observation).".to_string();
     }
-    let mut parts = Vec::new();
-    let texts: Vec<String> = auto
-        .get("canvasText")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| item.get("text").and_then(Value::as_str))
-                .map(|text| text.trim().to_string())
-                .filter(|text| !text.is_empty())
-                .collect()
-        })
-        .unwrap_or_default();
-    if texts.is_empty() {
-        parts.push("drawn text: none yet".to_string());
-    } else {
-        let mut joined = texts.join(" | ");
-        if joined.chars().count() > 240 {
-            joined = joined.chars().take(240).collect::<String>() + " ...";
-        }
-        parts.push(format!("drawn text: {joined}"));
-    }
+    let mut parts =
+        vec!["Canvas text unavailable as live state; use declared state or screenshot".to_string()];
     match auto.get("frameAgeMs").and_then(Value::as_u64) {
         Some(age) => parts.push(format!("animation frame {age}ms ago")),
         None => parts.push("no animation frames yet (static or paused)".to_string()),
@@ -1136,24 +1116,11 @@ async fn watch_state(session: &MiniAppWebSessionSnapshot, input: &Value) -> Vec<
 }
 
 /// Keep one sampled observation small enough that a timeline of them still fits
-/// a single tool response: what the app draws, whether its loop is alive, and
-/// the last input are the values that move while it runs.
+/// a single tool response: animation activity and the last input.
 fn compact_auto(auto: &Value) -> Value {
-    let texts: Vec<Value> = auto
-        .get("canvasText")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .take(16)
-                .filter_map(|item| item.get("text").and_then(Value::as_str))
-                .map(|text| json!(text))
-                .collect()
-        })
-        .unwrap_or_default();
     json!({
         "source": auto.get("source").cloned().unwrap_or_else(|| json!("auto")),
-        "canvasText": texts,
+        "canvasTextUnavailable": true,
         "frames": auto.get("frames").cloned().unwrap_or(Value::Null),
         "frameAgeMs": auto.get("frameAgeMs").cloned().unwrap_or(Value::Null),
         "input": auto.get("input").cloned().unwrap_or(Value::Null),
@@ -1418,20 +1385,24 @@ mod tests {
     }
 
     #[test]
-    fn auto_observation_summarizes_drawn_text_and_liveness() {
+    fn auto_observation_never_treats_legacy_draw_history_as_live_state() {
         let auto = json!({
             "canvasText": [{ "text": "SCORE 1200", "x": 10, "y": 20 }, { "text": "WAVE 3", "x": 10, "y": 40 }],
             "frameAgeMs": 16,
             "input": { "type": "keydown", "key": "ArrowLeft", "at": 1 },
         });
         let summary = describe_auto_observation(&auto);
-        assert!(summary.contains("SCORE 1200 | WAVE 3"), "{summary}");
+        assert!(!summary.contains("SCORE 1200"), "{summary}");
+        assert!(summary.contains("Canvas text unavailable"), "{summary}");
+        let sampled = compact_auto(&auto);
+        assert_eq!(sampled["canvasTextUnavailable"], true);
+        assert!(sampled.get("canvasText").is_none());
         assert!(summary.contains("animation frame 16ms ago"), "{summary}");
         assert!(summary.contains("keydown"), "{summary}");
 
         let idle = json!({ "canvasText": [], "frameAgeMs": null, "input": null });
         let summary = describe_auto_observation(&idle);
-        assert!(summary.contains("drawn text: none yet"), "{summary}");
+        assert!(summary.contains("Canvas text unavailable"), "{summary}");
         assert!(summary.contains("no animation frames yet"), "{summary}");
         assert!(describe_auto_observation(&Value::Null).contains("none"));
     }
