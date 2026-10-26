@@ -669,6 +669,7 @@
     "retry": "Retry",
     "addImage": "Add image",
     "maxImagesWarning": "Maximum {{count}} images allowed",
+    "imageOnlyPrompt": "Use the attached images as context.",
     "imagePasteFailed": "Image paste failed",
     "clipboardImageToolsUnavailable": "The clipboard image could not be read: install wl-clipboard (Wayland) or xclip (X11) and try again.",
     "externalFiles": {
@@ -3649,6 +3650,7 @@
     "send": "Send"
   },
   "miniAppComposer": {
+    "imagesUnsupportedPeer": "The connected device does not support image messages for MiniApps yet. Update OpenBitFun on that device and try again.",
     "placeholder": "Send a request to {{app}}…",
     "send": "Send",
     "hint": "Messages are handled by {{app}}"
