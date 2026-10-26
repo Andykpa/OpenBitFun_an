@@ -121,6 +121,9 @@ describe('MiniAppRunner strict bridge startup', () => {
     const oldFrame = container.querySelector('iframe')!;
     const oldWindow = oldFrame.contentWindow!;
     const oldEntry = getMiniAppAgentSurface(app.id)!;
+    await act(async () => { root?.render(<MiniAppRunner app={{ ...app, name: 'Renamed app' }} />); });
+    expect(container.querySelector('iframe')).toBe(oldFrame);
+    expect(getMiniAppAgentSurface(app.id)).toBe(oldEntry);
     const announce = (source: Window, capabilities: string[]) => window.dispatchEvent(new MessageEvent('message', {
       source, data: { type: 'openbitfun:miniapp-agent-ready', appId: app.id, schemaVersion: 'agent.v1', capabilities },
     }));

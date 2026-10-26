@@ -28,7 +28,9 @@ const MiniAppRunner: React.FC<MiniAppRunnerProps> = ({ app, runScope, strictRunt
   // Content replacement ends the old document's bridge and pending requests,
   // including in the ordinary same-origin runtime. A new Window identity also
   // prevents queued messages from the old document answering for the new one.
-  const documentKey = useMemo(() => createMiniAppDocumentId(), [app.id, app.compiled_html]);
+  const documentKey = useMemo(() => app.compiled_html?.trim()
+    ? `${app.id}:${createMiniAppDocumentId()}`
+    : `${app.id}:empty`, [app.id, app.compiled_html]);
   // The strict runtime replaces the frame element when its blob URL changes, so
   // Agent registration must follow the mounted element instead of the first
   // render; otherwise the registry keeps a detached frame that answers nothing.
