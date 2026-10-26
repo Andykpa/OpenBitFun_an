@@ -462,6 +462,8 @@ export interface ModelRoutingStatus {
   defaultMode: string;
   ready: boolean;
   connected: boolean | null;
+  /** Router-only probe failure; older hosts may only provide the general issue. */
+  connectionIssue?: string | null;
   issue: string | null;
   summaryEnabled: boolean;
   /** Explicit execution-host capability for Router budgeting without a tokenizer file. */

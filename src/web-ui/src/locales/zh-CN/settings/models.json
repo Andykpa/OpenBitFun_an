@@ -771,7 +771,14 @@
     "off": "关闭",
     "unconfigured": "尚未配置",
     "status": "状态",
-    "connected": "分类协议检查通过",
+    "connected": "路由服务连接正常",
+    "connectionChecks": {
+      "router": "路由服务",
+      "checking": "检查中…",
+      "connected": "连接正常",
+      "failed": "连接失败",
+      "unconfigured": "未配置可用模型"
+    },
     "notReady": "路由未就绪",
     "unsupported": "当前执行端不支持智能路由",
     "tokenBudgetUnsupported": "当前执行主机仍需要分词表文件，请升级后再配置智能路由",

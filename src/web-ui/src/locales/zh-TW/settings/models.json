@@ -771,7 +771,14 @@
     "off": "關閉",
     "unconfigured": "尚未設定",
     "status": "狀態",
-    "connected": "分類協定檢查通過",
+    "connected": "路由服務連線正常",
+    "connectionChecks": {
+      "router": "路由服務",
+      "checking": "檢查中…",
+      "connected": "連線正常",
+      "failed": "連線失敗",
+      "unconfigured": "尚未設定可用模型"
+    },
     "notReady": "路由未就緒",
     "unsupported": "目前執行端不支援智慧路由",
     "tokenBudgetUnsupported": "目前執行主機仍需要分詞表檔案，請升級後再設定智慧路由",

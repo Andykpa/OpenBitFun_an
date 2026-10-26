@@ -771,7 +771,14 @@
     "off": "Off",
     "unconfigured": "Not configured",
     "status": "Status",
-    "connected": "Classifier protocol check passed",
+    "connected": "Router service connected",
+    "connectionChecks": {
+      "router": "Router service",
+      "checking": "Checking…",
+      "connected": "Connected",
+      "failed": "Connection failed",
+      "unconfigured": "No available model configured"
+    },
     "notReady": "Router not ready",
     "unsupported": "This execution host does not support smart routing",
     "tokenBudgetUnsupported": "This execution host still requires a tokenizer file; upgrade it before configuring smart routing",

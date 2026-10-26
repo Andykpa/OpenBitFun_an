@@ -205,6 +205,10 @@ Smart mode adds primary/economy bindings and Router status as items
 inside that mode. Before configuration, it shows a centered **Configure smart
 mode** action, matching the model-pool empty state. Its configuration dialog
 contains the primary/economy bindings in one row and the Router service.
+**Save and test connection** checks the primary model, economy model and Router
+independently, with a separate result for each. Ordinary models use the same
+connection test as model settings; the Router also validates its classifier
+protocol. Changing a selection clears previous results.
 Smart mode automatically maintains Router history summaries with the economy
 model. Pending summaries do not prevent routing while complete history fits;
 only an input that cannot fit completely falls back to the primary model.

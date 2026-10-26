@@ -51,11 +51,18 @@ pub fn economy_model_id(config: &AIConfig, legacy: bool) -> OpenBitFunResult<Str
 }
 
 fn product_config(config: &AIConfig) -> OpenBitFunResult<HttpRoundModelRouterConfig> {
-    let setup = &config.model_routing;
     // Product smart mode maintains its routing history automatically. Keep the
     // persisted switch readable for older hosts without letting it disable the
     // current runtime's history preparation.
     let summary_model_id = Some(economy_model_id(config, false)?);
+    let mut router = product_service_config(config)?;
+    router.context.summary_model_id = summary_model_id;
+    Ok(router)
+}
+
+/// Service checks do not depend on the execution models used after classification.
+fn product_service_config(config: &AIConfig) -> OpenBitFunResult<HttpRoundModelRouterConfig> {
+    let setup = &config.model_routing;
     let model = setup
         .router_model_id
         .as_deref()
@@ -121,7 +128,6 @@ fn product_config(config: &AIConfig) -> OpenBitFunResult<HttpRoundModelRouterCon
             context_window,
             max_input_tokens: context_defaults.max_input_tokens.min(context_window),
             summary_enabled: true,
-            summary_model_id,
             ..context_defaults
         },
         tokenizer_path: (!setup.tokenizer_path.trim().is_empty())
@@ -139,15 +145,29 @@ pub struct TurnRouting {
 
 /// Cache only the transport/tokenizer, never a session context or a routing decision.
 async fn configured_router(config: &AIConfig) -> OpenBitFunResult<Arc<HttpRoundModelRouter>> {
-    static CACHE: OnceLock<tokio::sync::Mutex<Option<(String, Arc<HttpRoundModelRouter>)>>> =
-        OnceLock::new();
     let router_config = if config.model_routing.router_model_id.is_some() {
         product_config(config)?
     } else {
+        service_config(config)?
+    };
+    cached_router(router_config).await
+}
+
+fn service_config(config: &AIConfig) -> OpenBitFunResult<HttpRoundModelRouterConfig> {
+    if config.model_routing.router_model_id.is_some() {
+        product_service_config(config)
+    } else {
         HttpRoundModelRouterConfig::from_env()?.ok_or_else(|| {
             OpenBitFunError::Configuration("Configure a Router service in model settings".into())
-        })?
-    };
+        })
+    }
+}
+
+async fn cached_router(
+    router_config: HttpRoundModelRouterConfig,
+) -> OpenBitFunResult<Arc<HttpRoundModelRouter>> {
+    static CACHE: OnceLock<tokio::sync::Mutex<Option<(String, Arc<HttpRoundModelRouter>)>>> =
+        OnceLock::new();
     // This private in-memory identity includes credential/proxy revisions. Never log it.
     let key = format!("{router_config:?}");
     let cache = CACHE.get_or_init(|| tokio::sync::Mutex::new(None));
@@ -196,6 +216,9 @@ pub struct ModelRoutingStatus {
     pub issue: Option<String>,
     /// Only an explicit protocol probe establishes a connection, not a config read.
     pub connected: Option<bool>,
+    /// Probe failure only; role/readiness errors remain in `issue`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connection_issue: Option<String>,
     pub summary_enabled: bool,
     /// Older hosts may still require a locally configured tokenizer file.
     pub estimated_token_budget_supported: bool,
@@ -239,6 +262,15 @@ pub async fn status(
         .await?
         .get_effective_ai_config()
         .await?;
+    Ok(status_for_config(&config, mode, eligible, probe).await)
+}
+
+async fn status_for_config(
+    config: &AIConfig,
+    mode: Option<&str>,
+    eligible: bool,
+    probe: bool,
+) -> ModelRoutingStatus {
     let default_mode = config
         .model_routing
         .default_mode
@@ -259,44 +291,254 @@ pub async fn status(
         ready: false,
         issue: None,
         connected: None,
+        connection_issue: None,
         summary_enabled: true,
         estimated_token_budget_supported: true,
         subagent_model: None,
     };
     let check = async {
         if !eligible { return Err(OpenBitFunError::Configuration("Smart mode is unavailable for external agents, subagents and immutable dispatched sessions".into())); }
-        economy_model_id(&config, mode.is_none() && legacy_enabled())?;
+        economy_model_id(config, mode.is_none() && legacy_enabled())?;
         if config.resolve_model_selection("primary").is_none() {
             return Err(OpenBitFunError::Configuration("Configure an enabled primary model before using smart mode".into()));
         }
-        let router = configured_router(&config).await?;
-        // Environment-only installations retain their explicit summary policy.
-        result.summary_enabled = router.config.context.summary_enabled;
-        if probe {
-            let prediction = router.predict("Task: inspect a file and explain its purpose", None).await?;
-            if prediction.simple_probability.is_none() {
-                return Err(OpenBitFunError::Configuration("Router protocol mismatch: classifier token IDs and logprobs are required".into()));
-            }
-            result.connected = Some(true);
-        }
-        Ok::<(), OpenBitFunError>(())
+        configured_router(config).await
     }.await;
-    match check {
-        Ok(()) => result.ready = true,
+    let ready_router = match check {
+        Ok(router) => {
+            result.ready = true;
+            // Environment-only installations retain their explicit summary policy.
+            result.summary_enabled = router.config.context.summary_enabled;
+            Some(router)
+        }
         Err(error) => {
             result.issue = Some(error.to_string());
-            if probe {
-                result.connected = Some(false);
+            None
+        }
+    };
+    if probe {
+        let connection = async {
+            let router = match ready_router {
+                Some(router) => router,
+                None => cached_router(service_config(config)?).await?,
+            };
+            let prediction = router
+                .predict("Task: inspect a file and explain its purpose", None)
+                .await?;
+            if prediction.simple_probability.is_none() {
+                return Err(OpenBitFunError::Configuration(
+                    "Router protocol mismatch: classifier token IDs and logprobs are required"
+                        .into(),
+                ));
             }
+            Ok::<(), OpenBitFunError>(())
+        }
+        .await;
+        result.connected = Some(connection.is_ok());
+        if let Err(error) = connection {
+            let issue = error.to_string();
+            // Older clients still receive a useful failure in the original field.
+            result.issue.get_or_insert_with(|| issue.clone());
+            result.connection_issue = Some(issue);
+            result.ready = false;
         }
     }
-    Ok(result)
+    result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::service::config::types::AIModelConfig;
+
+    fn connection_fixture(endpoint: &str) -> AIConfig {
+        let mut config = AIConfig::default();
+        for id in ["primary-fixture", "economy-fixture", "router-service"] {
+            config.models.push(AIModelConfig {
+                id: id.into(),
+                enabled: true,
+                base_url: endpoint.into(),
+                model_name: "router-fixture".into(),
+                api_key: "fixture-token".into(),
+                ..Default::default()
+            });
+        }
+        config.default_models.primary = Some("primary-fixture".into());
+        config.default_models.economy = Some("economy-fixture".into());
+        config.model_routing.router_model_id = Some("router-service".into());
+        config
+    }
+
+    fn classifier_response() -> Value {
+        json!({"choices": [{
+            "message": {"content": "{\"simple_type\":\"simple\"}"},
+            "logprobs": {"content": [
+                {"bytes": b"{\"simple_type\":\"".to_vec(), "top_logprobs": []},
+                {"bytes": b"simple".to_vec(), "top_logprobs": [
+                    {"token": "token_id:22944", "logprob": -0.2},
+                    {"token": "token_id:6280", "logprob": -1.4}
+                ]},
+                {"bytes": b"\"}".to_vec(), "top_logprobs": []}
+            ]}, "token_ids": [1, 22944, 2]
+        }]})
+    }
+
+    async fn connection_server(response: Value) -> (String, tokio::task::JoinHandle<Value>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept())
+                .await
+                .unwrap()
+                .unwrap();
+            let mut request = Vec::new();
+            let header_end = loop {
+                let mut chunk = [0; 4096];
+                let length = stream.read(&mut chunk).await.unwrap();
+                assert!(length > 0);
+                request.extend_from_slice(&chunk[..length]);
+                if let Some(offset) = request.windows(4).position(|bytes| bytes == b"\r\n\r\n") {
+                    break offset + 4;
+                }
+            };
+            let headers = String::from_utf8_lossy(&request[..header_end]).to_ascii_lowercase();
+            assert!(headers.starts_with("post /v1/chat/completions "));
+            assert!(headers.contains("authorization: bearer fixture-token\r\n"));
+            let content_length: usize = headers
+                .lines()
+                .find_map(|line| line.strip_prefix("content-length:"))
+                .unwrap()
+                .trim()
+                .parse()
+                .unwrap();
+            let mut body = request[header_end..].to_vec();
+            while body.len() < content_length {
+                let mut chunk = [0; 4096];
+                let length = stream.read(&mut chunk).await.unwrap();
+                assert!(length > 0);
+                body.extend_from_slice(&chunk[..length]);
+            }
+            let response = response.to_string();
+            stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).as_bytes()).await.unwrap();
+            serde_json::from_slice(&body[..content_length]).unwrap()
+        });
+        (endpoint, server)
+    }
+
+    #[tokio::test]
+    async fn router_probe_connects_independently_of_missing_or_invalid_execution_roles() {
+        for invalid_role in [
+            "missing-both",
+            "missing-primary",
+            "invalid-primary",
+            "disabled-economy",
+        ] {
+            let (endpoint, server) = connection_server(classifier_response()).await;
+            let mut config = connection_fixture(&endpoint);
+            let expected_issue = match invalid_role {
+                "missing-both" => {
+                    config.default_models.primary = None;
+                    config.default_models.economy = None;
+                    "economy model"
+                }
+                "missing-primary" => {
+                    config.default_models.primary = None;
+                    "primary model"
+                }
+                "invalid-primary" => {
+                    config.default_models.primary = Some("removed-model".into());
+                    "primary model"
+                }
+                _ => {
+                    config.models[1].enabled = false;
+                    "economy model"
+                }
+            };
+            let status = status_for_config(&config, Some("smart"), true, true).await;
+            assert!(!status.ready, "{invalid_role}");
+            assert_eq!(status.connected, Some(true), "{invalid_role}");
+            assert!(status.issue.as_deref().unwrap().contains(expected_issue));
+            assert!(status.connection_issue.is_none());
+            let payload = serde_json::to_value(status).unwrap();
+            assert!(payload.get("connectionIssue").is_none());
+            let request = server.await.unwrap();
+            assert_eq!(request["model"], "router-fixture");
+            assert_eq!(request["logprobs"], true);
+            assert_eq!(request["return_token_ids"], true);
+            assert_eq!(request["messages"][0]["content"], SYSTEM_PROMPT);
+        }
+    }
+
+    #[tokio::test]
+    async fn router_probe_failure_identifies_router_without_erasing_role_readiness_issue() {
+        for missing_economy in [false, true] {
+            let (endpoint, server) = connection_server(json!({"choices": [{
+                "message": {"content": "{\"simple_type\":\"simple\"}"}
+            }]}))
+            .await;
+            let mut config = connection_fixture(&endpoint);
+            if missing_economy {
+                config.default_models.economy = None;
+            } else {
+                let status = status_for_config(&config, Some("smart"), true, false).await;
+                assert!(status.ready);
+                assert!(status.connected.is_none());
+                assert!(status.connection_issue.is_none());
+            }
+            let status = status_for_config(&config, Some("smart"), true, true).await;
+            assert!(!status.ready);
+            assert_eq!(status.connected, Some(false));
+            assert!(status
+                .connection_issue
+                .as_deref()
+                .unwrap()
+                .contains("protocol mismatch"));
+            if missing_economy {
+                assert!(status.issue.as_deref().unwrap().contains("economy model"));
+            } else {
+                assert_eq!(status.issue, status.connection_issue);
+            }
+            assert!(serde_json::to_value(status).unwrap()["connectionIssue"].is_string());
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn successful_router_probe_retains_product_summary_and_readiness_policy() {
+        let (endpoint, server) = connection_server(classifier_response()).await;
+        let mut config = connection_fixture(&endpoint);
+        let status = status_for_config(&config, Some("smart"), true, true).await;
+        assert!(status.ready);
+        assert_eq!(status.connected, Some(true));
+        assert!(status.issue.is_none());
+        assert!(status.connection_issue.is_none());
+        assert!(status.summary_enabled);
+        let runtime_config = product_config(&config).unwrap();
+        assert!(runtime_config.context.summary_enabled);
+        assert_eq!(
+            runtime_config.context.summary_model_id.as_deref(),
+            Some("economy-fixture")
+        );
+        config.default_models.economy = None;
+        assert!(product_config(&config).is_err());
+        assert!(service_config(&config).is_ok());
+        config.models[2].custom_request_body = Some("{}".into());
+        assert!(service_config(&config)
+            .unwrap_err()
+            .to_string()
+            .contains("request body"));
+        config.models[2].custom_request_body = None;
+        config.models[2].auth = serde_json::from_value(json!({
+            "type": "subscription", "provider": "codex"
+        }))
+        .unwrap();
+        assert!(service_config(&config)
+            .unwrap_err()
+            .to_string()
+            .contains("API-key service"));
+        server.await.unwrap();
+    }
 
     #[test]
     fn restored_subagents_and_immutable_jobs_never_enter_smart_routing() {

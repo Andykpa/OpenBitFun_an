@@ -30,8 +30,11 @@ is required. OpenBitFun estimates the input locally and uses the service's full
 prompt usage to tighten the budget independently for each execution.
 The Router must support the classifier protocol
 described in [the deployment guide](../../../deploy/model-router/README.md).
-Save and test the connection, configure an economy model, and enable smart mode
-in the composer. Saving configuration alone does not prove connectivity. Router
+Configure the primary and economy models, then save and test the connections
+before enabling smart mode in the composer. The dialog shows independent
+connection results for the primary model, economy model and Router service;
+the Router check also validates the classifier protocol. Saving configuration
+alone does not prove connectivity. Router
 request failures fall back to the primary model; each response records its
 actual model and fallback status. Smart mode automatically maintains Router
 context summaries with the economy model before input fills the budget. If the
