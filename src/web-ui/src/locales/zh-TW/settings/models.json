@@ -241,8 +241,8 @@
       "name": "OpenBitFun 服務",
       "description": "OpenBitFun 大模型平臺",
       "urlOptions": {
-        "default": "Anthropic格式-默認",
-        "openai": "OpenAI兼容格式"
+        "default": "Anthropic格式",
+        "openai": "OpenAI兼容格式-默認"
       }
     },
     "gemini": {
@@ -282,7 +282,8 @@
         "anthropic": "國內-Anthropic格式",
         "intl": "海外-OpenAI格式",
         "intlAnthropic": "海外-Anthropic格式",
-        "kimiForCoding": "Kimi For Coding 套餐（模型 k3 / kimi-for-coding）"
+        "kimiForCoding": "Kimi For Coding 套餐（模型 k3 / kimi-for-coding）",
+        "kimiForCodingAnthropic": "Kimi For Coding 套餐 - Anthropic格式"
       }
     },
     "deepseek": {
