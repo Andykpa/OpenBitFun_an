@@ -3286,12 +3286,12 @@
               "MiniAppBrowser"
             ],
             "workflowZh": [
-              "先用 OpenBitFunControl 的 get 查询 feature.miniapps，并按 schema 用 inspect-app 浏览源码、理解状态和动作；需要时用 update-app 携带 expectedVersion 修改代码或增加控制接口，本地受管文件修改则通过 FinalizeMiniApp 完成更新",
-              "用 MiniAppBrowser 的 open 连接用户正在使用的实例，通过 bridge 状态或可用的 DOM 操作执行任务并验证结果；更新后重新获取 targetId。自动观测仅代表活动，应用状态和语义动作由应用声明；源码或呈现能力不可用时如实说明"
+              "先用 OpenBitFunControl 的 get 查询 feature.miniapps，并按 schema 用 inspect-app 读取源码，理解业务函数、动作参数和状态；源码更新属于应用改造，不是日常操作的前置步骤",
+              "用 MiniAppBrowser 的 open 连接当前实例，优先 observe_bridge 读取业务状态、act_bridge 执行语义动作并核对结果，保留用户草稿，不改源码、不重载、不切换呈现。旧应用缺少接口时使用可用的 DOM/输入或说明限制；自动活动信息不能代替业务状态"
             ],
             "workflowEn": [
-              "Use OpenBitFunControl get for feature.miniapps, then follow its schema to inspect-app source and understand state and actions; when needed, modify code or add controls with update-app and expectedVersion, or finalize managed local file edits with FinalizeMiniApp",
-              "Open the user-visible instance with MiniAppBrowser, execute and verify through bridge state or available DOM controls, and reacquire target IDs after updates. Automatic observations show activity only; application state and semantic actions are app-declared. Report unavailable source or surface capabilities explicitly"
+              "Use OpenBitFunControl get for feature.miniapps, then inspect-app source to understand business functions, action parameters, and state. Source updates are app enhancements, not prerequisites for routine operation",
+              "Open the current instance with MiniAppBrowser; prefer observe_bridge for business state and act_bridge for semantic operations and result verification. Preserve drafts without editing source, reloading, or changing presentation. For legacy apps use available DOM/input controls or report the gap; activity is not business state"
             ]
           },
           "evidence": [

@@ -50,12 +50,13 @@ impl Tool for MiniAppBrowserTool {
 
     async fn description(&self) -> OpenBitFunResult<String> {
         Ok(format!(
-            r#"Control a MiniApp at the source level and through its live interface. Read its source to understand behavior and plan actions; when useful for the user's task, modify code or add semantic controls through the existing authoring tools. MiniAppBrowser operates and verifies the user-visible instance.
+            r#"Control a MiniApp at the source level and through its live interface. Read its source to understand business functions and action parameters, then observe live business state and invoke semantic actions on the current instance. MiniAppBrowser operates and verifies the user-visible instance.
 
 Source-aware workflow:
 1. Use `OpenBitFunControl` to `get` `feature.miniapps`, then follow its schema for `list-apps` and `inspect-app`. Inspection returns HTML, CSS, UI/worker JavaScript, dependencies, and version without a workspace checkout. Read the relevant implementation and derive the shortest reliable sequence for the task; source access does not require an edit.
-2. When needed, use `update-app` with the inspected `appId` and version as `expectedVersion`, sending only changed fields. The host compiles, saves, and notifies the UI. Preserve unrelated source, permissions, and user data; never delete/recreate an app to update it. For managed local file edits, call `FinalizeMiniApp` with the existing app id. Explicit customization drafts stay in their draft directory and are applied by the customization panel instead.
-3. Execute against the user's live instance and confirm the outcome with bridge state or DOM observations. Source explains implementation, not current runtime state. Reserve observe-act cycles for genuinely dynamic or uncertain steps, and screenshots for decisions structured state cannot answer.
+2. `open` the user's current instance, then `observe_bridge` for current business state and declared actions. Use `act_bridge` with parameters derived from source to call the app's business functions. Prefer an action's returned business state for verification; observe again for genuinely dynamic or uncertain steps. Source explains implementation, not current runtime state. Omitted fields should preserve the user's draft and selection.
+3. Routine operation must not use `update-app`, `FinalizeMiniApp`, reload, or presentation transfer to obtain controls: these can discard unsaved runtime state. If semantic controls are missing, use available DOM/input controls or report the specific gap. Do not guess action names. Treat adding controls as an app enhancement, separate from operating the current state.
+4. For an app enhancement, use `update-app` with `appId` and the inspected version as `expectedVersion`, sending only changed fields, or `FinalizeMiniApp` for managed local file edits. Before updating an active app, establish how its current draft/state will be preserved and restored; otherwise explain the interruption and obtain the user's agreement. Preserve unrelated source, permissions, and user data; never delete/recreate an app. Explicit customization drafts stay in their draft directory and are applied by the customization panel instead.
 Do not assume installed-app source is present in the workspace. Remote workspaces/controllers use the owning host's structured operations, not local file tools on host paths. If source access is unavailable, report the limitation and use available live controls.
 
 Opening and identity:
@@ -64,7 +65,7 @@ Opening and identity:
 - A sessionId is bound to one appId; reopening replaces the prior control session. `close` releases control only, leaving the app open.
 - targetIds expire after 10 minutes and become stale on reload or node replacement. After a source update, STALE_TARGET, or UNKNOWN_TARGET, run `inspect` again.
 
-Live controls:
+Fallback live controls (when no suitable semantic action exists):
 - DOM loop: open -> inspect -> find (or reuse targetIds) -> click/type/read/key/scroll -> wait -> inspect. `inspect` returns at most {MINIAPP_WEB_MAX_NODES} nodes and depth {MINIAPP_WEB_MAX_DEPTH}. Locator priority: testId, role+name, name/text, then CSS selector.
 - `wait` gives animations/network/game loops an interval ({MINIAPP_WEB_DEFAULT_WAIT_MS}ms default, {MINIAPP_WEB_MAX_WAIT_MS}ms maximum); re-observe afterwards.
 - `watch_state` samples and deduplicates bridge state within one call (up to {MINIAPP_WEB_MAX_WATCH_MS}ms). Prefer it to repeated observation calls or an external harness when following change over time.
@@ -73,11 +74,11 @@ Live controls:
 Surface capabilities:
 - Readable tabs support DOM, accessibility, input, and bridge. Canvas contents have no DOM structure; use bridge state or the screenshot fallback.
 - Strict opaque-origin tabs expose no DOM/pixels. Their bridge works, including automatic activity observations; the tab key path still requires a readable document.
-- Independent windows (`surface.kind: window`) support `observe_bridge`, `watch_state`, `act_bridge`, and `key`. DOM actions and screenshots return CAPABILITY_MISSING; use bridge/key or move to a tab if DOM/pixels are needed.
+- Independent windows (`surface.kind: window`) support `observe_bridge`, `watch_state`, `act_bridge`, and `key`. DOM actions and screenshots return CAPABILITY_MISSING; use bridge/key. Moving to a tab may reopen the document and lose unsaved state; do not do it merely to gain DOM/pixels.
 
 Bridge state and actions:
 - Without app changes, `observe_bridge` reports animation activity (`frames`, `frameAgeMs`), input delivery (`input`, `inputCount`), viewport and canvas sizes. `state` is null and `canvasTextUnavailable` is true: activity does not reveal scores, lives, game phase, or current Canvas text.
-- For authoritative state and semantic control, the app can call `window.app.agent.expose({{ observe: () => ({{ score, lives }}), actions: ['restart'], act: (action) => ... }})`. This SDK is injected in all frames, including strict runtime. Add or adjust handlers through the source workflow when useful; let the app handle timing internally.
+- For authoritative state and semantic control, the app can call `window.app.agent.expose({{ observe: () => ({{ score, lives }}), actions: ['restart'], act: (action) => ... }})`. This SDK is injected in all frames, including strict runtime. New apps should provide these controls from creation. Let the app handle timing internally; adding handlers to an existing app is an enhancement that may reload it.
 - `observe_bridge` returns the app's JSON under `state` and its action vocabulary under `declaredActions`; use those names with `act_bridge`. An empty action list is not proof that no actions are accepted: consult the source. Keep actions bounded and verify outcomes without a mandatory observation after every input.
 - A newly opened window may report `bridgeAnnounced: false` and empty capabilities; call `observe_bridge` before concluding it is inert. Without useful state, use small inputs with observation and acknowledge turn-paced limits.
 

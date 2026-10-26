@@ -94,5 +94,12 @@ semantics):
 pnpm --dir src/web-ui run test:run src/app/scenes/miniapps/agent/miniAppAgentInjectedRuntime.test.ts
 ```
 
+For the Regex Playground business actions and the InitMiniApp scaffold, run
+`pnpm --dir src/web-ui run test:run src/app/scenes/miniapps/agent/miniAppAgentBusiness.test.ts src/app/scenes/miniapps/components/MiniAppShell.test.ts`.
+These execute the real app and injected SDK through tab/opaque bridge and Shell
+relay fixtures, checking unsaved drafts, document identity, UI/action parity,
+invalid actions, observation bounds, and legacy hosts/storage. They do not prove
+native window rendering or live remote behavior.
+
 These DOM fixtures execute the embedded script template; they do not establish
 native WebView or live remote behavior.

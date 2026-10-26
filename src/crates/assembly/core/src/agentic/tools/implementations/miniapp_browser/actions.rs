@@ -209,14 +209,14 @@ fn dom_gate(action: Action, session: &MiniAppWebSessionSnapshot) -> Option<Vec<T
             "This MiniApp runs in its own window, which cannot expose DOM structure or pixels.",
             &[
                 "observe_bridge, watch_state, act_bridge, and key still reach that window.",
-                "For page structure, clicks, typing, or screenshots, ask the user to move the MiniApp to a tab.",
+                "Use source-informed semantic actions on this instance. A move to a tab may reopen the document and discard unsaved state.",
             ],
         ),
         false => (
             "This MiniApp surface exposes no readable DOM, so page structure and element targets are unavailable.",
             &[
                 "Report the capability gap instead of guessing internal state.",
-                "A Canvas or game MiniApp can declare the optional agent bridge (observe/act) to expose bounded JSON state.",
+                "Use observe_bridge and source-informed act_bridge when declared; adding missing controls is an app enhancement, not a routine operation.",
             ],
         ),
     };
@@ -427,6 +427,7 @@ async fn open(input: &Value) -> Vec<ToolResult> {
         session.session_id,
         session.capabilities.join(",")
     );
+    summary.push_str("\nPrefer observe_bridge and source-informed act_bridge on this live instance; do not reload or edit source for routine operation.");
     if session.bridge_announced() {
         summary.push_str(&format!(
             "\nAgent bridge capabilities=[{}]",
@@ -441,11 +442,11 @@ async fn open(input: &Value) -> Vec<ToolResult> {
         }
         if !declared_actions {
             summary.push_str(
-                "\nThe app declared no semantic actions: drive it with key, click, and drag.",
+                "\nThe app declared no semantic actions. Consult its source and use only input capabilities this surface reports, or explain the gap. Do not rewrite/reload the current app merely to operate it.",
             );
         }
     } else if session.has_dom() {
-        summary.push_str("\nNo agent bridge announced. Continue with inspect.");
+        summary.push_str("\nNo agent bridge announced yet. Try observe_bridge to resolve readiness; inspect is a fallback on readable surfaces.");
     }
     if session.strict_runtime && !session.has_dom() {
         summary.push_str(
@@ -454,7 +455,7 @@ async fn open(input: &Value) -> Vec<ToolResult> {
     }
     if session.presented_from.as_deref() == Some("window") {
         summary.push_str(
-            "\nIt was open in its own window; it now runs in the tab the user is watching, so you can read and drive the same instance.",
+            "\nPresentation moved from a window to a tab. The document may have reopened: re-observe business state and do not assume unsaved state survived.",
         );
     }
     if session.is_window_presentation() {
@@ -945,7 +946,7 @@ fn describe_declared_actions(actions: &Value) -> String {
         .map(|items| items.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
     if names.is_empty() {
-        return "declared actions: none (the app accepts action types it handles; send one and read the answer)."
+        return "declared actions: unknown; inspect the source for accepted action types and parameters before acting. Do not guess."
             .to_string();
     }
     let mut joined = names.join(", ");
@@ -1445,9 +1446,9 @@ mod tests {
         // An app that declares nothing is reported as unknown, never as "accepts
         // nothing": undeclared names must stay attemptable.
         let empty = describe_declared_actions(&json!([]));
-        assert!(empty.contains("declared actions: none"), "{empty}");
-        assert!(empty.contains("read the answer"), "{empty}");
-        assert!(describe_declared_actions(&Value::Null).contains("none"));
+        assert!(empty.contains("declared actions: unknown"), "{empty}");
+        assert!(empty.contains("inspect the source"), "{empty}");
+        assert!(describe_declared_actions(&Value::Null).contains("Do not guess"));
 
         // A verbose app cannot flood the turn with one observation.
         let many = json!((0..40)

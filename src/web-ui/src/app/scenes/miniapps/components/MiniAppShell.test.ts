@@ -7,6 +7,7 @@ import icons from '../../../../../../shared/miniapp-chrome/icons.generated.json'
 import windowLabels from '../../../../../../shared/miniapp-chrome/labels.generated.json';
 import { mountMiniAppChat } from '../../../../../../apps/miniapp-shell/src/miniapp-chat';
 import chatLabels from '../../../../../../apps/miniapp-shell/src/chat-labels.json';
+import { bootBusinessApp } from '../agent/__tests__/businessFixture';
 
 const html = readFileSync(resolve(process.cwd(), '../apps/miniapp-shell/src/shell.html'), 'utf8');
 const source = html.slice(html.indexOf('(() => {'), html.indexOf('</script>'));
@@ -48,6 +49,54 @@ function run(overrides: Record<string, (request: { operation: string; params?: R
 }
 
 describe('MiniApp Shell presentation handoff', () => {
+  it('runs real business actions through the Shell relay without reloading its unsaved document', async () => {
+    let answerPoll!: (value: unknown) => void;
+    const call = run({
+      poll: () => new Promise(resolve => { answerPoll = resolve; }),
+      agentClaim: () => ({ accepted: true }),
+      permissions: () => ({ requests: [] }),
+    });
+    await flush();
+    const frame = document.querySelector('iframe')!;
+    const rt = await bootBusinessApp(frame);
+    frame.dispatchEvent(new Event('load')); await flush();
+    const draft = 'Unsaved: alice@example.com';
+    const input = rt.input('test-text', draft);
+    const write = vi.spyOn(rt.doc, 'write');
+    const initialSource = frame.getAttribute('src');
+    const beforeBoots = call.mock.calls.filter(([, v]) => v.request.operation === 'bootstrap').length;
+    let sequence = 0;
+    const request = async (method: string, action?: unknown) => {
+      const requestId = `business-${++sequence}`;
+      answerPoll({ events: [{ sequence, event: 'agentRequest', payload: {
+        requestId, schemaVersion: 'agent.v1', method, action, expiresAt: Date.now() + 10000,
+      } }], cursor: sequence });
+      await flush();
+      const answer = call.mock.calls.find(([, v]) => v.request.operation === 'agentResponse' && v.request.params?.requestId === requestId);
+      expect(answer).toBeDefined();
+      // Start the next long poll, but stay ahead of the 350ms persistence timer.
+      await vi.advanceTimersByTimeAsync(50);
+      return answer![1].request.params;
+    };
+    expect(await request('observe')).toMatchObject({ ok: true, value: { state: { text: { value: draft } } } });
+    expect(await request('act', { type: 'apply-pattern', id: 'email' })).toMatchObject({
+      ok: true, value: { applied: true, state: { matchCount: 1, text: { value: draft } } },
+    });
+    expect(await request('act', { type: 'set-input', input: { replacement: '[email]' } })).toMatchObject({
+      ok: true, value: { state: { replacementPreview: { value: 'Unsaved: [email]' } } },
+    });
+    expect(rt.doc.getElementById('replace-output')?.textContent).toBe('Unsaved: [email]');
+    expect(input.value).toBe(draft);
+    expect(rt.storage.set).not.toHaveBeenCalled();
+    expect(document.querySelector('iframe')).toBe(frame);
+    expect(frame.contentDocument).toBe(rt.doc);
+    expect(frame.contentWindow).toBe(rt.win);
+    expect(frame.getAttribute('src')).toBe(initialSource);
+    expect(write).not.toHaveBeenCalled();
+    expect(call.mock.calls.filter(([, v]) => v.request.operation === 'bootstrap')).toHaveLength(beforeBoots);
+    expect(call.mock.calls.some(([, v]) => ['tab', 'close'].includes(v.request.operation))).toBe(false);
+  });
+
   it('does not replay a completed Agent mutation after content reload', async () => {
     let answerPoll!: (value: unknown) => void;
     const claimed = new Set<string>();

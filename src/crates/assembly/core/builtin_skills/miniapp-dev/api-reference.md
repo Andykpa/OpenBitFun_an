@@ -13,7 +13,7 @@ MiniApp **能且只能**用以下 API，没有任何"通用 OpenBitFun 后端通
 - `app.net.fetch` —— HTTP 请求（受 `permissions.net.allow` 域名白名单限制）
 - `app.os.info` —— 只读系统信息
 - `app.storage.get/set` —— 每应用独立 KV 存储
-- `app.agent.*` —— 小应用自有隐藏 Agent 会话；支持有界只读上下文快照；`app.agent.expose()` 可选地把实时状态/语义动作（含可选的动作名清单 `actions`）暴露给宿主 Agent（不接入也自动上报动画活动与输入回显，但不推断画布当前文字）
+- `app.agent.*` —— 小应用自有隐藏 Agent 会话；支持有界只读上下文快照；`app.agent.expose()` 把当前业务状态和语义动作暴露给宿主 Agent，是新建应用的默认操作路径（旧应用可缺省；自动活动信息不能代替业务状态）
 - `app.ai.complete / chat / cancel / getModels` —— 复用宿主 AI（无需 API Key）
 - `app.dialog.open/save/message` —— 文件对话框
 - `app.clipboard.readText/writeText` —— 剪贴板
@@ -192,37 +192,40 @@ await app.agent.run('分析当前盘面。', {
 方向与 `app.agent.run()` 相反：宿主 Agent 来驱动这个小应用。注册后，Agent 端 `MiniAppBrowser`
 的 `observe_bridge` 会拿到 `observe()` 的返回值，`act_bridge` 会调用 `act(action)`。
 
-这是**可选增强**，不是接入前提：注入运行时会自动上报动画活动和输入回显。
-这些只是活动信息，不能证明当前画布文字、分数、生命值或游戏阶段；需要实时业务状态时使用 `observe()`，
-或在可读取的标签页中使用 DOM / 截图。严格隔离页面和独立窗口不提供 DOM / 截图能力。
+这是**新建应用的默认能力**；协议仍兼容没有接入的旧应用。Agent 先读源码理解参数与业务函数，
+再读取当前实例的状态、调用动作。普通操作不需要修改源码、重载页面或使用 CU。
+未接入时注入运行时只报告动画活动和输入回显，不能代表业务状态。
+DOM/输入用于旧应用兼容，截图用于结构化状态无法回答的视觉问题；严格隔离页面和独立窗口不提供 DOM / 截图能力。
 
 ```javascript
-let score = 0;
-let wave = 1;
-
-app.agent.expose({
-  // 只暴露你愿意让 Agent 看到的字段；返回必须是可 JSON 序列化的有界对象。
-  observe: () => ({
-    score,
-    wave,
-    lives: 3,
-    player: { x: player.x, y: player.y },
-  }),
-  // 可选：列出 act 认得的动作名（就是 action.type）。不写即旧行为，Agent 会试一个再看结果。
-  actions: ['restart', 'move', 'autoplay'],
-  // 语义动作由小应用自己定义：怎么理解、允不允许，都归你判断。
+// Business functions are also called by UI handlers; register after restore().
+app.agent?.expose?.({
+  observe: observeBusinessState,
+  actions: ['set-input', 'apply-pattern'],
   act: (action) => {
-    if (action?.type === 'restart') { score = 0; wave = 1; return { restarted: true }; }
-    if (action?.type === 'move' && typeof action.dx === 'number') { player.x += action.dx; return { x: player.x }; }
-    return { ignored: true };
+    if (action?.type === 'set-input') {
+      // Validate all parameters before mutation; omitted fields remain intact.
+      updateInputs(action.input);
+    } else if (action?.type === 'apply-pattern') {
+      applyPattern(action.id);
+    } else {
+      throw new Error('Unsupported action');
+    }
+    return { applied: true, state: observeBusinessState() };
   },
 });
 ```
 
+完整实现见 `references/examples/builtin-regex-playground/ui.js`。
+`set-input` 参数为 `{ input: { pattern?, text?, replacement?, flags? } }`（均为字符串），
+`apply-pattern` 参数为 `{ id: 'email' }`；保留当前文本并直接刷新匹配结果。
+观察返回当前草稿、匹配、选择和替换预览；长字段带 `length` / `truncated`，列表也明确标记截断。
+
 要点：
 
-- 无需要求 `permissions.agent.*`：数据只在页面内流转，不触碰宿主能力。
-- 每个渲染帧都调用 `expose()` 只会替换处理器，不会重复注册；重启/换关后重新 `expose()` 即可对齐新状态。
+- 注册接口本身不需要 `permissions.agent.*`；动作调用 `app.fs`、`app.net` 等能力时仍走原有权限路径。
+- `observe` 只读，动作与 UI 共用业务函数。普通操作不触发源码更新/重载；返回结果表示业务完成，异步操作应等待完成或明确报告进行中。
+- 通常在初始化和状态恢复后注册一次；处理器读取当前状态。重新调用会替换处理器，通常无需每帧注册。
 - `observe` 抛出异常会被宿主收到为可读的失败，不会挂死请求；长时间阻塞的处理会触发宿主超时。
 - 对纯 canvas、游戏或其他自定义渲染界面，自动观测仅报告动画活动、输入回显和画布尺寸；`canvasTextUnavailable: true` 明确表示不读取当前画布文字。
   但命名状态和语义动作需要 `expose()`。如果任务依赖连续变化的状态，应暴露完成任务所需的少量权威字段与动作，
@@ -231,8 +234,8 @@ app.agent.expose({
 - 对可预测的业务流程，动作可以对应完整且有界的用户意图（例如打开记录、应用筛选、提交表单），
   让 Agent 能直接执行已知步骤，再用 `observe()` 确认结果；不要强迫它在每个低层输入后都重新观察。
 - `actions` 是可选的动作词表：写了，Agent 在 `observe_bridge` 里就能看到「这个应用认哪些动作」，
-  不必猜名字或翻源码；没写，Agent 会先发一个动作再读返回值。词表只是提示，不是白名单，
-  在 `act` 里不认的动作照样由你自己处理（例如返回 `{ ignored: true }`）。最多 32 个，
+  Agent 仍通过源码了解参数与业务语义；没写时先读源码，不试探动作名称。词表是提示，不是白名单，
+  `act` 必须自行校验参数并拒绝未知动作（抛出错误），不能把忽略动作当作成功。最多 32 个，
   每个名字 trim 后 1-48 个可打印 ASCII 字符，区分大小写；接受 `['restart']` 或 `[{ type: 'restart' }]` 两种写法。
 
 ### `app.dialog.*` — 系统对话框
