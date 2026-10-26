@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Combobox, Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogHeading, DialogTitle, Disclosure, Input, NumberInput, Switch } from '@openbitfun/ui';
+import { Button, Combobox, Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogHeading, DialogTitle, Input } from '@openbitfun/ui';
 import { ConfigPageRow } from '../common';
 import { mediaAPI, type ImageServiceTestOutcome } from '@/infrastructure/api/service-api/MediaApi';
 import { useI18n } from '@/infrastructure/i18n';
 import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
 import { useSettingsDraft } from '../../settingsDraftRegistry';
-import type { AuthConfig, ImageDialect, ImageGenerationParams, ImageServiceConfig } from '../../types';
-import { findImageDialectPreset, IMAGE_DIALECT_PRESETS, resolveImageEndpoint, withImageServiceAuth } from './imageDialects';
+import type { AuthConfig, ImageDialect, ImageServiceConfig } from '../../types';
+import { findImageDialectPreset, IMAGE_DIALECT_PRESETS, withImageServiceAuth } from './imageDialects';
 import { duplicateImageService } from './imageModels';
 
 export interface ReusableImageCredential {
@@ -52,7 +52,6 @@ export default function ImageGenerationEditor({ open, initial, credentials, serv
     version.current += 1; setOutcome(undefined); setTesting(false);
     setDraft(current => ({ ...current, ...changes }));
   }, []);
-  const patchParams = (changes: Partial<ImageGenerationParams>) => patch({ params: { ...draft.params, ...changes } });
   const subscription = draft.auth?.type === 'subscription' || draft.auth?.type === 'subscription_pool';
   const preset = findImageDialectPreset(draft.dialect);
   const duplicate = duplicateImageService(services, draft);
@@ -136,49 +135,14 @@ export default function ImageGenerationEditor({ open, initial, credentials, serv
             <Input size="sm" value={draft.model_name} disabled={saving || testing} onValueChange={value => patch({ model_name: value })} />
           </ConfigPageRow>
           <ConfigPageRow label={t('wizard.fields.baseUrl.label')} required align="center">
-            <Input size="sm" value={draft.base_url} disabled={saving || testing} onValueChange={value => patch({ base_url: value })} />
+            <Input size="sm" value={draft.request_url ?? draft.base_url} disabled={saving || testing}
+              onValueChange={value => patch(draft.request_url !== undefined ? { request_url: value } : { base_url: value })} />
           </ConfigPageRow>
           <ConfigPageRow label={t('wizard.fields.apiKey.label')} required align="center">
             <Input size="sm" type="password" autoComplete="off" value={draft.api_key} disabled={saving || testing} onValueChange={value => patch({ api_key: value })} />
           </ConfigPageRow>
         </>}
-        <Disclosure summary={t('advanced')} data-testid="image-service-advanced">
-          <div className="openbitfun-image-settings__advanced">
-            <ConfigPageRow label={t('wizard.fields.name.label')} align="center"><Input size="sm" value={draft.name} onValueChange={value => patch({ name: value })} disabled={saving || testing} /></ConfigPageRow>
-            {subscription && <ConfigPageRow label={t('wizard.fields.modelName.label')} description={t('wizard.fields.modelName.subscriptionHint')} align="center">
-              <Input size="sm" value={draft.model_name} onValueChange={value => patch({ model_name: value })} disabled={saving || testing} placeholder={t('wizard.fields.modelName.subscriptionPlaceholder')} />
-            </ConfigPageRow>}
-            <ConfigPageRow label={t('wizard.fields.size.label')} align="center">
-              <Combobox size="sm" value={draft.params.size || ''} options={[{ label: t('automatic'), value: '' }, ...preset.sizes.map(value => ({ label: value, value }))]}
-                disabled={saving || testing} onCreateValue={value => value.trim() || undefined}
-                onValueChange={value => patchParams({ size: String(value) || undefined })} />
-            </ConfigPageRow>
-            {preset.maxImagesPerRequest > 1 && <ConfigPageRow label={t('wizard.fields.n.label')} align="center">
-              <NumberInput size="sm" min={1} max={preset.maxImagesPerRequest} value={draft.params.n ?? 1} onValueChange={n => patchParams({ n })} disabled={saving || testing} />
-            </ConfigPageRow>}
-            {preset.supports.quality && <ConfigPageRow label={t('wizard.fields.quality.label')} align="center">
-              <Combobox size="sm" value={draft.params.quality || 'auto'} options={['auto', 'low', 'medium', 'high'].map(value => ({ label: value, value }))}
-                onValueChange={value => patchParams({ quality: String(value) })} disabled={saving || testing} />
-            </ConfigPageRow>}
-            {preset.supports.background && <ConfigPageRow label={t('wizard.fields.background.label')} align="center">
-              <Combobox size="sm" value={draft.params.background || 'auto'} options={['auto', 'opaque', 'transparent'].map(value => ({ label: value, value }))}
-                onValueChange={value => patchParams({ background: String(value) })} disabled={saving || testing} />
-            </ConfigPageRow>}
-            {preset.supports.negativePrompt && <ConfigPageRow label={t('wizard.fields.negativePrompt.label')} align="center">
-              <Input size="sm" value={draft.params.negative_prompt || ''} onValueChange={negative_prompt => patchParams({ negative_prompt })} disabled={saving || testing} />
-            </ConfigPageRow>}
-            {preset.supports.watermark && <ConfigPageRow label={t('wizard.fields.watermark.label')} align="center">
-              <Switch checked={draft.params.watermark ?? false} onChange={event => patchParams({ watermark: event.target.checked })} disabled={saving || testing} />
-            </ConfigPageRow>}
-            {preset.supports.promptExtend && <ConfigPageRow label={t('wizard.fields.promptExtend.label')} align="center">
-              <Switch checked={draft.params.prompt_extend ?? true} onChange={event => patchParams({ prompt_extend: event.target.checked })} disabled={saving || testing} />
-            </ConfigPageRow>}
-            {!subscription && <ConfigPageRow label={t('wizard.fields.requestUrl.label')} align="center">
-              <Input size="sm" value={draft.request_url || ''} onValueChange={request_url => patch({ request_url })} disabled={saving || testing} />
-            </ConfigPageRow>}
-            {!subscription && <p className="openbitfun-image-settings__endpoint">{resolveImageEndpoint(draft.base_url, draft.request_url, draft.dialect)}</p>}
-          </div>
-        </Disclosure>
+
         {outcome && <div className="openbitfun-image-settings__test-result" role={outcome.success ? 'status' : 'alert'} data-status={outcome.success ? 'success' : 'failure'}>
           <p>{outcome.success ? t('wizard.test.success', { time: formatNumber(outcome.elapsed_ms) }) : t(`wizard.errors.${outcome.error_kind || 'provider'}`)}</p>
           {outcome.message && <p className="openbitfun-image-settings__test-detail">{outcome.message}</p>}

@@ -103,9 +103,11 @@ describe('image models in model settings', () => {
     await render(); await click(host.querySelector<HTMLElement>('[data-testid="image-service-add"]')!);
     await choose('image-service-source', 'My subscription');
     expect(document.querySelector('[role="dialog"] input[type="password"]')).toBeNull();
-    expect(button('advanced')?.getAttribute('aria-expanded')).toBe('false');
+    expect(document.querySelector('[data-testid="image-service-advanced"]')).toBeNull();
+    expect(document.querySelector('[role="dialog"] input')).toBeNull();
     await click(button('actions.save'));
     expect(media.image_services.at(-1)).toMatchObject({ name: 'My subscription', dialect: 'chatgpt_codex', model_name: '', api_key: '' });
+    expect(media.image_services.at(-1)?.params.size).toBeUndefined();
     expect(document.querySelector('[role="dialog"]:not([aria-hidden="true"])')).toBeNull();
     expect(mocks.test).not.toHaveBeenCalled();
   });
@@ -167,6 +169,30 @@ describe('image models in model settings', () => {
     await click(button('actions.save'));
     expect(media.image_services[0]).toMatchObject({ model_name: 'updated-image-model', params: legacy.image_services[0].params, custom_headers: legacy.image_services[0].custom_headers });
     expect(media.default_image_service).toBe('legacy');
+  });
+
+  it('shows the effective legacy request address without exposing generation defaults', async () => {
+    await render();
+    await click([...host.querySelectorAll<HTMLButtonElement>('button')].find(element => element.textContent?.includes('Saved image'))!);
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect([...dialog.querySelectorAll('input')].map(input => input.value)).toContain(legacy.image_services[0].request_url);
+    for (const field of ['name', 'size', 'n', 'quality', 'background', 'negativePrompt', 'watermark', 'promptExtend', 'requestUrl']) {
+      expect(dialog.textContent).not.toContain(`wizard.fields.${field}.label`);
+    }
+    const address = [...dialog.querySelectorAll('input')].find(input => input.value === legacy.image_services[0].request_url)!;
+    const updatedAddress = 'https://images.example/custom/generate';
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(address, updatedAddress);
+      address.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click(button('actions.save'));
+    expect(media.image_services[0]).toMatchObject({
+      request_url: updatedAddress,
+      base_url: legacy.image_services[0].base_url,
+      params: legacy.image_services[0].params,
+      custom_headers: legacy.image_services[0].custom_headers,
+    });
+    expect(mocks.test).not.toHaveBeenCalled();
   });
 
   it('keeps an image-only configuration selectable when there are no chat models', async () => {

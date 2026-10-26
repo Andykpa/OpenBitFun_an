@@ -257,6 +257,26 @@ impl Tool for GenerateImageTool {
         has_enabled_image_service().await
     }
 
+    fn output_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path of the first generated image on the execution host."},
+                "paths": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                "count": {"type": "integer", "minimum": 1},
+                "service_id": {"type": "string"},
+                "service": {"type": "string"},
+                "dialect": {"type": "string"},
+                "model": {"type": "string"},
+                "mime_type": {"type": "string"},
+                "bytes": {"type": "integer", "minimum": 0, "description": "Byte length of the first generated image."},
+                "summary": {"type": "string"}
+            },
+            "required": ["path", "paths", "count", "service_id", "service", "dialect", "model", "mime_type", "bytes", "summary"],
+            "additionalProperties": true
+        })
+    }
+
     fn is_readonly(&self) -> bool {
         false
     }

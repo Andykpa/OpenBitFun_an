@@ -110,7 +110,7 @@ export function withImageServiceAuth(service: ImageServiceConfig, auth: AuthConf
     base_url: preset.defaultBaseUrl,
     request_url: undefined,
     model_name: preset.defaultModel,
-    params: { ...service.params, size: preset.sizes[0], n: 1 },
+    params: { ...service.params, size: undefined, n: 1 },
   };
 }
 

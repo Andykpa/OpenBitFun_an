@@ -1,5 +1,4 @@
-.openbitfun-image-settings__editor,
-.openbitfun-image-settings__advanced {
+.openbitfun-image-settings__editor {
   display: flex;
   flex-direction: column;
   gap: var(--openbitfun-space-3);
@@ -13,7 +12,6 @@
   margin: 0;
   color: var(--openbitfun-color-content-secondary);
 }
-.openbitfun-image-settings__endpoint,
 .openbitfun-image-settings__test-detail {
   margin: 0;
   overflow-wrap: anywhere;

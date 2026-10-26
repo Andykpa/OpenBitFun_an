@@ -33,7 +33,7 @@ pub mod round_preempt;
 
 // Image analysis module
 pub mod image_analysis;
-#[cfg(feature = "tools-image-analysis")]
+#[cfg(feature = "tools-image-generation")]
 pub mod image_generation;
 pub(crate) mod keyed_lock;
 pub mod memories;

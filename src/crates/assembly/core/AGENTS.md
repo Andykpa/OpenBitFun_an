@@ -114,6 +114,8 @@ SessionManager -> Session -> DialogTurn -> ModelRound
   Function Agent adapters use the independent `function-agents` owner;
   MiniApp domain/runtime/market dependencies belong only to `tools-miniapp`.
   Tool implementation groups use the matching `tools-*` owner feature.
+  `tools-image-analysis` owns only image inspection; `tools-image-generation`
+  separately selects the generation tool and its AI adapter client.
   Product Assembly supplies the exact `ProductToolPlan`; Core materialization
   validates that requested owners were compiled and must not infer product
   capability from Cargo's feature union. The Agent Runtime baseline plan is
@@ -213,7 +215,9 @@ cargo test -p openbitfun-core --no-default-features --features ai-adapter-runtim
 For image-service selection and compatibility with saved subscription configurations:
 
 ```bash
-cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git,tools-image-analysis,subscription-auth --lib agentic::image_generation::tests
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git,tools-image-generation,subscription-auth --lib agentic::image_generation::tests
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git,tools-image-generation --lib agentic::tools::product_runtime::materialization::tests::image_tools_follow_independent_compiled_owners
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git,tools-image-analysis --lib agentic::tools::product_runtime::materialization::tests::image_tools_follow_independent_compiled_owners
 ```
 
 These fixtures do not call a provider or exercise live remote hosts. Image wire
