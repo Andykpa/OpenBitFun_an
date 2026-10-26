@@ -241,8 +241,8 @@
       "name": "OpenBitFun Service",
       "description": "OpenBitFun Model Platform",
       "urlOptions": {
-        "default": "Anthropic Format - Default",
-        "openai": "OpenAI Compatible Format"
+        "default": "Anthropic Format",
+        "openai": "OpenAI Compatible Format - Default"
       }
     },
     "gemini": {
@@ -282,7 +282,8 @@
         "anthropic": "China - Anthropic Format",
         "intl": "Global - OpenAI Format",
         "intlAnthropic": "Global - Anthropic Format",
-        "kimiForCoding": "Kimi For Coding plan (models: k3 / kimi-for-coding)"
+        "kimiForCoding": "Kimi For Coding plan (models: k3 / kimi-for-coding)",
+        "kimiForCodingAnthropic": "Kimi For Coding plan - Anthropic Format"
       }
     },
     "deepseek": {
