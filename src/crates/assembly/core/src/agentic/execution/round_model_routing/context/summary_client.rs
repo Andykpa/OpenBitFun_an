@@ -9,9 +9,11 @@ use crate::infrastructure::ai::reasoning_catalog::{
 };
 use crate::service::config::get_global_config_service;
 use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
+use crate::util::types::Message as AIMessage;
 use openbitfun_agent_runtime::prompt_suggestion::lowest_prompt_suggestion_reasoning_preset;
 use openbitfun_agent_runtime::router_context::{EstimatedRouterTokens, RouterTokenCounter};
-use openbitfun_ai_adapters::AIClient;
+use openbitfun_ai_adapters::models_dev::is_protocol_generic_reasoning_preset;
+use openbitfun_ai_adapters::{AIClient, GeminiResponse};
 use openbitfun_core_types::{
     ReasoningCatalogProjection, ReasoningPresetAction, ReasoningPresetDescriptor,
     ReasoningPresetSource,
@@ -93,14 +95,40 @@ pub(super) fn validate_input(
     Ok(())
 }
 
+/// Dispatch one auxiliary attempt. The queue owner retains timeout, cancellation
+/// and next-round recovery; adapter retries must not repeat a rejected snapshot.
+pub(super) async fn send_request(
+    client: &AIClient,
+    config: &RouterContextConfig,
+    prompt: String,
+) -> OpenBitFunResult<GeminiResponse> {
+    validate_input(client, config, &prompt)?;
+    client
+        .send_message_once_with_trace_and_request_context(
+            vec![
+                AIMessage::system(summary_system_prompt(config)),
+                AIMessage::user(prompt),
+            ],
+            None,
+            None,
+            None,
+        )
+        .await
+        .map_err(|error| OpenBitFunError::AIClient(error.to_string()))
+}
+
 fn automatic_preset(projection: &ReasoningCatalogProjection) -> Option<ReasoningPresetDescriptor> {
-    // Protocol-level manual catalogs can synthesize on/off alongside explicit
-    // efforts. Prefer an effort here rather than guessing that thinking may be
-    // disabled on an arbitrary gateway. Model-declared toggle/budget presets
-    // remain usable when that model has no effort control.
+    // Manual protocol controls are offered for an explicit selection, not proof
+    // that an unknown service accepts them. Only catalog/model declarations or
+    // a model-specific adapter fallback may supply an automatic effort.
     let efforts = projection
         .presets
         .iter()
+        .filter(|preset| {
+            !is_protocol_generic_reasoning_preset(preset)
+                && (preset.source != ReasoningPresetSource::AdapterFallback
+                    || preset.execution_provider.is_some())
+        })
         .filter(|preset| {
             preset
                 .actions
@@ -139,25 +167,37 @@ fn request_client(
                     ))
                 })?,
         ),
-        None => automatic_preset(projection),
-    };
-    let client = match preset {
-        Some(preset) => shared.with_reasoning_preset(&preset),
         None => {
-            if shared.selected_reasoning_preset().is_some()
-                || shared.model_reasoning_preset().is_some()
-            {
+            if shared.selected_reasoning_preset().is_some() {
                 return Err(OpenBitFunError::Configuration(
-                    "Cannot resolve an independent supported reasoning preset for the Router summary model"
-                        .into(),
+                    "Router summary cannot inherit a session reasoning preset".into(),
                 ));
             }
-            shared.clone()
+            automatic_preset(projection)
         }
+    };
+    let client = match preset {
+        Some(preset) if config.summary_reasoning_preset.is_some() => {
+            shared.with_reasoning_preset(&preset)
+        }
+        // Automatic policy stays below the user's custom request body, matching
+        // model-default precedence. An explicit summary preset still wins above.
+        Some(preset) => shared.with_model_reasoning_preset(&preset),
+        // Unknown Auto retains explicit model defaults and raw custom fields;
+        // it must neither invent low/off nor silently erase the user's policy.
+        None => shared.clone(),
     };
     // This applies the summary output limit before validating the resolved
     // preset, so budget-based reasoning is checked against the actual request.
-    summary_request_client(&client, config)
+    let client = summary_request_client(&client, config)?;
+    if config.summary_reasoning_preset.is_none() {
+        if let Some(preset) = client.model_reasoning_preset() {
+            client
+                .validate_reasoning_preset(preset)
+                .map_err(|error| OpenBitFunError::Configuration(error.to_string()))?;
+        }
+    }
+    Ok(client)
 }
 
 #[cfg(test)]

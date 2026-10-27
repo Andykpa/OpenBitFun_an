@@ -18,7 +18,7 @@ use crate::infrastructure::subscription_auth::{
 };
 #[cfg(feature = "subscription-auth")]
 use crate::service::config::types::SubscriptionProvider;
-use crate::service::config::types::{model_runtime_binding_fingerprint, AuthConfig};
+use crate::service::config::types::{model_runtime_binding_fingerprint, AIModelConfig, AuthConfig};
 use crate::service::config::{get_global_config_service, ConfigService};
 use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 use crate::util::types::AIConfig;
@@ -72,6 +72,17 @@ fn subscription_credential_stale(auth: &AuthConfig, cached: &CachedAIClient) -> 
 #[cfg(not(feature = "subscription-auth"))]
 fn subscription_credential_stale(auth: &AuthConfig, _cached: &CachedAIClient) -> bool {
     matches!(auth, AuthConfig::Subscription { .. })
+}
+
+/// Apply the supplied draft's model default without resolving a saved model ID
+/// or changing the client's authentication, transport or session preset.
+pub async fn apply_model_default_reasoning(
+    client: AIClient,
+    model_config: &AIModelConfig,
+) -> AIClient {
+    let models_dev = load_models_dev_reasoning_catalog().await;
+    let projection = project_model_reasoning_catalog(model_config, models_dev.catalog.as_deref());
+    apply_default_reasoning_preset(client, &projection)
 }
 
 impl AIClientFactory {
@@ -382,6 +393,10 @@ impl AIClientFactory {
         Ok(client)
     }
 }
+
+#[cfg(test)]
+#[path = "client_factory/connection_tests.rs"]
+mod connection_tests;
 
 static GLOBAL_AI_CLIENT_FACTORY: OnceLock<Arc<tokio::sync::RwLock<Option<Arc<AIClientFactory>>>>> =
     OnceLock::new();

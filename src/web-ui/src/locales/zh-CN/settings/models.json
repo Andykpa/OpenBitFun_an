@@ -374,14 +374,14 @@
     "configTitle": "思考配置",
     "dialogTitle": "思考配置 · {{provider}} · {{model}}",
     "catalogSource": "思考预设来源",
-    "catalogAuto": "自动检测",
+    "catalogAuto": "自动匹配预设",
     "catalogModelsDev": "指定 models.dev 模型",
     "catalogDisabled": "仅使用自定义预设",
-    "catalogAutoTooltip": "优先使用已识别模型的精确思考预设；未命中时提供可手动选择的通用开启、关闭和低/中/高强度，同时保留自定义预设",
+    "catalogAutoTooltip": "按配置的服务商和模型匹配预设，不会探测服务端。未识别服务的通用选项仅供手动选择、尚未验证，不代表服务端支持；同时保留自定义预设",
     "catalogModelsDevTooltip": "使用指定 models.dev 供应商和模型的思考预设。模型名称是别名，或兼容网关需要显式绑定时使用。",
-    "catalogDisabledTooltip": "不生成 models.dev 和适配器预设，仅保留你配置的自定义预设",
+    "catalogDisabledTooltip": "不自动生成预设；自定义预设和自定义请求体仍生效。选择“跟随服务端默认”不会清除请求体中的显式参数",
     "catalogSummary": {
-      "auto": "自动检测",
+      "auto": "自动匹配预设",
       "modelsDev": "指定 models.dev",
       "disabled": "仅自定义"
     },
@@ -398,8 +398,8 @@
     "catalogModelCustomValueHint": "使用自定义模型 ID",
     "defaultBehavior": "默认思考",
     "defaultPreset": "默认预设",
-    "auto": "自动（模型默认值）",
-    "autoShort": "自动",
+    "auto": "跟随服务端默认",
+    "autoShort": "服务端默认",
     "generatedTitle": "自动生成的预设",
     "unavailableTitle": "部分 models.dev 预设不可用",
     "unavailableDescription": "当前 API 格式“{{format}}”无法可靠应用以下预设：{{presets}}。请参考服务提供商的官方文档，并在自定义预设中使用“请求体补丁”配置所需字段。",
@@ -576,6 +576,9 @@
     "connectionTestMessages": {
       "toolCallsNotDetected": "本次测试未检测到工具调用，因此暂时无法验证工具调用能力",
       "imageInputCheckFailed": "连接已成功，但图片输入测试未通过",
+      "reasoningEffortRejected": "服务商拒绝了推理强度参数；请在模型“思考配置”或自定义请求体中改用支持值，或移除显式推理参数后跟随服务端默认",
+      "reasoningEffortValueRejected": "服务商不支持 reasoning_effort={{value}}；请在模型“思考配置”或自定义请求体中改用支持值，或移除显式推理参数后跟随服务端默认",
+      "reasoningEffortValueRejectedWithSupported": "服务商不支持 reasoning_effort={{value}}，返回的支持值为 {{supported}}；请在模型“思考配置”或自定义请求体中改用支持值，或移除显式推理参数后跟随服务端默认",
       "tlsOrCertificateIssue": "连接失败可能与 SSL/TLS 证书校验有关。请检查公司代理、自签证书、系统根证书或网络拦截设置；如果确认网络环境可信，可在该模型的高级设置中开启“跳过SSL证书验证”，但这会降低 HTTPS 安全性。",
       "proxyIssue": "连接失败可能与代理或隧道配置有关。请检查全局代理设置、代理认证、代理是否支持 HTTPS CONNECT，以及当前网络是否允许访问该模型 API 地址。",
       "networkIssue": "连接失败发生在发送请求阶段，尚未收到服务端 HTTP 响应。请检查网络连通性、DNS、代理、防火墙和证书环境；如果处在公司代理或自签证书环境，也可能需要检查高级设置中的“跳过SSL证书验证”。"
@@ -785,6 +788,7 @@
     "checkFailed": "智能模式配置检查失败，请检查路由服务后重试",
     "loadFailed": "读取智能模式配置失败，请关闭后重试",
     "saveFailed": "保存智能模式配置失败，请重试",
+    "configurationChanged": "模型选择已在其他地方更新，请重新打开此窗口核对后再保存或检查",
     "manageModels": "管理服务与模型",
     "test": "保存并检查连接",
     "save": "保存"

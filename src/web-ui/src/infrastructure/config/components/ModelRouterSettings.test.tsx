@@ -14,7 +14,7 @@ vi.mock('@/infrastructure/i18n', () => { const t = (key: string) => key; return 
 vi.mock('@/infrastructure/api/service-api/AgentAPI', () => ({ agentAPI: { getModelRoutingStatus: vi.fn() } }));
 vi.mock('@/infrastructure/api/service-api/ConfigAPI', () => ({ configAPI: { getConfig: vi.fn() } }));
 vi.mock('@/infrastructure/api/service-api/AIApi', () => ({ aiApi: { testAIConfigConnection: vi.fn() } }));
-vi.mock('../services/ConfigManager', () => ({ configManager: { getConfigs: vi.fn(), updateConfig: vi.fn() } }));
+vi.mock('../services/ConfigManager', () => ({ configManager: { getConfigs: vi.fn(), updateConfig: vi.fn(), onConfigChange: vi.fn() } }));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 function deferred<T>() {
@@ -37,6 +37,10 @@ describe('Router setup', () => {
   let unmounted: boolean;
   let host: ModelRoutingConfig & { futureField?: string };
   let defaults: DefaultModelsConfig;
+  const configListeners = new Set<(path: string, oldValue: unknown, newValue: unknown) => void>();
+  const configChanged = (path: string, oldValue?: unknown, newValue?: unknown) => {
+    for (const listener of configListeners) listener(path, oldValue, newValue);
+  };
   const onClose = vi.fn(); const onSaved = vi.fn();
   const button = (key: string) => Array.from(document.body.querySelectorAll<HTMLButtonElement>('button')).find(item => item.textContent === key)!;
   const models = ['main', 'economy', 'next'].map(id => ({ id, model_name: id, name: 'Provider', provider: 'openai',
@@ -56,10 +60,15 @@ describe('Router setup', () => {
   const check = async () => { await act(async () => button('router.test').click()); };
   beforeEach(() => {
     activateSurface('local'); vi.clearAllMocks();
+    configListeners.clear();
+    vi.mocked(configManager.onConfigChange).mockImplementation(listener => {
+      configListeners.add(listener);
+      return () => { configListeners.delete(listener); };
+    });
     host = { default_mode: 'manual', router_model_id: 'next', tokenizer_path: '', simple_threshold: .75, timeout_ms: 10000, summary_enabled: false };
     defaults = { primary: 'main', economy: 'economy', fast: 'main' };
     vi.mocked(configManager.getConfigs).mockImplementation(async () => ({ 'ai.model_routing': { ...host }, 'ai.default_models': { ...defaults } }));
-    vi.mocked(configAPI.getConfig).mockImplementation(async () => ({ ...host }));
+    vi.mocked(configAPI.getConfig).mockImplementation(async path => path === 'ai.default_models' ? { ...defaults } : { ...host });
     vi.mocked(configManager.updateConfig).mockImplementation(async (path, update) => {
       if (path === 'ai.default_models') { defaults = update(defaults) as DefaultModelsConfig; return defaults; }
       host = update(host) as typeof host; return host;
@@ -104,12 +113,12 @@ describe('Router setup', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it('configures smart model roles while preserving concurrent defaults and legacy subagent settings', async () => {
+  it('configures smart model roles while preserving concurrent worker defaults and legacy subagent settings', async () => {
     await render();
     await changeEconomy();
-    defaults.primary = 'next'; defaults.fast = 'economy'; host.subagent_model = 'primary';
+    defaults.fast = 'economy'; host.subagent_model = 'primary';
     await act(async () => button('router.save').click());
-    expect(defaults).toEqual({ primary: 'next', economy: 'next', fast: 'economy' });
+    expect(defaults).toEqual({ primary: 'main', economy: 'next', fast: 'economy' });
     expect(host.subagent_model).toBe('primary'); expect(host.default_mode).toBe('manual');
     expect(configManager.updateConfig).toHaveBeenCalledWith('ai.default_models', expect.any(Function));
   });
@@ -121,8 +130,105 @@ describe('Router setup', () => {
     expect(document.body.textContent).not.toContain('router.tokenizerHint');
     await act(async () => button('router.save').click());
     expect(host).not.toHaveProperty('tokenizer_path');
-    expect(configAPI.getConfig).not.toHaveBeenCalled();
+    expect(configAPI.getConfig).toHaveBeenCalledExactlyOnceWith('ai.default_models');
     expect(onClose).toHaveBeenCalledOnce(); expect(onSaved).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ['router.test', 'ai.default_models'], ['router.test', 'ai.default_models.primary'],
+    ['router.save', 'ai.default_models'], ['router.save', 'ai.default_models.primary'],
+  ])('rejects stale role selections on %s after an external event at %s without writing or probing', async (action, path) => {
+    await render();
+    await check();
+    defaults.primary = 'next';
+    await act(async () => configChanged(path, undefined, path === 'ai.default_models' ? { ...defaults } : 'next'));
+    expect(document.body.querySelector('[data-model-routing-check]')).toBeNull();
+    const primaryText = document.body.querySelector('[aria-label="core.primary.label"]')!.textContent;
+    const economyText = document.body.querySelector('[aria-label="core.economy.label"]')!.textContent;
+    vi.mocked(configManager.updateConfig).mockClear();
+    vi.mocked(aiApi.testAIConfigConnection).mockClear();
+    vi.mocked(agentAPI.getModelRoutingStatus).mockClear();
+    vi.mocked(configAPI.getConfig).mockClear();
+    const savedCalls = onSaved.mock.calls.length;
+    await act(async () => button(action).click());
+    expect(configAPI.getConfig).toHaveBeenCalledExactlyOnceWith('ai.default_models');
+    expect(configManager.getConfigs).toHaveBeenCalledOnce();
+    expect(configManager.updateConfig).not.toHaveBeenCalled();
+    expect(aiApi.testAIConfigConnection).not.toHaveBeenCalled();
+    expect(agentAPI.getModelRoutingStatus).not.toHaveBeenCalledWith({ probe: true });
+    expect(document.body.textContent).toContain('router.configurationChanged');
+    expect(document.body.querySelector('[data-model-routing-check]')).toBeNull();
+    expect(document.body.querySelector('[aria-label="core.primary.label"]')!.textContent).toBe(primaryText);
+    expect(document.body.querySelector('[aria-label="core.economy.label"]')!.textContent).toBe(economyText);
+    expect(button('router.test').disabled).toBe(false);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onSaved).toHaveBeenCalledTimes(savedCalls);
+  });
+
+  it('keeps a pending draft intact when the fresh host role read detects a concurrent role edit', async () => {
+    await render();
+    await changeEconomy();
+    const draftText = document.body.querySelector('[aria-label="core.economy.label"]')!.textContent;
+    defaults.primary = 'next';
+    await act(async () => button('router.save').click());
+    expect(document.body.textContent).toContain('router.configurationChanged');
+    expect(document.body.querySelector('[aria-label="core.economy.label"]')!.textContent).toBe(draftText);
+    expect(defaults.economy).toBe('economy');
+    expect(configManager.updateConfig).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('allows fresh worker and other default-role changes while checking unchanged smart-mode selections', async () => {
+    await render();
+    defaults.fast = 'next'; defaults.image_understanding = 'next';
+    await check();
+    expect(configAPI.getConfig).toHaveBeenCalledExactlyOnceWith('ai.default_models');
+    expect(configManager.updateConfig).toHaveBeenCalledExactlyOnceWith('ai.model_routing', expect.any(Function));
+    expect(defaults.fast).toBe('next'); expect(defaults.image_understanding).toBe('next');
+    for (const role of ['primary', 'economy', 'router'] as const) expectState(role, 'connected');
+  });
+
+  it('normalizes missing and null roles equally during the fresh conflict check', async () => {
+    delete defaults.primary;
+    await render();
+    defaults.primary = null;
+    await check();
+    expect(document.body.textContent).not.toContain('router.configurationChanged');
+    expectState('primary', 'unconfigured');
+    expectState('economy', 'connected');
+    expectState('router', 'connected');
+  });
+
+  it.each([
+    ['router.test', 'missing'], ['router.save', 'missing'],
+    ['router.test', 'unreadable'], ['router.save', 'unreadable'],
+    ['router.test', 'invalid'], ['router.save', 'invalid'],
+  ])('fails closed on %s when the fresh host role read is %s', async (action, failure) => {
+    await render();
+    await changeEconomy();
+    if (failure === 'unreadable') vi.mocked(configAPI.getConfig).mockRejectedValueOnce(new Error('Private host read error'));
+    else vi.mocked(configAPI.getConfig).mockResolvedValueOnce(failure === 'missing' ? null : { primary: 123, economy: 'economy' });
+    await act(async () => button(action).click());
+    expect(configAPI.getConfig).toHaveBeenCalledExactlyOnceWith('ai.default_models');
+    expect(configManager.updateConfig).not.toHaveBeenCalled();
+    expect(aiApi.testAIConfigConnection).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain('router.loadFailed');
+    expect(document.body.textContent).not.toContain('Private host read error');
+    expect(button('router.test').disabled).toBe(false);
+    expect(onClose).not.toHaveBeenCalled(); expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it('abandons a fresh role read after switching execution hosts before any writes', async () => {
+    const currentRoles = deferred<DefaultModelsConfig>();
+    vi.mocked(configAPI.getConfig).mockReturnValueOnce(currentRoles.promise);
+    await render();
+    await check();
+    await act(async () => activateSurface('peer-other'));
+    await act(async () => currentRoles.resolve({ ...defaults }));
+    expect(configManager.updateConfig).not.toHaveBeenCalled();
+    expect(aiApi.testAIConfigConnection).not.toHaveBeenCalled();
+    expect(button('router.test').disabled).toBe(false);
+    expect(onSaved).not.toHaveBeenCalled();
   });
 
   it.each(['', '/host/current-tokenizer.json', ' /host/legacy-tokenizer.json '])(
@@ -287,6 +393,268 @@ describe('Router setup', () => {
     expect(row('router').textContent).toContain('router.connectionChecks.router');
     for (const role of ['primary', 'economy', 'router'] as const) expectState(role, 'connected');
     expect(onClose).not.toHaveBeenCalled();
+    expect(button('router.test').disabled).toBe(false);
+  });
+
+  it('keeps a safe tool-capability warning visible when text connectivity succeeds', async () => {
+    vi.mocked(aiApi.testAIConfigConnection).mockResolvedValue({
+      ...connectionResult(true), message_code: 'tool_calls_not_detected', error_details: 'private-provider-body',
+    });
+    await render();
+    await check();
+    expectState('economy', 'connected');
+    expect(row('economy').textContent).toContain('messages.connectionTestMessages.toolCallsNotDetected');
+    expect(document.body.textContent).not.toContain('private-provider-body');
+  });
+
+  it('clears completed checks when a selected model changes its default reasoning under the same ID', async () => {
+    const before = models.map(model => model.id === 'economy'
+      ? { ...model, reasoning: { default_preset: 'high' } } : model);
+    await render(before);
+    await check();
+    expectState('economy', 'connected');
+    const after = before.map(model => model.id === 'economy'
+      ? { ...model, reasoning: { catalog: { source: 'auto' as const }, presets: [] } } : model);
+    await render(after);
+    expect(document.body.querySelector('[data-model-routing-check]')).toBeNull();
+    expect(button('router.test').disabled).toBe(false);
+    vi.mocked(aiApi.testAIConfigConnection).mockClear();
+    await check();
+    expect(aiApi.testAIConfigConnection).toHaveBeenCalledWith(after[1]);
+    expect(aiApi.testAIConfigConnection).not.toHaveBeenCalledWith(before[1]);
+    expectState('economy', 'connected');
+  });
+
+  it.each([
+    ['API key', 'economy', { api_key: 'rotated-private-secret' }],
+    ['base URL', 'economy', { base_url: 'https://changed.example.test/v1' }],
+    ['request URL', 'economy', { request_url: 'https://changed.example.test/v2/chat/completions' }],
+    ['authentication', 'economy', { auth: { type: 'subscription', provider: 'codex' } }],
+    ['custom headers', 'main', { custom_headers: { Authorization: 'private-header-value' } }],
+    ['custom request body', 'economy', { custom_request_body: '{"reasoning_effort":"medium"}' }],
+    ['output limit', 'economy', { max_tokens: 2048 }],
+    ['Router credentials', 'next', { api_key: 'private-router-secret' }],
+  ] as Array<[string, string, Partial<AIModelConfig>]>)('invalidates completed checks after a same-ID %s change', async (_label, modelId, update) => {
+    await render();
+    await check();
+    const changed = models.map(model => model.id === modelId ? { ...model, ...update } : model);
+    await render(changed);
+    expect(document.body.querySelector('[data-model-routing-check]')).toBeNull();
+    expect(button('router.test').disabled).toBe(false);
+    for (const secret of ['rotated-private-secret', 'private-header-value', 'private-router-secret']) {
+      expect(document.body.textContent).not.toContain(secret);
+    }
+  });
+
+  it('keeps valid results through equal catalog refreshes, advisory metadata and unrelated models', async () => {
+    const catalog = models.map(model => ({ ...model, custom_headers: { A: 'one', B: 'two' } }));
+    await render(catalog);
+    await check();
+    const refreshed = catalog.map(model => ({
+      ...model, name: 'Updated label', metadata: { billing: 'advisory-only' },
+      custom_headers: { B: 'two', A: 'one' }, capabilities: [...model.capabilities].reverse(),
+    }));
+    refreshed.push({ ...refreshed[0], id: 'unrelated', api_key: 'unrelated-rotated-key' });
+    await render(refreshed);
+    for (const role of ['primary', 'economy', 'router'] as const) expectState(role, 'connected');
+    expect(aiApi.testAIConfigConnection).toHaveBeenCalledTimes(2);
+    expect(button('router.test').disabled).toBe(false);
+  });
+
+  it.each(['missing', 'null'])('keeps legacy %s capabilities readable and probes the supplied model unchanged', async legacyShape => {
+    const catalog = models.map(model => {
+      if (model.id !== 'economy') return model;
+      const { capabilities: _capabilities, ...legacy } = model;
+      return {
+        ...legacy, category: 'general_chat', ...(legacyShape === 'null' ? { capabilities: null } : {}),
+      } as unknown as AIModelConfig;
+    });
+    await render(catalog);
+    await check();
+    expectState('economy', 'connected');
+    expect(aiApi.testAIConfigConnection).toHaveBeenCalledWith(catalog[1]);
+    const sent = vi.mocked(aiApi.testAIConfigConnection).mock.calls.find(([config]) => config.id === 'economy')![0];
+    if (legacyShape === 'missing') expect(sent).not.toHaveProperty('capabilities');
+    else expect(sent.capabilities).toBeNull();
+    await render(catalog.map(model => ({ ...model })));
+    expectState('economy', 'connected');
+    expect(aiApi.testAIConfigConnection).toHaveBeenCalledTimes(2);
+  });
+
+  it('snapshots the exact supplied drafts and detects same-object request mutations', async () => {
+    const catalog: AIModelConfig[] = JSON.parse(JSON.stringify(models));
+    catalog[1].api_key = 'initial-private-secret';
+    const pending = deferred<ConnectionTestResult>();
+    vi.mocked(aiApi.testAIConfigConnection).mockImplementation(config => config.id === 'economy'
+      ? pending.promise : Promise.resolve(connectionResult(true)));
+    await render(catalog);
+    await check();
+    const sent = vi.mocked(aiApi.testAIConfigConnection).mock.calls.find(([config]) => config.id === 'economy')![0];
+    expect(sent).toEqual(catalog[1]);
+    expect(sent).not.toBe(catalog[1]);
+    catalog[1].api_key = 'replaced-private-secret';
+    catalog[1].reasoning = { default_preset: 'medium' };
+    await render(catalog);
+    expect(sent.api_key).toBe('initial-private-secret');
+    expect(sent.reasoning).toBeUndefined();
+    expect(document.body.querySelector('[data-model-routing-check]')).toBeNull();
+    expect(button('router.test').disabled).toBe(false);
+    await act(async () => pending.resolve(connectionResult(true)));
+    expect(document.body.querySelector('[data-model-routing-check]')).toBeNull();
+    expect(document.body.textContent).not.toContain('private-secret');
+  });
+
+  it('ignores late successes and finally from an invalidated run while a replacement run is busy', async () => {
+    const oldModel = deferred<ConnectionTestResult>();
+    const oldRouter = deferred<Awaited<ReturnType<typeof agentAPI.getModelRoutingStatus>>>();
+    vi.mocked(aiApi.testAIConfigConnection).mockReturnValue(oldModel.promise);
+    vi.mocked(agentAPI.getModelRoutingStatus).mockImplementation(request => request?.probe
+      ? oldRouter.promise : Promise.resolve(routingStatus(null)));
+    await render();
+    await check();
+    const changed = models.map(model => model.id === 'economy'
+      ? { ...model, reasoning: { default_preset: 'medium' } } : model);
+    await render(changed);
+    expect(document.body.querySelector('[data-model-routing-check]')).toBeNull();
+    expect(button('router.test').disabled).toBe(false);
+    const newModel = deferred<ConnectionTestResult>();
+    const newRouter = deferred<Awaited<ReturnType<typeof agentAPI.getModelRoutingStatus>>>();
+    vi.mocked(aiApi.testAIConfigConnection).mockReturnValue(newModel.promise);
+    vi.mocked(agentAPI.getModelRoutingStatus).mockImplementation(request => request?.probe
+      ? newRouter.promise : Promise.resolve(routingStatus(null)));
+    await check();
+    for (const role of ['primary', 'economy', 'router'] as const) expectState(role, 'checking');
+    await act(async () => { oldModel.resolve(connectionResult(true)); oldRouter.resolve(routingStatus(true)); });
+    for (const role of ['primary', 'economy', 'router'] as const) expectState(role, 'checking');
+    expect(button('router.test').disabled).toBe(true);
+    await act(async () => { newModel.resolve(connectionResult(true)); newRouter.resolve(routingStatus(true)); });
+    for (const role of ['primary', 'economy', 'router'] as const) expectState(role, 'connected');
+    expect(button('router.test').disabled).toBe(false);
+  });
+
+  it('abandons old capability negotiation when selected request settings change', async () => {
+    const support = deferred<Awaited<ReturnType<typeof agentAPI.getModelRoutingStatus>>>();
+    vi.mocked(agentAPI.getModelRoutingStatus).mockReturnValueOnce(support.promise);
+    await render();
+    await check();
+    await render(models.map(model => model.id === 'economy' ? { ...model, api_key: 'changed-key' } : model));
+    expect(button('router.test').disabled).toBe(false);
+    await act(async () => support.resolve(routingStatus(null)));
+    expect(configManager.updateConfig).not.toHaveBeenCalled();
+    expect(aiApi.testAIConfigConnection).not.toHaveBeenCalled();
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it.each(['ai.proxy', 'ai.proxy.password', 'ai.stream_idle_timeout_secs', 'ai.stream_ttft_timeout_secs', 'ai'])('invalidates completed probes for changed global request settings at %s', async path => {
+    await render();
+    await check();
+    await act(async () => configChanged(path, undefined, undefined));
+    expect(document.body.querySelector('[data-model-routing-check]')).toBeNull();
+    expect(button('router.test').disabled).toBe(false);
+  });
+
+  it('does not invalidate equal global settings, role/router self-saves or unrelated configuration events', async () => {
+    await render();
+    await check();
+    await act(async () => {
+      configChanged('ai.proxy', { enabled: true, url: 'https://proxy.test' }, { url: 'https://proxy.test', enabled: true });
+      configChanged('ai.default_models', {}, { ...defaults });
+      configChanged('ai.model_routing', {}, host);
+      configChanged('ai.models', [], models);
+      configChanged('app.theme', 'old', 'new');
+    });
+    for (const role of ['primary', 'economy', 'router'] as const) expectState(role, 'connected');
+    expect(button('router.test').disabled).toBe(false);
+  });
+
+  it.each([
+    ['ai.default_models', { primary: 'next', economy: 'economy' }],
+    ['ai.default_models.primary', 'next'],
+    ['ai.default_models.economy', 'main'],
+    ['ai.model_routing', { router_model_id: 'main' }],
+    ['ai.model_routing.router_model_id', 'economy'],
+    ['ai.default_models', undefined],
+    ['ai.model_routing', undefined],
+  ] as Array<[string, unknown]>)('clears completed checks after an external host selection event at %s without replacing the draft', async (path, value) => {
+    await render();
+    await check();
+    const primaryText = document.body.querySelector('[aria-label="core.primary.label"]')!.textContent;
+    const economyText = document.body.querySelector('[aria-label="core.economy.label"]')!.textContent;
+    const writes = vi.mocked(configManager.updateConfig).mock.calls.length;
+    const savedCalls = onSaved.mock.calls.length;
+    await act(async () => configChanged(path, undefined, value));
+    expect(document.body.querySelector('[data-model-routing-check]')).toBeNull();
+    expect(button('router.test').disabled).toBe(false);
+    expect(document.body.querySelector('[aria-label="core.primary.label"]')!.textContent).toBe(primaryText);
+    expect(document.body.querySelector('[aria-label="core.economy.label"]')!.textContent).toBe(economyText);
+    expect(configManager.updateConfig).toHaveBeenCalledTimes(writes);
+    expect(onSaved).toHaveBeenCalledTimes(savedCalls);
+  });
+
+  it('keeps completed checks for unrelated role, strategy and threshold events', async () => {
+    await render();
+    await check();
+    await act(async () => {
+      configChanged('ai.default_models', {}, { ...defaults, fast: 'next' });
+      configChanged('ai.default_models.fast', 'main', 'next');
+      configChanged('ai.model_routing', {}, { ...host, default_mode: 'smart', simple_threshold: .9 });
+      configChanged('ai.model_routing.simple_threshold', .75, .9);
+      configChanged('ai.model_routing.default_mode', 'manual', 'smart');
+    });
+    for (const role of ['primary', 'economy', 'router'] as const) expectState(role, 'connected');
+  });
+
+  it('does not invalidate its own role and Router writes before launching the matching probes', async () => {
+    vi.mocked(configManager.updateConfig).mockImplementation(async (path, update) => {
+      if (path === 'ai.default_models') {
+        const previous = { ...defaults };
+        defaults = update(defaults) as DefaultModelsConfig;
+        configChanged(path, previous, defaults);
+        return defaults;
+      }
+      const previous = { ...host };
+      host = update(host) as typeof host;
+      configChanged(path, previous, host);
+      return host;
+    });
+    await render();
+    await changeEconomy();
+    await check();
+    expect(defaults.economy).toBe('next');
+    for (const role of ['primary', 'economy', 'router'] as const) expectState(role, 'connected');
+    expect(aiApi.testAIConfigConnection).toHaveBeenCalledWith(models[2]);
+    expect(button('router.test').disabled).toBe(false);
+  });
+
+  it('invalidates in-flight probes after an external role change and ignores their late success', async () => {
+    const pending = deferred<ConnectionTestResult>();
+    const router = deferred<Awaited<ReturnType<typeof agentAPI.getModelRoutingStatus>>>();
+    vi.mocked(aiApi.testAIConfigConnection).mockReturnValue(pending.promise);
+    vi.mocked(agentAPI.getModelRoutingStatus).mockImplementation(request => request?.probe
+      ? router.promise : Promise.resolve(routingStatus(null)));
+    await render();
+    await check();
+    await act(async () => configChanged('ai.default_models.economy', 'economy', 'next'));
+    expect(document.body.querySelector('[data-model-routing-check]')).toBeNull();
+    expect(button('router.test').disabled).toBe(false);
+    await act(async () => { pending.resolve(connectionResult(true)); router.resolve(routingStatus(true)); });
+    expect(document.body.querySelector('[data-model-routing-check]')).toBeNull();
+    expect(button('router.test').disabled).toBe(false);
+  });
+
+  it('invalidates in-flight global settings and releases busy without accepting late responses', async () => {
+    const pending = deferred<ConnectionTestResult>();
+    const router = deferred<Awaited<ReturnType<typeof agentAPI.getModelRoutingStatus>>>();
+    vi.mocked(aiApi.testAIConfigConnection).mockReturnValue(pending.promise);
+    vi.mocked(agentAPI.getModelRoutingStatus).mockImplementation(request => request?.probe
+      ? router.promise : Promise.resolve(routingStatus(null)));
+    await render();
+    await check();
+    await act(async () => configChanged('ai.proxy', { enabled: false }, { enabled: true }));
+    expect(document.body.querySelector('[data-model-routing-check]')).toBeNull();
+    expect(button('router.test').disabled).toBe(false);
+    await act(async () => { pending.resolve(connectionResult(true)); router.resolve(routingStatus(true)); });
+    expect(document.body.querySelector('[data-model-routing-check]')).toBeNull();
     expect(button('router.test').disabled).toBe(false);
   });
 

@@ -7,6 +7,7 @@ use crate::agentic::core::{
 };
 use crate::service::config::types::AIConfig;
 use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
+#[cfg(test)]
 use crate::util::types::Message as AIMessage;
 use log::warn;
 #[cfg(test)]
@@ -172,6 +173,7 @@ struct SummaryDiagnostics {
     reasoning_chars: usize,
     tool_call_count: usize,
     incomplete_reason: Option<&'static str>,
+    /// Client preset identity; custom request body fields may override it on the wire.
     reasoning_preset: Option<String>,
 }
 
@@ -206,6 +208,7 @@ impl SummaryResult {
             incomplete_reason,
             reasoning_preset: client
                 .selected_reasoning_preset()
+                .or_else(|| client.model_reasoning_preset())
                 .map(|preset| preset.id.clone()),
         };
         Self {
@@ -323,17 +326,7 @@ impl SummaryProvider for ConfiguredSummaryProvider {
         summary_config: &RouterContextConfig,
     ) -> OpenBitFunResult<SummaryResult> {
         let (model_id, client) = summary_client::configured_client(summary_config).await?;
-        summary_client::validate_input(&client, summary_config, &prompt)?;
-        let response = client
-            .send_message(
-                vec![
-                    AIMessage::system(summary_system_prompt(summary_config)),
-                    AIMessage::user(prompt),
-                ],
-                None,
-            )
-            .await
-            .map_err(|error| OpenBitFunError::AIClient(error.to_string()))?;
+        let response = summary_client::send_request(&client, summary_config, prompt).await?;
         Ok(SummaryResult::from_response(response, model_id, &client))
     }
 }

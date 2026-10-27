@@ -374,14 +374,14 @@
     "configTitle": "Reasoning settings",
     "dialogTitle": "Reasoning settings · {{provider}} · {{model}}",
     "catalogSource": "Reasoning preset source",
-    "catalogAuto": "Auto-detect",
+    "catalogAuto": "Match presets automatically",
     "catalogModelsDev": "Use explicit models.dev model",
     "catalogDisabled": "Custom presets only",
-    "catalogAutoTooltip": "Uses precise presets for recognized models, then offers manual generic on, off, and low/medium/high controls when no projection matches. Custom presets are also included.",
+    "catalogAutoTooltip": "Matches presets by the configured provider and model without probing the server. Generic options for unrecognized services are manual and unverified; they do not establish server support. Custom presets remain available",
     "catalogModelsDevTooltip": "Uses the reasoning presets of a specific models.dev provider and model. Choose this when the configured model name is an alias or a compatible gateway requires an explicit binding.",
-    "catalogDisabledTooltip": "Disables generated presets from models.dev and adapter fallbacks. Only your custom presets remain available.",
+    "catalogDisabledTooltip": "Stops automatic preset generation. Custom presets and the custom request body still apply. Choosing Follow server default does not clear explicit fields in the request body",
     "catalogSummary": {
-      "auto": "Auto-detect",
+      "auto": "Match presets automatically",
       "modelsDev": "Explicit models.dev",
       "disabled": "Custom only"
     },
@@ -398,8 +398,8 @@
     "catalogModelCustomValueHint": "Use custom model ID",
     "defaultBehavior": "Default reasoning",
     "defaultPreset": "Default preset",
-    "auto": "Auto (model default)",
-    "autoShort": "Auto",
+    "auto": "Follow server default",
+    "autoShort": "Server default",
     "generatedTitle": "Generated presets",
     "unavailableTitle": "Some models.dev presets are unavailable",
     "unavailableDescription": "The current API format, {{format}}, cannot reliably apply these presets: {{presets}}. Refer to your provider's official documentation and configure the required fields with Request body patch (JSON Merge Patch) in a custom preset.",
@@ -576,6 +576,9 @@
     "connectionTestMessages": {
       "toolCallsNotDetected": "This test did not detect any tool calls, so tool calling could not be verified this time.",
       "imageInputCheckFailed": "The connection succeeded, but the image input check failed.",
+      "reasoningEffortRejected": "The provider rejected the reasoning-effort setting; check this model's Reasoning settings or custom request body, use a supported value or remove explicit reasoning parameters to follow server default",
+      "reasoningEffortValueRejected": "The provider rejected reasoning_effort={{value}}; check this model's Reasoning settings or custom request body, use a supported value or remove explicit reasoning parameters to follow server default",
+      "reasoningEffortValueRejectedWithSupported": "The provider rejected reasoning_effort={{value}}; reported supported values: {{supported}}; check this model's Reasoning settings or custom request body, use a supported value or remove explicit reasoning parameters to follow server default",
       "tlsOrCertificateIssue": "The connection failure may be related to SSL/TLS certificate verification. Check corporate proxies, self-signed certificates, system root certificates, or network interception. If you trust this network environment, you can enable \"Skip SSL Certificate Verification\" in this model's Advanced Settings, but it reduces HTTPS security.",
       "proxyIssue": "The connection failure may be related to proxy or tunnel configuration. Check global proxy settings, proxy authentication, HTTPS CONNECT support, and whether the current network can reach this model API endpoint.",
       "networkIssue": "The request failed while being sent, before any HTTP response was received. Check network connectivity, DNS, proxy, firewall, and certificate settings. In corporate proxy or self-signed certificate environments, you may also need to review \"Skip SSL Certificate Verification\" in Advanced Settings."
@@ -785,6 +788,7 @@
     "checkFailed": "Smart mode could not be checked; check the Router service and try again",
     "loadFailed": "Could not load smart-mode settings; close and retry",
     "saveFailed": "Could not save smart-mode settings; please retry",
+    "configurationChanged": "Model selections changed elsewhere; reopen this window to review them before saving or checking",
     "manageModels": "Manage services and models",
     "test": "Save and test connection",
     "save": "Save"

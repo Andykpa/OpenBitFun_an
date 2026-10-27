@@ -374,14 +374,14 @@
     "configTitle": "思考設定",
     "dialogTitle": "思考設定 · {{provider}} · {{model}}",
     "catalogSource": "思考預設來源",
-    "catalogAuto": "自動偵測",
+    "catalogAuto": "自動比對預設",
     "catalogModelsDev": "指定 models.dev 模型",
     "catalogDisabled": "僅使用自定義預設",
-    "catalogAutoTooltip": "優先使用已識別模型的精確思考預設；未命中時提供可手動選擇的通用開啟、關閉和低／中／高強度，同時保留自定義預設",
+    "catalogAutoTooltip": "依設定的供應商和模型比對預設，不會探測伺服器。未識別服務的通用選項僅供手動選擇、尚未驗證，不代表伺服器支援；同時保留自訂預設",
     "catalogModelsDevTooltip": "使用指定 models.dev 供應商和模型的思考預設。模型名稱是別名，或相容閘道需要明確綁定時使用。",
-    "catalogDisabledTooltip": "不生成 models.dev 和適配器預設，僅保留你設定的自定義預設",
+    "catalogDisabledTooltip": "不自動產生預設；自訂預設和自訂請求主體仍生效。選擇「跟隨伺服器預設」不會清除請求主體中的明確參數",
     "catalogSummary": {
-      "auto": "自動偵測",
+      "auto": "自動比對預設",
       "modelsDev": "指定 models.dev",
       "disabled": "僅自定義"
     },
@@ -398,8 +398,8 @@
     "catalogModelCustomValueHint": "使用自訂模型 ID",
     "defaultBehavior": "預設思考",
     "defaultPreset": "預設選項",
-    "auto": "自動（模型預設值）",
-    "autoShort": "自動",
+    "auto": "跟隨伺服器預設",
+    "autoShort": "伺服器預設",
     "generatedTitle": "自動生成的預設",
     "unavailableTitle": "部分 models.dev 預設無法使用",
     "unavailableDescription": "目前的 API 格式「{{format}}」無法可靠套用以下預設：{{presets}}。請參考服務供應商的官方文件，並在自訂預設中使用「請求內容補丁」設定所需欄位。",
@@ -576,6 +576,9 @@
     "connectionTestMessages": {
       "toolCallsNotDetected": "本次測試未檢測到工具調用，因此暫時無法驗證工具調用能力",
       "imageInputCheckFailed": "連接已成功，但圖片輸入測試未通過",
+      "reasoningEffortRejected": "供應商拒絕了推理強度參數；請在模型「思考設定」或自訂請求主體中改用支援值，或移除明確的推理參數後跟隨伺服器預設",
+      "reasoningEffortValueRejected": "供應商不支援 reasoning_effort={{value}}；請在模型「思考設定」或自訂請求主體中改用支援值，或移除明確的推理參數後跟隨伺服器預設",
+      "reasoningEffortValueRejectedWithSupported": "供應商不支援 reasoning_effort={{value}}，回傳的支援值為 {{supported}}；請在模型「思考設定」或自訂請求主體中改用支援值，或移除明確的推理參數後跟隨伺服器預設",
       "tlsOrCertificateIssue": "連接失敗可能與 SSL/TLS 證書校驗有關。請檢查公司代理、自簽證書、系統根證書或網路攔截設定；如果確認網路環境可信，可在該模型的高級設置中開啟「跳過SSL證書驗證」，但這會降低 HTTPS 安全性。",
       "proxyIssue": "連接失敗可能與代理或隧道設定有關。請檢查全局代理設定、代理認證、代理是否支援 HTTPS CONNECT，以及目前網路是否允許訪問該模型 API 地址。",
       "networkIssue": "連接失敗發生在發送請求階段，尚未收到服務端 HTTP 回應。請檢查網路連通性、DNS、代理、防火牆和證書環境；如果處在公司代理或自簽證書環境，也可能需要檢查高級設置中的「跳過SSL證書驗證」。"
@@ -785,6 +788,7 @@
     "checkFailed": "智慧模式設定檢查失敗，請檢查路由服務後重試",
     "loadFailed": "讀取智慧模式設定失敗，請關閉後重試",
     "saveFailed": "儲存智慧模式設定失敗，請重試",
+    "configurationChanged": "模型選擇已在其他地方更新，請重新開啟此視窗核對後再儲存或檢查",
     "manageModels": "管理服務與模型",
     "test": "儲存並檢查連線",
     "save": "儲存"
