@@ -222,6 +222,7 @@
             "customization": "創建定制草稿、實時預覽，並應用、同步或丟棄修改",
             "versions": "查看版本歷史並回滾到舊版本",
             "agent-authoring": "讓智能體初始化、編寫並校驗一個 Mini App",
+            "agent-operate-app": "由智能體結合原始碼控制 Mini App",
             "agent-market-submit": "在用戶明確要求時由智能體提交已完成的 Mini App 到市場審核",
             "publishing": "撤回和審查市場發佈，並可渲染幻燈片頁面"
           }

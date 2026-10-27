@@ -247,11 +247,13 @@
       "touch_session_activity"
     ],
     "hostBridges": [
+      "mark_miniapp_web_surface_ready",
       "mark_openbitfun_control_surface_ready",
       "mark_openbitfun_control_surface_unready",
     "miniapp_shell_call",
       "peer_host_invoke_complete",
       "product_control_invoke",
+      "report_miniapp_web_result",
       "report_openbitfun_control_result",
       "report_ide_control_result",
       "webdriver_bridge_result"
@@ -3309,6 +3311,29 @@
           "evidence": [
             "source:src/crates/assembly/core/src/agentic/tools/implementations/miniapp_publish_tool.rs#PublishMiniApp",
             "command:miniapp_market_submit_installed"
+          ]
+        },
+        {
+          "id": "agent-operate-app",
+          "titleZh": "由智能体结合源码控制 Mini App",
+          "titleEn": "Let an agent control a Mini App using its source and live interface",
+          "control": {
+            "kind": "delegate",
+            "tools": [
+              "MiniAppBrowser"
+            ],
+            "workflowZh": [
+              "先用 OpenBitFunControl 的 get 查询 feature.miniapps，并按 schema 用 inspect-app 读取源码，理解业务函数、动作参数和状态；源码更新属于应用改造，不是日常操作的前置步骤",
+              "用 MiniAppBrowser 的 open 连接当前实例，优先 observe_bridge 读取业务状态、act_bridge 执行语义动作并核对结果，保留用户草稿，不改源码、不重载、不切换呈现。旧应用缺少接口时使用可用的 DOM/输入或说明限制；自动活动信息不能代替业务状态"
+            ],
+            "workflowEn": [
+              "Use OpenBitFunControl get for feature.miniapps, then inspect-app source to understand business functions, action parameters, and state. Source updates are app enhancements, not prerequisites for routine operation",
+              "Open the current instance with MiniAppBrowser; prefer observe_bridge for business state and act_bridge for semantic operations and result verification. Preserve drafts without editing source, reloading, or changing presentation. For legacy apps use available DOM/input controls or report the gap; activity is not business state"
+            ]
+          },
+          "evidence": [
+            "source:src/crates/assembly/core/src/agentic/tools/implementations/miniapp_browser/mod.rs#MiniAppBrowser",
+            "source:src/crates/contracts/product-domains/src/miniapp/web_surface.rs#MiniAppWebLocator"
           ]
         },
         {
@@ -9853,6 +9878,9 @@
       "capabilityId": "setting.application.general"
     },
     "miniapp_market": {
+      "capabilityId": "feature.miniapps"
+    },
+    "miniapp_web_host": {
       "capabilityId": "feature.miniapps"
     },
     "market_image": {

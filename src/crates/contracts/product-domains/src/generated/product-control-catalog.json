@@ -4,7 +4,7 @@
   "title": "OpenBitFun Playbook",
   "origin": "https://playbook.openbitfun.com",
   "source": "src/shared/interactive-capabilities/catalog.json",
-  "digest": "64bbd3571c458cdd0b67ba9337820e88f9b52d5edf4aefc8320874643dce7a77",
+  "digest": "bff6e24a5bc74bba63fcd2858d7ac58e028d6901e44aece40e5bd885f518f8af",
   "ownerDigest": "4e1ace270088acecbd333d2c8aced0547dddb0fd6bae778bec24f2b0fb48ea91",
   "searchAcceptance": [
     {
@@ -159,10 +159,10 @@
     "features": 23,
     "settings": 21,
     "userFacing": 44,
-    "documentedItems": 334,
+    "documentedItems": 335,
     "controlCoverage": {
       "direct": 52,
-      "delegated": 66,
+      "delegated": 67,
       "interactive": 216,
       "unsupported": 0
     }
@@ -5823,6 +5823,7 @@
         "versions",
         "agent-authoring",
         "agent-market-submit",
+        "agent-operate-app",
         "publishing"
       ],
       "kind": "query",
@@ -6763,6 +6764,51 @@
       },
       "delegateTools": [
         "PublishMiniApp"
+      ],
+      "presentationTarget": {
+        "kind": "action",
+        "actionId": "surface.miniapps.open"
+      }
+    },
+    {
+      "id": "feature.miniapps:delegate:agent-operate-app",
+      "capabilityId": "feature.miniapps",
+      "itemIds": [
+        "agent-operate-app"
+      ],
+      "kind": "delegate",
+      "risk": "execute",
+      "executionHost": "workspaceHost",
+      "availability": {
+        "desktop": {
+          "available": true
+        },
+        "cli": {
+          "available": true
+        },
+        "peer": {
+          "available": true,
+          "requiredCapabilities": [
+            "product_control_v1"
+          ]
+        },
+        "remoteControl": {
+          "available": true
+        },
+        "detachedDispatch": {
+          "available": true
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "delegateTools": [
+        "MiniAppBrowser"
       ],
       "presentationTarget": {
         "kind": "action",
@@ -23055,6 +23101,25 @@
           }
         },
         {
+          "id": "agent-operate-app",
+          "titleZh": "由智能体结合源码控制 Mini App",
+          "titleEn": "Let an agent control a Mini App using its source and live interface",
+          "control": {
+            "kind": "delegate",
+            "tools": [
+              "MiniAppBrowser"
+            ],
+            "workflowZh": [
+              "先用 OpenBitFunControl 的 get 查询 feature.miniapps，并按 schema 用 inspect-app 读取源码，理解业务函数、动作参数和状态；源码更新属于应用改造，不是日常操作的前置步骤",
+              "用 MiniAppBrowser 的 open 连接当前实例，优先 observe_bridge 读取业务状态、act_bridge 执行语义动作并核对结果，保留用户草稿，不改源码、不重载、不切换呈现。旧应用缺少接口时使用可用的 DOM/输入或说明限制；自动活动信息不能代替业务状态"
+            ],
+            "workflowEn": [
+              "Use OpenBitFunControl get for feature.miniapps, then inspect-app source to understand business functions, action parameters, and state. Source updates are app enhancements, not prerequisites for routine operation",
+              "Open the current instance with MiniAppBrowser; prefer observe_bridge for business state and act_bridge for semantic operations and result verification. Preserve drafts without editing source, reloading, or changing presentation. For legacy apps use available DOM/input controls or report the gap; activity is not business state"
+            ]
+          }
+        },
+        {
           "id": "publishing",
           "titleZh": "撤回和审查市场发布，并可渲染幻灯片页面",
           "titleEn": "Withdraw and review market releases, and render slide pages",
@@ -23424,6 +23489,8 @@
         "Let an agent initialize, author, and validate a Mini App",
         "在用户明确要求时由智能体提交已完成的 Mini App 到市场审核",
         "Let an agent submit a completed Mini App for market review when explicitly requested",
+        "由智能体结合源码控制 Mini App",
+        "Let an agent control a Mini App using its source and live interface",
         "撤回和审查市场发布，并可渲染幻灯片页面",
         "Withdraw and review market releases, and render slide pages",
         "打开 Mini Apps",
@@ -23449,7 +23516,12 @@
         "仅在用户明确要求对外提交时调用 PublishMiniApp，并提供已完成应用、许可与发布说明",
         "登录、校验或上传返回可恢复状态时，向用户展示具体下一步，不把待授权或待审核状态报告成发布成功",
         "Call PublishMiniApp only after an explicit request to submit externally, with the completed app, license, and release notes",
-        "When authentication, validation, or upload returns a resumable state, show the exact next step and never report pending authorization or review as published"
+        "When authentication, validation, or upload returns a resumable state, show the exact next step and never report pending authorization or review as published",
+        "MiniAppBrowser",
+        "先用 OpenBitFunControl 的 get 查询 feature.miniapps，并按 schema 用 inspect-app 读取源码，理解业务函数、动作参数和状态；源码更新属于应用改造，不是日常操作的前置步骤",
+        "用 MiniAppBrowser 的 open 连接当前实例，优先 observe_bridge 读取业务状态、act_bridge 执行语义动作并核对结果，保留用户草稿，不改源码、不重载、不切换呈现。旧应用缺少接口时使用可用的 DOM/输入或说明限制；自动活动信息不能代替业务状态",
+        "Use OpenBitFunControl get for feature.miniapps, then inspect-app source to understand business functions, action parameters, and state. Source updates are app enhancements, not prerequisites for routine operation",
+        "Open the current instance with MiniAppBrowser; prefer observe_bridge for business state and act_bridge for semantic operations and result verification. Preserve drafts without editing source, reloading, or changing presentation. For legacy apps use available DOM/input controls or report the gap; activity is not business state"
       ],
       "docsUrl": "https://playbook.openbitfun.com/capabilities/feature.miniapps/"
     },

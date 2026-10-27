@@ -51,6 +51,8 @@ pub mod ls_tool;
 #[cfg(feature = "tools-mcp")]
 pub mod mcp_tools;
 #[cfg(feature = "tools-miniapp")]
+pub mod miniapp_browser;
+#[cfg(feature = "tools-miniapp")]
 pub mod miniapp_finalize_tool;
 #[cfg(feature = "tools-miniapp")]
 pub mod miniapp_init_tool;
@@ -129,6 +131,8 @@ pub use ls_tool::LSTool;
 pub use mcp_tools::{
     GetMCPPromptTool, ListMCPPromptsTool, ListMCPResourcesTool, ReadMCPResourceTool,
 };
+#[cfg(feature = "tools-miniapp")]
+pub use miniapp_browser::MiniAppBrowserTool;
 #[cfg(feature = "tools-miniapp")]
 pub use miniapp_finalize_tool::FinalizeMiniAppTool;
 #[cfg(feature = "tools-miniapp")]

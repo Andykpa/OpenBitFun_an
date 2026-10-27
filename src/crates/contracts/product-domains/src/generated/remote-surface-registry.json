@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "digest": "fnv1a64:d64185f2013646ad",
+  "digest": "fnv1a64:5c6f77b2bee8b982",
   "retiredCommandPrefixes": [
     {
       "prefix": "lsp_",
@@ -4639,6 +4639,18 @@
       }
     },
     {
+      "id": "mark_miniapp_web_surface_ready",
+      "surface": "tauri_command",
+      "remoteWorkspace": "WorkspaceAgnostic",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
+      }
+    },
+    {
       "id": "mark_openbitfun_control_surface_ready",
       "surface": "tauri_command",
       "remoteWorkspace": "WorkspaceAgnostic",
@@ -6236,6 +6248,18 @@
       "id": "report_ide_control_result",
       "surface": "tauri_command",
       "remoteWorkspace": "LegacyUnaudited",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
+      }
+    },
+    {
+      "id": "report_miniapp_web_result",
+      "surface": "tauri_command",
+      "remoteWorkspace": "WorkspaceAgnostic",
       "peer": {
         "kind": "controller_local"
       },
