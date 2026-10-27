@@ -4427,7 +4427,6 @@ mod tests {
                 ..Default::default()
             },
         );
-
         // Persisted Smart intent must not block explicit model selection while
         // routing is unavailable, or be rewritten by this read-only guard.
         for mode in [None, Some("manual"), Some("smart")] {
