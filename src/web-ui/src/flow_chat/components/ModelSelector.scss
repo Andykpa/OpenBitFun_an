@@ -613,8 +613,8 @@ $model-mode-dust-sizes: ();
   }
 
   &__picker-results {
-    // Filtering preserves the list height; only a constrained viewport may shrink it.
-    block-size: calc(var(--openbitfun-space-16) * 4);
+    // Fit short lists while keeping long lists within the existing scroll limit.
+    max-block-size: calc(var(--openbitfun-space-16) * 4);
     flex: 0 1 auto;
     min-block-size: 0;
     min-inline-size: 0;
@@ -622,8 +622,6 @@ $model-mode-dust-sizes: ();
     > .openbitfun-model-selector__level {
       display: flex;
       flex-direction: column;
-      justify-content: center;
-      min-block-size: 100%;
     }
   }
 
