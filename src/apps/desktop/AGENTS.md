@@ -222,6 +222,12 @@ and `cargo build -p openbitfun-desktop`. The host keeps the native file receiver
 enabled for Finder paths; the Wry adapter delegates non-file gestures to WebKit.
 Frontend HMR and synthetic DOM drag tests cannot verify that native boundary.
 
+For unavailable macOS browser URLs and native navigation failures, run the `wkwebview_url` native regression in
+[`third_party/wry/OPENBITFUN-PATCH.md`](../../../third_party/wry/OPENBITFUN-PATCH.md)
+and the Desktop build below. The test covers native URL readback and
+page-load callbacks, navigation failure and explicit recovery; it does not exercise remote hosts. Panic hooks must report
+failures without claiming that returning from the hook catches a panic.
+
 The layered receiver requires the compatibility declaration in
 `windows-app.manifest`; keep it wired through `build.rs` for dev and release.
 After changes to that contract, run
@@ -267,13 +273,14 @@ For the matching startup wiring contract, run
 For native sidebar material and appearance bootstrap, run
 `cargo test -p openbitfun-desktop --no-default-features --lib appearance::startup_appearance_tests`
 and `pnpm --dir src/web-ui run test:run src/infrastructure/appearance/adapters/ThemeTokenAppearanceAdapter.test.ts`.
-For embedded browser preview encoding and target correlation, run
+For embedded browser preview encoding, target correlation and navigation outcomes, run
 `cargo test -p openbitfun-desktop --lib api::browser_api::tests`.
 For conversation-owned browser lifetime, build Desktop and Web UI, then run
 `node tests/e2e/scripts/run-browser-session-isolation.mjs`. Its isolated native
 fixture delays A's model response until B is selected, exercises background
 opening and concurrent reads through real Agent tools, and verifies native
-visibility and retained document state across session switches. It scripts only
+visibility and retained document state across session switches. On macOS it also
+checks navigation failure delivery to tools/UI and recovery by manual navigation. It scripts only
 model HTTP, not browser or session behavior; it does not establish remote coverage.
 After browser command registration changes, also run
 `cargo test -p openbitfun-desktop --lib remote_workspace_policy`.
