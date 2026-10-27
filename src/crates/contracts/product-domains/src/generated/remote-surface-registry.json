@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "digest": "fnv1a64:5c6f77b2bee8b982",
+  "digest": "fnv1a64:e0ac67cc604f9730",
   "retiredCommandPrefixes": [
     {
       "prefix": "lsp_",
@@ -9,6 +9,7 @@
   ],
   "capabilities": {
     "ids": [
+      "model_routing_v1",
       "model_pool_selection_v1",
       "background_result_delivery_v1",
       "dialog_queue_v1",
@@ -45,6 +46,7 @@
       "user_question_interaction_v1"
     ],
     "desktop": [
+      "model_routing_v1",
       "model_pool_selection_v1",
       "background_result_delivery_v1",
       "dialog_queue_v1",
@@ -81,6 +83,7 @@
       "user_question_interaction_v1"
     ],
     "cli": [
+      "model_routing_v1",
       "model_pool_selection_v1",
       "background_result_delivery_v1",
       "dialog_queue_v1",
@@ -3065,6 +3068,17 @@
     },
     {
       "id": "get_model_pools",
+      "surface": "tauri_command",
+      "remoteWorkspace": "WorkspaceAgnostic",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "handled"
+      }
+    },
+    {
+      "id": "get_model_routing_status",
       "surface": "tauri_command",
       "remoteWorkspace": "WorkspaceAgnostic",
       "peer": {

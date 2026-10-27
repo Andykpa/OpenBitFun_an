@@ -266,7 +266,7 @@
       "mark_miniapp_web_surface_ready",
       "mark_openbitfun_control_surface_ready",
       "mark_openbitfun_control_surface_unready",
-    "miniapp_shell_call",
+      "miniapp_shell_call",
       "peer_host_invoke_complete",
       "product_control_invoke",
       "report_miniapp_web_result",
@@ -3193,7 +3193,7 @@
             "command:miniapp_host_call",
             "command:miniapp_worker_call",
             "command:miniapp_runtime_status",
-        "command:miniapp_presentation",
+            "command:miniapp_presentation",
             "command:miniapp_worker_list_running",
             "command:miniapp_worker_stop",
             "command:miniapp_draft_host_call",
@@ -7008,6 +7008,23 @@
             "source:src/web-ui/src/app/scenes/settings/pages/ai/ModelSettingsPage.tsx#custom_headers",
             "source:src/web-ui/src/app/scenes/settings/pages/ai/ModelSettingsPage.tsx#custom_request_body",
             "source:src/web-ui/src/app/scenes/settings/pages/ai/ModelSettingsPage.tsx#skip_ssl_verify"
+          ]
+        },
+        {
+          "id": "smart-routing",
+          "titleZh": "查看智能模式可用状态（暂未开放）",
+          "titleEn": "View smart-mode availability (not released)",
+          "control": {
+            "kind": "open",
+            "reasonCode": "unstructuredInteraction",
+            "reasonZh": "“查看智能模式可用状态（暂未开放）”在模型设置页展示执行宿主的发布可用性；当前版本不提供智能模式配置或开启操作",
+            "reasonEn": "\"View smart-mode availability (not released)\" opens model settings to inspect execution-host availability. This release disables smart-mode configuration and activation."
+          },
+          "evidence": [
+            "command:get_model_routing_status",
+            "source:src/web-ui/src/infrastructure/config/components/ModelRouterSettings.tsx#ModelRouterSettings",
+            "source:src/web-ui/src/flow_chat/components/NativeModelSelectionPanel.tsx#onRoutingSettings",
+            "source:src/web-ui/src/app/scenes/settings/pages/ai/ModelSettingsPage.tsx#settings-smart-mode-configure"
           ]
         },
         {

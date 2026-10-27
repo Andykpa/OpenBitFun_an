@@ -284,6 +284,19 @@ async fn normalize_model_selection(model_id: &str) -> OpenBitFunResult<String> {
         "" | "auto" | "default" => Ok("primary".to_string()),
         "primary" | "fast" => Ok(requested_model_id.to_string()),
         model_config_id => {
+            #[cfg(test)]
+            if let Ok(ai_config) =
+                crate::agentic::session::session_manager::TEST_MODEL_RESOLUTION_AI_CONFIG
+                    .try_with(Clone::clone)
+            {
+                return ai_config
+                    .resolve_model_reference(model_config_id)
+                    .ok_or_else(|| {
+                        OpenBitFunError::Validation(format!(
+                            "Unknown or disabled model configuration ID: {model_config_id}"
+                        ))
+                    });
+            }
             let config_service = get_global_config_service().await.map_err(|error| {
                 OpenBitFunError::AIClient(format!(
                     "Failed to load AI configuration for model update: {error}"
@@ -2097,6 +2110,7 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
             provider_id: None,
             model_config_id: None,
             effective_model_name: None,
+            routing: None,
             first_chunk_ms: None,
             first_visible_output_ms: None,
             stream_duration_ms: None,
@@ -2175,6 +2189,7 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
             provider_id: None,
             model_config_id: None,
             effective_model_name: None,
+            routing: None,
             first_chunk_ms: None,
             first_visible_output_ms: None,
             stream_duration_ms: None,
@@ -2711,11 +2726,32 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
         model_id: &str,
         reasoning_preset: Option<&str>,
     ) -> OpenBitFunResult<()> {
+        self.update_session_model_selection_with_routing(
+            session_id,
+            model_id,
+            reasoning_preset,
+            None,
+        )
+        .await
+    }
+
+    pub async fn update_session_model_selection_with_routing(
+        &self,
+        session_id: &str,
+        model_id: &str,
+        reasoning_preset: Option<&str>,
+        routing_mode: Option<&str>,
+    ) -> OpenBitFunResult<()> {
         self.ensure_session_runtime_ownership(session_id, None)?;
         let normalized_model_id = normalize_model_selection(model_id).await?;
 
         self.session_manager
-            .update_session_model_selection(session_id, &normalized_model_id, reasoning_preset)
+            .update_session_model_selection_with_routing(
+                session_id,
+                &normalized_model_id,
+                reasoning_preset,
+                routing_mode,
+            )
             .await?;
 
         info!(
@@ -2737,13 +2773,34 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
         reasoning_preset: Option<&str>,
         include_internal: bool,
     ) -> OpenBitFunResult<Session> {
+        self.update_session_model_selection_from_storage_path_with_routing(
+            storage_path,
+            session_id,
+            model_id,
+            reasoning_preset,
+            None,
+            include_internal,
+        )
+        .await
+    }
+
+    pub(crate) async fn update_session_model_selection_from_storage_path_with_routing(
+        &self,
+        storage_path: &Path,
+        session_id: &str,
+        model_id: &str,
+        reasoning_preset: Option<&str>,
+        routing_mode: Option<&str>,
+        include_internal: bool,
+    ) -> OpenBitFunResult<Session> {
         let model_id = normalize_model_selection(model_id).await?;
         self.session_manager
-            .update_session_model_selection_in_storage(
+            .update_session_model_selection_in_storage_with_routing(
                 Some(storage_path),
                 session_id,
                 &model_id,
                 reasoning_preset,
+                routing_mode,
                 include_internal,
                 |session| {
                     let workspace = session.config.workspace_path.as_deref().ok_or_else(|| {
@@ -4474,6 +4531,7 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
                 round_index: 0,
                 model_config_id: String::new(),
                 effective_model_name: String::new(),
+                routing: None,
             })
             .await;
             self.emit_event(AgenticEvent::ToolEvent {
@@ -12425,13 +12483,17 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
                         let session_id = session.session_id.clone();
                         match &target {
                             ModelSelection::Model { model_ref }
-                                if session.config.model_pool_id.is_none() =>
+                                if session.config.model_pool_id.is_none()
+                                    && session.config.model_routing.as_deref() != Some("smart") =>
                             {
                                 self.session_manager
                                     .update_session_model_id(&session_id, model_ref)
                                     .await?;
                             }
                             _ => {
+                                // Old smart children keep their saved target on resume.
+                                // An explicit replacement uses the typed transaction so
+                                // the retired child strategy cannot block the update.
                                 self.session_manager
                                     .update_session_model_target(&session_id, &target)
                                     .await?;
@@ -12624,6 +12686,7 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
                 let target = Self::normalize_model_target(target).await?;
                 let mut session_config = snapshot.build_child_session_config(None);
                 apply_session_model_target(&mut session_config, target);
+                session_config.model_routing = None;
                 let mut initial_messages = snapshot.messages.clone();
                 initial_messages.push(Message::internal_reminder(
                     InternalReminderKind::ForkSubagent,
@@ -15066,10 +15129,11 @@ impl openbitfun_runtime_ports::AgentSessionModelPort for ConversationCoordinator
         &self,
         request: openbitfun_runtime_ports::AgentSessionModelSelectionUpdateRequest,
     ) -> openbitfun_runtime_ports::PortResult<()> {
-        self.update_session_model_selection(
+        self.update_session_model_selection_with_routing(
             &request.session_id,
             &request.selection.model_id,
             request.selection.reasoning_preset.as_deref(),
+            request.selection.routing_mode.as_deref(),
         )
         .await
         .map_err(runtime_port_error_preserving_message)
@@ -17196,7 +17260,8 @@ pub(crate) mod tests {
     #[cfg(feature = "remote-workspace")]
     use crate::service::workspace::WorkspaceKind;
     use openbitfun_agent_runtime::permission::AUTO_APPROVE_ASK_CONTEXT_KEY;
-    use openbitfun_config_contracts::model_pool::AgentModelSelections;
+    use openbitfun_config_contracts::model_pool::{AgentModelSelection, AgentModelSelections};
+    use openbitfun_core_types::model_pool::ModelSelection;
     use openbitfun_core_types::{
         SessionExecutionTarget, SessionExecutionTargetKind, WorktreeLifecycle,
     };
@@ -22925,6 +22990,193 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn subagent_model_policy_is_unchanged_by_smart_routing_or_legacy_role_settings() {
+        let (coordinator, manager) = test_coordinator();
+        let workspace = tempfile::tempdir().unwrap();
+        let record = crate::service::workspace::legacy_compat::register_local_fixture(
+            workspace.path(),
+            None,
+        )
+        .await;
+        let parent = manager
+            .create_session(
+                "Parent".into(),
+                "Standard".into(),
+                SessionConfig {
+                    model_id: Some("primary".into()),
+                    model_routing: Some("smart".into()),
+                    workspace_id: Some(record.id),
+                    workspace_path: Some(workspace.path().to_string_lossy().into_owned()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        manager
+            .replace_context_messages(
+                &parent.session_id,
+                vec![Message::user("Inspect the workspace".into())],
+            )
+            .await;
+        let request = |parent_id: &str, fork: bool| SubagentExecutionRequest {
+            task_description: "Inspect files".into(),
+            requested_agent_id: None,
+            context_mode: if fork {
+                SubagentContextMode::Fork
+            } else {
+                SubagentContextMode::Fresh
+            },
+            target_session_id: None,
+            subagent_type: if fork { None } else { Some("Explore".into()) },
+            logical_subagent_type: None,
+            continuation_policy: SessionContinuationPolicy::Reusable,
+            model_binding_policy: SessionModelBindingPolicy::Mutable,
+            workspace_path: None,
+            model_id: None,
+            inherit_parent_model: false,
+            subagent_parent_info: SubagentParentInfo {
+                session_id: parent_id.into(),
+                dialog_turn_id: "turn".into(),
+                tool_call_id: "task".into(),
+            },
+            context: HashMap::new(),
+            permission_runtime_ceiling: PermissionRuntimeCeiling::default(),
+            delegation_policy: DelegationPolicy::top_level().spawn_child(),
+            external_generation_lease: None,
+        };
+        let mut manual_config = parent.config.clone();
+        manual_config.model_routing = Some("manual".into());
+        let manual = manager
+            .create_session("Manual".into(), "Standard".into(), manual_config)
+            .await
+            .unwrap();
+        manager
+            .replace_context_messages(
+                &manual.session_id,
+                vec![Message::user("Inspect the workspace".into())],
+            )
+            .await;
+        let mut ai = AIConfig::default();
+        // Previously saved smart-role values must not override existing defaults,
+        // require an economy model, or change fresh/fork/nested delegation.
+        ai.model_routing.subagent_model = "economy".into();
+        TEST_MODEL_RESOLUTION_AI_CONFIG
+            .scope(ai, async {
+                for parent in [&parent, &manual] {
+                    TEST_AGENT_MODEL_DEFAULTS
+                        .scope(AgentModelSelections::default(), async {
+                            let fresh = coordinator
+                                .resolve_hidden_subagent_execution_request(request(
+                                    &parent.session_id,
+                                    false,
+                                ))
+                                .await
+                                .unwrap();
+                            assert_eq!(fresh.session_config.model_id.as_deref(), Some("fast"));
+                            let forked = coordinator
+                                .resolve_hidden_subagent_execution_request(request(
+                                    &parent.session_id,
+                                    true,
+                                ))
+                                .await
+                                .unwrap();
+                            assert_eq!(forked.session_config.model_id.as_deref(), Some("primary"));
+                            let mut nested_config = fresh.session_config;
+                            nested_config.delegation_model_routing = Some("smart".into());
+                            let nested_parent = manager
+                                .create_transient_session_with_id_and_details(
+                                    None,
+                                    "Nested parent".into(),
+                                    "Explore".into(),
+                                    nested_config,
+                                    Some(format!("session-{}", parent.session_id)),
+                                    SessionKind::Subagent,
+                                )
+                                .await
+                                .unwrap();
+                            let nested = coordinator
+                                .resolve_hidden_subagent_execution_request(request(
+                                    &nested_parent.session_id,
+                                    false,
+                                ))
+                                .await
+                                .unwrap();
+                            assert_eq!(nested.session_config.model_id.as_deref(), Some("fast"));
+                        })
+                        .await;
+                    let mut defaults = AgentModelSelections::default();
+                    defaults.subagents.builtin.insert(
+                        "Explore".into(),
+                        AgentModelSelection::Model {
+                            model_ref: "primary".into(),
+                        },
+                    );
+                    defaults.subagents.fork = AgentModelSelection::Model {
+                        model_ref: "fast".into(),
+                    };
+                    TEST_AGENT_MODEL_DEFAULTS
+                        .scope(defaults, async {
+                            let configured = coordinator
+                                .resolve_fresh_subagent_model_target(
+                                    None,
+                                    false,
+                                    "Explore",
+                                    &parent.session_id,
+                                )
+                                .await
+                                .unwrap();
+                            assert_eq!(
+                                configured,
+                                ModelSelection::Model {
+                                    model_ref: "primary".into()
+                                }
+                            );
+                            let explicit = coordinator
+                                .resolve_fresh_subagent_model_target(
+                                    Some("fast"),
+                                    false,
+                                    "Explore",
+                                    &parent.session_id,
+                                )
+                                .await
+                                .unwrap();
+                            assert_eq!(
+                                explicit,
+                                ModelSelection::Model {
+                                    model_ref: "fast".into()
+                                }
+                            );
+                            let inherited = coordinator
+                                .resolve_fresh_subagent_model_target(
+                                    None,
+                                    true,
+                                    "Explore",
+                                    &parent.session_id,
+                                )
+                                .await
+                                .unwrap();
+                            assert_eq!(
+                                inherited,
+                                ModelSelection::Model {
+                                    model_ref: "primary".into()
+                                }
+                            );
+                            let forked = coordinator
+                                .resolve_hidden_subagent_execution_request(request(
+                                    &parent.session_id,
+                                    true,
+                                ))
+                                .await
+                                .unwrap();
+                            assert_eq!(forked.session_config.model_id.as_deref(), Some("fast"));
+                        })
+                        .await;
+                }
+            })
+            .await;
+    }
+
+    #[tokio::test]
     async fn fresh_subagent_request_can_explicitly_inherit_parent_model() {
         let (coordinator, session_manager) = test_coordinator();
         let workspace_path = std::env::temp_dir().join(format!(
@@ -23366,6 +23618,33 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn reused_subagent_send_input_updates_requested_and_inherited_model() {
+        assert_reused_subagent_model_selection(None).await;
+    }
+
+    #[tokio::test]
+    async fn reused_subagent_legacy_smart_keeps_target_until_explicit_model_replacement() {
+        // Typed target replacement validates the selected configured model.
+        // Supply the same host-owned configuration a real runtime has loaded.
+        let mut config = AIConfig::default();
+        config.models = ["main-model", "worker-model", "parent-model"]
+            .into_iter()
+            .map(|id| AIModelConfig {
+                id: id.into(),
+                enabled: true,
+                ..Default::default()
+            })
+            .collect();
+        config.default_models.primary = Some("main-model".into());
+        config.default_models.fast = Some("worker-model".into());
+        TEST_MODEL_RESOLUTION_AI_CONFIG
+            .scope(
+                config,
+                assert_reused_subagent_model_selection(Some("smart")),
+            )
+            .await;
+    }
+
+    async fn assert_reused_subagent_model_selection(legacy_routing: Option<&str>) {
         let (coordinator, session_manager) = test_persistent_coordinator();
         let workspace_path = std::env::temp_dir().join(format!(
             "openbitfun-reused-subagent-model-test-{}",
@@ -23403,6 +23682,8 @@ pub(crate) mod tests {
                 SessionConfig {
                     tool_presentation_mode: Default::default(),
                     model_id: Some("parent-model".to_string()),
+                    model_routing: legacy_routing.map(str::to_owned),
+                    delegation_model_routing: legacy_routing.map(str::to_owned),
                     workspace_path: Some(workspace_path.to_string_lossy().into_owned()),
                     ..Default::default()
                 },
@@ -23456,12 +23737,49 @@ pub(crate) mod tests {
             external_generation_lease: None,
         };
 
+        let mut unchanged_request = request.clone();
+        unchanged_request.model_id = None;
+        let unchanged = coordinator
+            .resolve_hidden_subagent_execution_request(unchanged_request)
+            .await
+            .expect("restored child should retain its saved target without a model override");
+        assert_eq!(
+            unchanged.session_config.model_id.as_deref(),
+            Some("parent-model")
+        );
+        assert_eq!(
+            unchanged.session_config.model_routing.as_deref(),
+            legacy_routing
+        );
+        assert_eq!(
+            unchanged.session_config.delegation_model_routing.as_deref(),
+            legacy_routing
+        );
+        let restored = session_manager
+            .get_session(&subagent_session.session_id)
+            .unwrap();
+        assert!(
+            !crate::agentic::execution::round_model_routing::configuration::session_eligible(
+                &restored
+            )
+        );
+
         let prepared = coordinator
             .prepare_subagent_execution_request(request)
             .await
             .expect("send_input request should prepare with a requested model");
 
         assert_eq!(prepared.session_config.model_id.as_deref(), Some("fast"));
+        if legacy_routing.is_some() {
+            assert_eq!(
+                prepared.session_config.model_routing.as_deref(),
+                Some("manual")
+            );
+            assert_eq!(
+                prepared.session_config.delegation_model_routing.as_deref(),
+                legacy_routing
+            );
+        }
         assert_eq!(
             prepared
                 .context
