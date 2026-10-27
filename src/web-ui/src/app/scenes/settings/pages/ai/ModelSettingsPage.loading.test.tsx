@@ -381,6 +381,57 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(selectors()[0].textContent).toContain(model.model_name);
   });
 
+  it('projects an economy-only default onto its model card and finds it by the role label', async () => {
+    const economyLabel = String(i18nService.getI18nInstance().t('core.economy.label', { ns: 'settings/default-model' }));
+    const otherModel: AIModelConfig = { ...model, id: 'unassigned-model', model_name: 'unassigned-model' };
+    await act(async () => root.render(<ModelSettingsPage />));
+    await act(async () => {
+      reads.get('ai.models')!.resolve([model, otherModel]);
+      reads.get('ai.default_models')!.resolve({ economy: model.id });
+    });
+    const pool = container.querySelector<HTMLElement>('[data-testid="settings-model-pool"]')!;
+    const card = pool.querySelector<HTMLElement>(`[data-config-id="${model.id}"]`)!;
+    expect([...card.querySelectorAll('.openbitfun-model-settings__pool-tags [data-openbitfun-component="status-pill"]')]
+      .map(badge => badge.textContent)).toEqual([economyLabel]);
+    expect(pool.querySelectorAll('[data-testid="settings-model-row"]')).toHaveLength(2);
+
+    const search = container.querySelector<HTMLInputElement>(`input[aria-label="${copy('pool.search')}"]`)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, economyLabel);
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect([...container.querySelectorAll('[data-testid="settings-model-pool"] [data-testid="settings-model-row"]')]
+      .map(row => row.getAttribute('data-config-id'))).toEqual([model.id]);
+  });
+
+  it('projects all five default roles once in a shared row outside the model name', async () => {
+    const roleLabels = [
+      'core.primary.label', 'core.fast.label', 'core.economy.label',
+      'optional.capabilities.image_understanding.label', 'optional.capabilities.speech_recognition.label',
+    ].map(key => String(i18nService.getI18nInstance().t(key, { ns: 'settings/default-model' })));
+    const taggedModel: AIModelConfig = { ...model,
+      metadata: { user_tags: [roleLabels[2]] }, recommended_for: [roleLabels[3]],
+    };
+    await act(async () => root.render(<ModelSettingsPage />));
+    await act(async () => {
+      reads.get('ai.models')!.resolve([taggedModel]);
+      reads.get('ai.default_models')!.resolve({ primary: model.id, fast: model.id, economy: model.id,
+        image_understanding: model.id, speech_recognition: model.id });
+    });
+    const card = container.querySelector<HTMLElement>(`[data-testid="settings-model-pool"] [data-config-id="${model.id}"]`)!;
+    const badges = [...card.querySelectorAll('.openbitfun-model-settings__pool-tags [data-openbitfun-component="status-pill"]')];
+    expect(badges.map(badge => badge.textContent)).toEqual(roleLabels);
+    const title = card.querySelector<HTMLElement>('[data-openbitfun-part="title"]')!;
+    const description = card.querySelector<HTMLElement>('[data-openbitfun-part="description"]')!;
+    const roleRow = card.querySelector<HTMLElement>('.openbitfun-model-settings__pool-tags')!;
+    expect(title.textContent).toBe(model.model_name);
+    expect(title.querySelector('[data-openbitfun-component="status-pill"]')).toBeNull();
+    expect(roleRow.closest('[data-openbitfun-part="description"]')).toBe(description);
+    expect(title.contains(roleRow)).toBe(false);
+    expect(description.querySelectorAll('.openbitfun-model-settings__pool-tags')).toHaveLength(1);
+    expect(badges.every(badge => description.contains(badge))).toBe(true);
+  });
+
   it('opens the shared smart configuration dialog and saves without enabling routing', async () => {
     let routing: ModelRoutingConfig = { default_mode: 'manual', router_model_id: null,
       simple_threshold: .75, timeout_ms: 10000, summary_enabled: false };

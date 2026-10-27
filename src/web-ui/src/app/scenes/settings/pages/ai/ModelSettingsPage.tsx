@@ -2638,6 +2638,7 @@ const ModelSettingsPage: React.FC = () => {
   const poolRoles = useMemo(() => [
     { modelId: poolDefaults.primary, label: tDefault('core.primary.label') },
     { modelId: poolDefaults.fast, label: tDefault('core.fast.label') },
+    { modelId: poolDefaults.economy, label: tDefault('core.economy.label') },
     { modelId: poolDefaults.image_understanding, label: tDefault('optional.capabilities.image_understanding.label') },
     { modelId: poolDefaults.speech_recognition, label: tDefault('optional.capabilities.speech_recognition.label') },
   ], [poolDefaults, tDefault]);
@@ -4456,15 +4457,15 @@ const ModelSettingsPage: React.FC = () => {
               title={(
                 <div className="openbitfun-model-settings__pool-card-title">
                   <OverflowText>{modelLabel}</OverflowText>
-                  {(roles.length > 0 || tags.length > 0) && (
-                    <div className="openbitfun-model-settings__pool-tags">
-                      {roles.map(role => <StatusPill key={role.label} tone="neutral">{role.label}</StatusPill>)}
-                      {tags.map(tag => <StatusPill key={tag} tone="neutral">{tag}</StatusPill>)}
-                    </div>
-                  )}
                   {(isTesting || testResult) && badge}
                 </div>
               )}
+              description={(roles.length > 0 || tags.length > 0) ? (
+                <div className="openbitfun-model-settings__pool-tags">
+                  {roles.map(role => <StatusPill key={role.label} tone="neutral">{role.label}</StatusPill>)}
+                  {tags.map(tag => <StatusPill key={tag} tone="neutral">{tag}</StatusPill>)}
+                </div>
+              ) : undefined}
             />
             <CardFooter align="between" className="openbitfun-model-settings__pool-card-footer">
               <OverflowText className="openbitfun-model-settings__pool-card-source">
