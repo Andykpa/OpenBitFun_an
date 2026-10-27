@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "digest": "fnv1a64:b4df35d09b4bb302",
+  "digest": "fnv1a64:5c6f77b2bee8b982",
   "retiredCommandPrefixes": [
     {
       "prefix": "lsp_",
@@ -8207,6 +8207,18 @@
       "id": "test_ai_connection",
       "surface": "tauri_command",
       "remoteWorkspace": "LegacyUnaudited",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no handler for this command"
+      }
+    },
+    {
+      "id": "test_image_generation_service",
+      "surface": "tauri_command",
+      "remoteWorkspace": "WorkspaceAgnostic",
       "peer": {
         "kind": "proxied"
       },
