@@ -375,6 +375,16 @@ existing Agent tool test assembly):
 cargo test --locked -p openbitfun-core --no-default-features --features mcp-runtime,git --lib agentic::tools::product_runtime::
 ```
 
+For MCP ProductControl discovery, shared GUI/Agent persistence, runtime failures,
+and headless/remote-path refusal:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features mcp-runtime,git --lib mcp_control_
+```
+
+These fixtures use temporary storage and local lifecycle state; they do not
+exercise live SSH, relay, Peer, or Detached Dispatch connections.
+
 User Agent directory watching and registry regressions (omit `file-watch` to
 exercise query-time discovery fallback):
 

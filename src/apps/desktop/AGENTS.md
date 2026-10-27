@@ -154,6 +154,10 @@ After command registration changes, also run the `remote_workspace_policy` filte
 For optional workspace catalog query payload compatibility, run
 `cargo test --locked -p openbitfun-desktop --lib api::session_api::catalog_request_tests`.
 
+For MCP ProductControl provider wiring, run
+`cargo test --locked -p openbitfun-desktop --lib openbitfun_control_host::tests`.
+The shared MCP behavior fixtures are documented in the Core guide.
+
 For model selector request compatibility and configuration effect routing:
 
 ```bash
