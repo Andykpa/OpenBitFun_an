@@ -254,6 +254,24 @@ public Zen/Go API-key routes. Legacy accounts lazily refresh missing routing
 metadata with credential revision checks, preserving their tokens and models.
 A failed account request (including 404) must not fall back to public OAuth
 inference. Account route metadata must not contain keys or token material.
+
+Router HTTP serialization, classifier parsing, authentication, and failures:
+
+```bash
+cargo test --locked -p openbitfun-ai-adapters --lib round_router
+```
+
+`round_router` owns the OpenAI-compatible wire protocol and returns classifier
+facts. Core retains thresholds, model-slot selection, context lifecycle, traces,
+and fallback; the adapter must not depend on Core config or Agent sessions.
+
+Local Router token counting (optional `local-tokenizer`, no model downloads):
+
+```bash
+cargo test --locked -p openbitfun-ai-adapters --features local-tokenizer --lib local_tokenizer
+```
+
+Subscription model discovery must use the authenticated account catalog.
 Antigravity uses `v1internal:fetchAvailableModels`; preserve returned wire IDs
 and restrict alias translation to known legacy names. Codex's `supported_in_api`
 flag describes the public API, not subscription availability. OpenCode public catalog

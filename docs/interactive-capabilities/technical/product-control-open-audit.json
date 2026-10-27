@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "bff6e24a5bc74bba63fcd2858d7ac58e028d6901e44aece40e5bd885f518f8af",
-  "count": 216,
+  "catalogDigest": "35dba9468e5da0ed3e2b776f876ba1bb4725e58da8738468841fdcc672d243f1",
+  "count": 217,
   "reasonCounts": {
     "externalAuth": 4,
     "secretEntry": 5,
-    "unstructuredInteraction": 182,
+    "unstructuredInteraction": 183,
     "visualSelection": 25
   },
   "entries": [
@@ -2857,6 +2857,25 @@
         "source:src/web-ui/src/app/scenes/settings/pages/ai/ModelSettingsPage.tsx#custom_headers",
         "source:src/web-ui/src/app/scenes/settings/pages/ai/ModelSettingsPage.tsx#custom_request_body",
         "source:src/web-ui/src/app/scenes/settings/pages/ai/ModelSettingsPage.tsx#skip_ssl_verify"
+      ]
+    },
+    {
+      "capabilityId": "setting.ai.models",
+      "itemId": "smart-routing",
+      "titleZh": "查看智能模式可用状态（暂未开放）",
+      "titleEn": "View smart-mode availability (not released)",
+      "reasonCode": "unstructuredInteraction",
+      "reasonZh": "“查看智能模式可用状态（暂未开放）”在模型设置页展示执行宿主的发布可用性；当前版本不提供智能模式配置或开启操作",
+      "reasonEn": "\"View smart-mode availability (not released)\" opens model settings to inspect execution-host availability. This release disables smart-mode configuration and activation.",
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "ai.models"
+      },
+      "evidence": [
+        "command:get_model_routing_status",
+        "source:src/web-ui/src/infrastructure/config/components/ModelRouterSettings.tsx#ModelRouterSettings",
+        "source:src/web-ui/src/flow_chat/components/NativeModelSelectionPanel.tsx#onRoutingSettings",
+        "source:src/web-ui/src/app/scenes/settings/pages/ai/ModelSettingsPage.tsx#settings-smart-mode-configure"
       ]
     },
     {

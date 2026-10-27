@@ -1,11 +1,11 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "bff6e24a5bc74bba63fcd2858d7ac58e028d6901e44aece40e5bd885f518f8af",
-  "commandCount": 704,
+  "catalogDigest": "35dba9468e5da0ed3e2b776f876ba1bb4725e58da8738468841fdcc672d243f1",
+  "commandCount": 705,
   "coverage": {
-    "commandCount": 704,
-    "documentedCommandCount": 645,
+    "commandCount": 705,
+    "documentedCommandCount": 646,
     "implementationCommandCount": 59,
     "implementationDigest": "0bce9fbda3e8b517e409aec124ca0f2c3b36a7954d996400d9ccf405194dc768"
   },
@@ -3813,6 +3813,22 @@
       "rustPath": "api::model_pool_api::get_model_pools",
       "sourceFile": "src/apps/desktop/src/api/model_pool_api.rs",
       "signature": "fn get_model_pools() -> Result<ModelPoolDocument, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
+      "id": "get_model_routing_status",
+      "moduleId": "agentic",
+      "capabilityId": "setting.ai.models",
+      "capabilityIds": [
+        "setting.ai.models"
+      ],
+      "documentedItemIds": [
+        "setting.ai.models:smart-routing"
+      ],
+      "visibility": "documented",
+      "rustPath": "api::agentic_api::get_model_routing_status",
+      "sourceFile": "src/apps/desktop/src/api/agentic_api.rs",
+      "signature": "fn get_model_routing_status( runtime: State<'_, DesktopRuntimeContext>, coordinator: State<'_, Arc<ConversationCoordinator>>, request: ModelRoutingStatusRequest, ) -> Result< openbitfun_core::agentic::execution::round_model_routing::configuration::ModelRoutingStatus, String, >",
       "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {

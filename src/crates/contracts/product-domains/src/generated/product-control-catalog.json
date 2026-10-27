@@ -4,7 +4,7 @@
   "title": "OpenBitFun Playbook",
   "origin": "https://playbook.openbitfun.com",
   "source": "src/shared/interactive-capabilities/catalog.json",
-  "digest": "bff6e24a5bc74bba63fcd2858d7ac58e028d6901e44aece40e5bd885f518f8af",
+  "digest": "35dba9468e5da0ed3e2b776f876ba1bb4725e58da8738468841fdcc672d243f1",
   "ownerDigest": "4e1ace270088acecbd333d2c8aced0547dddb0fd6bae778bec24f2b0fb48ea91",
   "searchAcceptance": [
     {
@@ -159,11 +159,11 @@
     "features": 23,
     "settings": 21,
     "userFacing": 44,
-    "documentedItems": 335,
+    "documentedItems": 336,
     "controlCoverage": {
       "direct": 52,
       "delegated": 67,
-      "interactive": 216,
+      "interactive": 217,
       "unsupported": 0
     }
   },
@@ -14062,6 +14062,7 @@
         "available-models",
         "model-catalog",
         "advanced-request",
+        "smart-routing",
         "connection-test",
         "model-pools"
       ],
@@ -14606,6 +14607,52 @@
         "additionalProperties": true
       },
       "openReason": "secretEntry",
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "ai.models"
+      }
+    },
+    {
+      "id": "setting.ai.models:open:smart-routing",
+      "capabilityId": "setting.ai.models",
+      "itemIds": [
+        "smart-routing"
+      ],
+      "kind": "open",
+      "risk": "ui",
+      "executionHost": "presentationSurface",
+      "availability": {
+        "desktop": {
+          "available": true
+        },
+        "cli": {
+          "available": false,
+          "reason": "This delivery profile has no live presentation surface"
+        },
+        "peer": {
+          "available": true,
+          "requiredCapabilities": [
+            "product_control_v1",
+            "product_control_presentation_v1"
+          ]
+        },
+        "remoteControl": {
+          "available": true
+        },
+        "detachedDispatch": {
+          "available": false,
+          "reason": "This delivery profile has no live presentation surface"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "openReason": "unstructuredInteraction",
       "presentationTarget": {
         "kind": "settings",
         "pageId": "ai.models"
@@ -27945,6 +27992,17 @@
           }
         },
         {
+          "id": "smart-routing",
+          "titleZh": "查看智能模式可用状态（暂未开放）",
+          "titleEn": "View smart-mode availability (not released)",
+          "control": {
+            "kind": "open",
+            "reasonCode": "unstructuredInteraction",
+            "reasonZh": "“查看智能模式可用状态（暂未开放）”在模型设置页展示执行宿主的发布可用性；当前版本不提供智能模式配置或开启操作",
+            "reasonEn": "\"View smart-mode availability (not released)\" opens model settings to inspect execution-host availability. This release disables smart-mode configuration and activation."
+          }
+        },
+        {
           "id": "connection-test",
           "titleZh": "测试模型连接或图像生成，并刷新运行时客户端",
           "titleEn": "Test model connections or image generation and refresh the runtime client",
@@ -28074,6 +28132,8 @@
         "Inspect models.dev catalog status, refresh it manually, and reveal its local cache",
         "为供应商添加自定义 Header、请求体字段与 SSL 行为",
         "Add custom headers, request-body fields, and SSL behavior per provider",
+        "查看智能模式可用状态（暂未开放）",
+        "View smart-mode availability (not released)",
         "测试模型连接或图像生成，并刷新运行时客户端",
         "Test model connections or image generation and refresh the runtime client",
         "管理模型池、路由策略与会话模型选择",
