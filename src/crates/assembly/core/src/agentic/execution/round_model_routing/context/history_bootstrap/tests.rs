@@ -9,6 +9,7 @@ struct MemoryHistory {
     turns: HashMap<String, usize>,
     calls: Mutex<Vec<String>>,
     fail: bool,
+    kind: RouterEntryKind,
 }
 
 impl MemoryHistory {
@@ -17,6 +18,7 @@ impl MemoryHistory {
             turns: HashMap::from([(turn.into(), observations)]),
             calls: Mutex::new(Vec::new()),
             fail: false,
+            kind: RouterEntryKind::Round,
         })
     }
 }
@@ -36,7 +38,7 @@ impl RouterHistorySource for MemoryHistory {
             .ok_or_else(|| OpenBitFunError::Session("Unknown historical turn".into()))?;
         Ok((0..*count).map(|index| HistoryObservation {
             source_id: format!("{turn_id}/observation/{index}"),
-            kind: RouterEntryKind::Round,
+            kind: self.kind,
             content: json!({
                 "round_id": format!("{turn_id}-{index}"),
                 "assistant": {"text": format!("FACT_{turn_id}_{index:03}: {}", "verified parser evidence ".repeat(12)), "tool_calls": []},
@@ -191,6 +193,154 @@ async fn more_than_two_hundred_observations_recover_with_bounded_prompts_and_com
             .contains(&format!("FACT_older_{index:03}")));
     }
     assert_eq!(serde_json::to_value(&messages).unwrap(), original);
+}
+
+#[tokio::test]
+async fn model_budget_batches_more_than_live_capacity_in_one_historical_request() {
+    let mut provider = RecordingSummary::new();
+    Arc::get_mut(&mut provider).unwrap().budget = 65_536;
+    let mut context = context(provider.clone());
+    context.prepare_history(MemoryHistory::new("older", 250), &lineage("older"), &[]);
+    wait_done(&context).await;
+    let update = context
+        .history_bootstrap
+        .as_ref()
+        .unwrap()
+        .updates
+        .borrow()
+        .clone();
+    assert!(update.error.is_none());
+    assert!(update.state.history_bootstrap.as_ref().unwrap().complete);
+    assert_eq!(update.state.omitted_through, 0);
+    assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+    let prompt = provider.prompts.lock().unwrap()[0].clone();
+    for index in 0..247 {
+        assert!(prompt.contains(&format!("FACT_older_{index:03}")));
+    }
+    context.poll_history_bootstrap();
+    assert!(!context.render().history_truncated);
+    assert_eq!(context.state.entries.len(), 3);
+    assert_eq!(context.state.history_coverage, vec!["older"]);
+}
+
+#[tokio::test]
+async fn cancelled_large_checkpoint_queue_resumes_under_a_smaller_model_budget() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut provider = RecordingSummary::new();
+    Arc::get_mut(&mut provider).unwrap().budget = 65_536;
+    Arc::get_mut(&mut provider).unwrap().block_from = Some(1);
+    let mut original = context(provider.clone());
+    let session_id = original.state.session_id.clone();
+    let visible = lineage("older");
+    let cancellation = tokio_util::sync::CancellationToken::new();
+    original.set_history_cancellation(cancellation.clone());
+    original
+        .restore_session(Some(directory.path().to_path_buf()), &visible, &[])
+        .await;
+    original.prepare_history(MemoryHistory::new("older", 250), &visible, &[]);
+    wait_calls(&provider, 1).await;
+    cancellation.cancel();
+    wait_done(&original).await;
+    assert!(original
+        .history_bootstrap
+        .as_ref()
+        .unwrap()
+        .updates
+        .borrow()
+        .error
+        .is_some());
+    drop(original);
+
+    let healthy = RecordingSummary::new();
+    let mut recovered = context(healthy.clone());
+    recovered.state.session_id = session_id;
+    recovered
+        .restore_session(Some(directory.path().to_path_buf()), &visible, &[])
+        .await;
+    assert_eq!(recovered.state.entries.len(), 250);
+    assert_eq!(recovered.state.omitted_through, 0);
+    let progress = recovered.state.history_bootstrap.as_ref().unwrap();
+    assert_eq!((progress.turn_cursor, progress.entry_cursor), (1, 0));
+    assert!(!progress.complete);
+    let source = MemoryHistory::new("older", 250);
+    recovered.prepare_history(source.clone(), &visible, &[]);
+    wait_done(&recovered).await;
+    recovered.poll_history_bootstrap();
+    assert!(source.calls.lock().unwrap().is_empty());
+    assert!(!recovered.render().history_truncated);
+    assert_eq!(recovered.state.omitted_through, 0);
+    assert_eq!(recovered.state.entries.len(), 3);
+    assert_eq!(recovered.state.history_coverage, vec!["older"]);
+    assert!(healthy.calls.load(Ordering::SeqCst) > 1);
+    let sent = healthy.prompts.lock().unwrap().join("\n");
+    for index in 0..247 {
+        assert!(sent.contains(&format!("FACT_older_{index:03}")));
+    }
+}
+
+#[tokio::test]
+async fn historical_completion_merges_only_when_the_live_suffix_fits_its_original_capacity() {
+    for live_count in [125, 126, 129] {
+        let mut provider = RecordingSummary::new();
+        Arc::get_mut(&mut provider).unwrap().budget = 65_536;
+        Arc::get_mut(&mut provider).unwrap().block_from = Some(1);
+        let mut context = context(provider.clone());
+        context.prepare_history(MemoryHistory::new("older", 250), &lineage("older"), &[]);
+        wait_calls(&provider, 1).await;
+        for index in 0..live_count {
+            context.state.append(
+                format!("live-{index}"),
+                RouterEntryKind::Round,
+                json!({"round_id": index, "assistant": {"text": format!("LIVE_FACT_{index}"), "tool_calls": []}, "tool_results": []}),
+                context.factory.counter.as_ref(),
+            );
+        }
+        provider.release.add_permits(1);
+        wait_done(&context).await;
+        context.poll_history_bootstrap();
+        if live_count == 125 {
+            assert!(context.history_bootstrap.is_none());
+            assert_eq!(context.state.entries.len(), 128);
+            assert_eq!(context.state.omitted_through, 0);
+            assert_eq!(context.state.history_coverage, vec!["older"]);
+            let ready = context.render().user_prompt;
+            for index in 0..live_count {
+                assert!(ready.contains(&format!("LIVE_FACT_{index}")));
+            }
+        } else {
+            assert!(context.history_bootstrap.is_some());
+            assert!(context.state.history_coverage.is_empty());
+            assert!(context.render().history_truncated);
+            assert_eq!(context.state.entries.len(), live_count.min(128));
+            assert_eq!(context.state.omitted_through != 0, live_count > 128);
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_historical_feedback_tail_larger_than_live_capacity_is_summarized_before_merge() {
+    let mut provider = RecordingSummary::new();
+    Arc::get_mut(&mut provider).unwrap().budget = 65_536;
+    let mut context = context(provider.clone());
+    let mut source = MemoryHistory::new("older", 200);
+    Arc::get_mut(&mut source).unwrap().kind = RouterEntryKind::Feedback;
+    context.prepare_history(source, &lineage("older"), &[]);
+    wait_done(&context).await;
+    let update = context
+        .history_bootstrap
+        .as_ref()
+        .unwrap()
+        .updates
+        .borrow()
+        .clone();
+    assert!(update.error.is_none());
+    assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+    assert!(update.state.entries.is_empty());
+    assert_eq!(update.state.summarized_through, 200);
+    context.poll_history_bootstrap();
+    assert!(!context.render().history_truncated);
+    assert_eq!(context.state.omitted_through, 0);
+    assert_eq!(context.state.history_coverage, vec!["older"]);
 }
 
 #[tokio::test]

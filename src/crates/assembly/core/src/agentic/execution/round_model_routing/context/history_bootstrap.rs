@@ -2,6 +2,7 @@
 
 use super::history_source::RouterHistorySource;
 use super::*;
+use openbitfun_agent_runtime::router_context::RouterHistoryBatch;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, Weak};
 
@@ -271,6 +272,7 @@ async fn rebuild(
         .input_budget(&factory.config)
         .await?;
     publish(state, checkpoint, updates).await?;
+    let mut batch = RouterHistoryBatch::new(state, budget);
     loop {
         if !*cancelled.borrow() || lease.1.is_cancelled() {
             return Err(OpenBitFunError::Session(
@@ -292,35 +294,27 @@ async fn rebuild(
             ));
         }
         for (index, observation) in observations.into_iter().enumerate().skip(start) {
-            if state.observation_buffer_full() {
-                let recent = retained_recent(state, factory);
-                summarize_prefix(
-                    state,
-                    factory,
-                    budget,
-                    recent,
-                    root_session_id,
-                    &mut cancelled,
-                    &lease.1,
-                )
-                .await?;
-                publish(state, checkpoint, updates).await?;
+            if !*cancelled.borrow() || lease.1.is_cancelled() {
+                return Err(OpenBitFunError::Session(
+                    "Router history preparation superseded or cancelled".into(),
+                ));
             }
-            state.append(
-                observation.source_id,
+            // Historical import has its own model-token and serialized-byte
+            // budget. Never route it through the live 128-entry eviction path.
+            // Retry this exact observation after every accepted prefix; its
+            // durable source cursor advances only once append succeeds.
+            while !batch.try_append(
+                state,
+                &observation.source_id,
                 observation.kind,
-                observation.content,
+                &observation.content,
                 factory.counter.as_ref(),
-            );
-            state.history_bootstrap.as_mut().unwrap().entry_cursor = index + 1;
-            if state.observation_buffer_full()
-                || state.pending_tokens(0) >= budget.saturating_mul(3) / 4
-            {
+            ) {
                 let recent = retained_recent(state, factory);
                 summarize_prefix(
                     state,
                     factory,
-                    budget,
+                    &batch,
                     recent,
                     root_session_id,
                     &mut cancelled,
@@ -328,7 +322,9 @@ async fn rebuild(
                 )
                 .await?;
                 publish(state, checkpoint, updates).await?;
+                batch = RouterHistoryBatch::new(state, budget);
             }
+            state.history_bootstrap.as_mut().unwrap().entry_cursor = index + 1;
         }
         let progress = state.history_bootstrap.as_mut().unwrap();
         progress.turn_cursor += 1;
@@ -348,7 +344,7 @@ async fn rebuild(
             prepared.input_tokens >= factory.config.max_input_tokens.saturating_mul(3) / 4;
         let feedback_prefix =
             state.observed_rounds == 0 && state.entries.len() > factory.recent_rounds;
-        if pending == 0 && !pressure && !feedback_prefix {
+        if pending == 0 && !pressure && !feedback_prefix && !state.observation_buffer_full() {
             break;
         }
         if state.entries.is_empty() {
@@ -362,7 +358,7 @@ async fn rebuild(
         summarize_prefix(
             state,
             factory,
-            budget,
+            &batch,
             recent,
             root_session_id,
             &mut cancelled,
@@ -386,14 +382,14 @@ fn retained_recent(state: &RouterContextState, factory: &RouterContextFactory) -
 async fn summarize_prefix(
     state: &mut RouterContextState,
     factory: &RouterContextFactory,
-    budget: usize,
+    batch: &RouterHistoryBatch,
     recent_rounds: usize,
     root_session_id: &str,
     cancelled: &mut watch::Receiver<bool>,
     turn_cancel: &tokio_util::sync::CancellationToken,
 ) -> OpenBitFunResult<()> {
     // A legacy local tokenizer belongs to the Router, not the economy model.
-    let work = state.summary_work_bounded(recent_rounds, 1, budget, &EstimatedRouterTokens)
+    let work = batch.summary_work(state, recent_rounds)
         .ok_or_else(|| OpenBitFunError::Configuration("A Router history observation or its summary cannot fit in the summary model input budget".into()))?;
     let (_, ticket) = factory
         .summary_queue

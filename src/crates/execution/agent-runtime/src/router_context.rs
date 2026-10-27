@@ -2,6 +2,8 @@
 
 mod token_budget;
 pub use token_budget::{EstimatedRouterTokens, RouterInputBudget};
+mod history_batch;
+pub use history_batch::RouterHistoryBatch;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -408,16 +410,27 @@ impl RouterContextState {
         content: Value,
         counter: &dyn RouterTokenCounter,
     ) {
-        if kind == RouterEntryKind::Round {
+        let entry = self.observation_entry(source_id, kind, content, counter);
+        self.append_entry(entry, counter);
+        // Backpressure for failed/slow summary providers, never an agent-loop limit.
+        while self.entries.len() > OBSERVATION_BUFFER_CAPACITY {
+            if let Some(entry) = self.entries.pop_front() {
+                self.omitted_through = entry.sequence;
+            }
+        }
+    }
+
+    fn append_entry(&mut self, entry: RouterEntry, counter: &dyn RouterTokenCounter) {
+        if entry.kind == RouterEntryKind::Round {
             self.observed_rounds += 1;
         }
-        if kind == RouterEntryKind::UserUpdate {
-            if content.as_str() == Some(self.task.as_str()) {
+        if entry.kind == RouterEntryKind::UserUpdate {
+            if entry.content.as_str() == Some(self.task.as_str()) {
                 // Initial history can include previous tasks. The current task resets
                 // their steering priority without erasing historical observations.
                 self.latest_user_updates.clear();
             }
-            if let Some(text) = content.as_str().filter(|text| *text != self.task) {
+            if let Some(text) = entry.content.as_str().filter(|text| *text != self.task) {
                 if self.latest_user_updates.back().map(String::as_str) != Some(text) {
                     self.latest_user_updates
                         .push_back(truncate(text, 1_024, counter));
@@ -427,6 +440,17 @@ impl RouterContextState {
                 }
             }
         }
+        self.entries.push_back(entry);
+        self.next_sequence += 1;
+    }
+
+    fn observation_entry(
+        &self,
+        source_id: String,
+        kind: RouterEntryKind,
+        content: Value,
+        counter: &dyn RouterTokenCounter,
+    ) -> RouterEntry {
         let content = project_observation(content, counter);
         let flagged = |value: &Value| value.get("is_error").and_then(Value::as_bool) == Some(true);
         let is_error = flagged(&content)
@@ -450,14 +474,7 @@ impl RouterContextState {
             content,
         };
         entry.token_count = counter.count(&entry_for_prompt(&entry).to_string());
-        self.entries.push_back(entry);
-        self.next_sequence += 1;
-        // Backpressure for failed/slow summary providers, never an agent-loop limit.
-        while self.entries.len() > OBSERVATION_BUFFER_CAPACITY {
-            if let Some(entry) = self.entries.pop_front() {
-                self.omitted_through = entry.sequence;
-            }
-        }
+        entry
     }
 
     /// Populate per-entry token metadata added after v1 checkpoints were introduced.
@@ -544,14 +561,17 @@ impl RouterContextState {
             through,
             omitted_through: self.omitted_through,
             pending_tokens: prefix.iter().map(|entry| entry.token_count).sum(),
-            prompt: format!(
-                "Task:\n{}\n\nPrevious router summary:\n{}\n\nObserved entries through sequence {through}:\n{}\n\nPreviously omitted through sequence: {}",
-                self.task,
-                self.summary,
-                json!(entries),
-                self.omitted_through,
-            ),
+            prompt: self.summary_prompt(through, &json!(entries).to_string()),
         })
+    }
+
+    fn summary_prompt(&self, through: u64, entries: &str) -> String {
+        format!(
+            "Task:\n{}\n\nPrevious router summary:\n{}\n\nObserved entries through sequence {through}:\n{entries}\n\nPreviously omitted through sequence: {}",
+            self.task,
+            self.summary,
+            self.omitted_through,
+        )
     }
 
     pub fn apply_summary(&mut self, work: &RouterSummaryWork, summary: &str) -> bool {
