@@ -256,6 +256,42 @@ fn rounds(count: usize) -> Vec<Message> {
 }
 
 #[tokio::test]
+async fn missing_execution_host_history_source_cannot_certify_a_partial_context() {
+    let (mut context, provider) = fixture(false);
+    context.history_source_unavailable(&["old-turn".into(), "current-turn".into()]);
+    let prepared = context.prepare(&rounds(2)).await;
+    assert!(prepared.history_truncated);
+    assert!(context.pending_summary.is_none());
+    assert_eq!(provider.calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn unavailable_economy_input_budget_never_schedules_a_router_sized_summary() {
+    struct UnavailableBudget;
+    #[async_trait::async_trait]
+    impl SummaryProvider for UnavailableBudget {
+        async fn input_budget(&self, _: &RouterContextConfig) -> OpenBitFunResult<usize> {
+            Err(OpenBitFunError::Configuration(
+                "Summary model window unavailable".into(),
+            ))
+        }
+        async fn summarize(
+            &self,
+            _: String,
+            _: &RouterContextConfig,
+        ) -> OpenBitFunResult<SummaryResult> {
+            panic!("No summary request may be sent without a valid economy budget")
+        }
+    }
+    let (mut context, _) = fixture(false);
+    context.factory.summary_provider = Arc::new(UnavailableBudget);
+    context.prepare(&rounds(8)).await;
+    assert!(context.summary_input_budget.is_none());
+    assert!(context.pending_summary.is_none());
+    assert_eq!(context.state.entries.len(), 8);
+}
+
+#[tokio::test]
 async fn calibrated_budget_can_trigger_summary_without_changing_cached_observations() {
     let (mut context, _) = fixture(false);
     context.observe(&rounds(8));

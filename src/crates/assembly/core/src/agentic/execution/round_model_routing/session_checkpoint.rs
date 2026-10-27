@@ -246,7 +246,17 @@ impl SessionRouterCheckpoint {
 
     fn record(&self, state: Option<RouterContextState>) -> CheckpointRecord {
         CheckpointRecord {
-            version: 1,
+            // Legacy readers reject an outer version other than 1. They must
+            // not mistake an unfinished historical prefix for complete context
+            // after ignoring the newer bootstrap marker on the inner state.
+            version: if state
+                .as_ref()
+                .is_some_and(|state| state.history_bootstrap.is_some())
+            {
+                2
+            } else {
+                1
+            },
             session_id: self.session_id.clone(),
             visible_turn_ids: self.visible_turn_ids.clone(),
             generation: self.generation.clone(),
@@ -305,7 +315,7 @@ fn validate_record(
     session_id: &str,
     visible_turn_ids: &[String],
 ) -> OpenBitFunResult<()> {
-    if record.version != 1
+    if !matches!(record.version, 1 | 2)
         || record.session_id != session_id
         || record.visible_turn_ids != visible_turn_ids
         || record.generation.is_empty()
@@ -596,11 +606,65 @@ mod tests {
     async fn malformed_and_future_records_are_preserved() {
         let dir = tempfile::tempdir().unwrap();
         let path = checkpoint_path(dir.path(), "session", &lineage(&["turn-1"]));
-        for bytes in [b"not-json".as_slice(), br#"{"version":2,"session_id":"session","visible_turn_ids":["turn-1"],"generation":"future"}"#] {
+        for bytes in [b"not-json".as_slice(), br#"{"version":3,"session_id":"session","visible_turn_ids":["turn-1"],"generation":"future"}"#] {
             tokio::fs::write(&path, bytes).await.unwrap();
             assert!(SessionRouterCheckpoint::open(dir.path(), "session", "turn-1", "task", &lineage(&["turn-1"]), None).await.is_err());
             assert_eq!(tokio::fs::read(&path).await.unwrap(), bytes);
         }
+    }
+
+    #[tokio::test]
+    async fn bootstrap_record_fences_legacy_readers_and_returns_to_v1_after_host_merge() {
+        use openbitfun_agent_runtime::router_context::RouterHistoryBootstrap;
+
+        // This is the old outer envelope: its parser ignores new state fields,
+        // so its existing version == 1 admission check must reject this cache.
+        #[derive(Deserialize)]
+        struct LegacyCheckpointRecord {
+            version: u32,
+            state: Option<serde_json::Value>,
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let ids = ["older", "turn-1"];
+        let (checkpoint, _) = open(dir.path(), "session", &ids).await;
+        let path = checkpoint.path.clone();
+        let mut state = summary("session", "turn-1", "partially prepared history");
+        for complete in [false, true] {
+            state.history_bootstrap = Some(RouterHistoryBootstrap {
+                turn_ids: vec!["older".into()],
+                turn_cursor: usize::from(complete),
+                entry_cursor: 0,
+                complete,
+            });
+            checkpoint.save(&state).await.unwrap();
+            let bytes = tokio::fs::read(&path).await.unwrap();
+            let legacy: LegacyCheckpointRecord = serde_json::from_slice(&bytes).unwrap();
+            assert_ne!(legacy.version, 1);
+            assert_eq!(legacy.version, 2);
+            assert_eq!(legacy.state.unwrap()["version"], 1);
+            let current: CheckpointRecord = serde_json::from_slice(&bytes).unwrap();
+            validate_record(&current, "session", &lineage(&ids)).unwrap();
+            assert_eq!(
+                current.state.unwrap().history_bootstrap.unwrap().complete,
+                complete
+            );
+        }
+
+        let (current, restored) = open(dir.path(), "session", &ids).await;
+        let mut restored = restored.unwrap();
+        assert!(restored.history_bootstrap.as_ref().unwrap().complete);
+        assert_eq!(restored.summary, state.summary);
+        assert_eq!(restored.version, 1);
+        restored.history_bootstrap = None;
+        restored.next_sequence += 1;
+        current.save(&restored).await.unwrap();
+        let bytes = tokio::fs::read(&path).await.unwrap();
+        let legacy: LegacyCheckpointRecord = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(legacy.version, 1);
+        assert!(legacy.state.unwrap().get("history_bootstrap").is_none());
+        let (_, ordinary) = open(dir.path(), "session", &ids).await;
+        assert!(ordinary.unwrap().history_bootstrap.is_none());
     }
 
     #[tokio::test]

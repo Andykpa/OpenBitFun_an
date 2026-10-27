@@ -10,6 +10,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+const OBSERVATION_BUFFER_CAPACITY: usize = 128;
+
 pub trait RouterTokenCounter: Send + Sync {
     fn count(&self, text: &str) -> usize;
     fn name(&self) -> &'static str;
@@ -284,6 +286,24 @@ pub struct RouterContextState {
     pub entries: VecDeque<RouterEntry>,
     pub seen_message_ids: HashSet<String>,
     pub latest_user_updates: VecDeque<String>,
+    /// Source progress for a host-owned history rebuild. Even a finished worker
+    /// remains ineligible until the host merges observations made while it ran.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub history_bootstrap: Option<RouterHistoryBootstrap>,
+    /// Ordered visible turns whose complete observations have been verified by
+    /// the host. Legacy sidecars without this proof require a history rebuild.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub history_coverage: Vec<String>,
+}
+
+/// Portable recovery cursor; the execution host owns source IO and generation fencing.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RouterHistoryBootstrap {
+    pub turn_ids: Vec<String>,
+    pub turn_cursor: usize,
+    pub entry_cursor: usize,
+    pub complete: bool,
 }
 
 impl Default for RouterContextState {
@@ -301,6 +321,8 @@ impl Default for RouterContextState {
             entries: VecDeque::new(),
             seen_message_ids: HashSet::new(),
             latest_user_updates: VecDeque::new(),
+            history_bootstrap: None,
+            history_coverage: Vec::new(),
         }
     }
 }
@@ -354,9 +376,10 @@ pub struct PreparedRouterContext {
     pub preparation: RouterPreparationMetrics,
     pub input_tokens: usize,
     pub budget_tokens: usize,
-    /// The complete retained history did not fit, or dropped observations are not
-    /// covered by an accepted summary. Bounded projections of individual logs
-    /// remain normal Router input and do not set this fact.
+    /// The complete retained history did not fit, dropped observations are not
+    /// covered by an accepted summary, or a history rebuild awaits host merge.
+    /// Bounded projections of individual logs remain normal Router input and do
+    /// not set this fact.
     pub history_truncated: bool,
     pub pending_tokens: usize,
     pub entry_tokens: Vec<RouterEntryTokenRecord>,
@@ -368,6 +391,12 @@ pub struct PreparedRouterContext {
 }
 
 impl RouterContextState {
+    /// Hosts importing durable history must summarize a prefix before appending
+    /// another entry when this buffer is full.
+    pub fn observation_buffer_full(&self) -> bool {
+        self.entries.len() >= OBSERVATION_BUFFER_CAPACITY
+    }
+
     pub fn claim_message(&mut self, id: &str) -> bool {
         !self.seen_message_ids.contains(id) && self.seen_message_ids.insert(id.to_string())
     }
@@ -424,7 +453,7 @@ impl RouterContextState {
         self.entries.push_back(entry);
         self.next_sequence += 1;
         // Backpressure for failed/slow summary providers, never an agent-loop limit.
-        while self.entries.len() > 128 {
+        while self.entries.len() > OBSERVATION_BUFFER_CAPACITY {
             if let Some(entry) = self.entries.pop_front() {
                 self.omitted_through = entry.sequence;
             }
@@ -471,13 +500,50 @@ impl RouterContextState {
         if pending_tokens < trigger_tokens {
             return None;
         }
+        self.summary_work_for_prefix(&prefix)
+    }
+
+    /// Select a complete, contiguous observation prefix within the auxiliary
+    /// model's user-prompt budget. The host separately reserves system/output
+    /// tokens. A zero recent-round count permits bootstrap to flush all entries.
+    pub fn summary_work_bounded(
+        &self,
+        recent_rounds: usize,
+        trigger_tokens: usize,
+        max_prompt_tokens: usize,
+        counter: &dyn RouterTokenCounter,
+    ) -> Option<RouterSummaryWork> {
+        let count = if recent_rounds == 0 {
+            self.entries.len()
+        } else {
+            self.recent_start(recent_rounds)
+        };
+        let prefix: Vec<_> = self.entries.iter().take(count).collect();
+        if prefix.iter().map(|entry| entry.token_count).sum::<usize>() < trigger_tokens {
+            return None;
+        }
+        let first = self.summary_work_for_prefix(prefix.get(..1)?)?;
+        if counter.count(&first.prompt) > max_prompt_tokens {
+            return None;
+        }
+        let mut selected = first;
+        for count in 2..=prefix.len() {
+            let work = self.summary_work_for_prefix(&prefix[..count])?;
+            if counter.count(&work.prompt) <= max_prompt_tokens {
+                selected = work;
+            }
+        }
+        Some(selected)
+    }
+
+    fn summary_work_for_prefix(&self, prefix: &[&RouterEntry]) -> Option<RouterSummaryWork> {
         let through = prefix.last()?.sequence;
         let entries: Vec<_> = prefix.iter().map(|entry| entry_for_prompt(entry)).collect();
         Some(RouterSummaryWork {
             base_through: self.summarized_through,
             through,
             omitted_through: self.omitted_through,
-            pending_tokens,
+            pending_tokens: prefix.iter().map(|entry| entry.token_count).sum(),
             prompt: format!(
                 "Task:\n{}\n\nPrevious router summary:\n{}\n\nObserved entries through sequence {through}:\n{}\n\nPreviously omitted through sequence: {}",
                 self.task,
@@ -604,7 +670,7 @@ impl RouterContextState {
                 preparation: RouterPreparationMetrics::default(),
                 input_tokens: counter.count(&full_prompt),
                 budget_tokens: max_tokens,
-                history_truncated: self.omitted_through != 0,
+                history_truncated: self.omitted_through != 0 || self.history_bootstrap.is_some(),
                 pending_tokens,
                 entry_tokens,
                 compression_records: Vec::new(),
@@ -1203,6 +1269,179 @@ mod tests {
         assert_eq!(work.pending_tokens, eligible_tokens);
         assert!(state.apply_summary(&work, "updated factual summary"));
         assert_eq!(state.summary, "updated factual summary");
+    }
+
+    #[test]
+    fn bounded_summary_selects_the_largest_fitting_contiguous_prefix() {
+        let mut state = RouterContextState {
+            task: "Inspect the parser".into(),
+            summary: "Existing factual history".into(),
+            ..Default::default()
+        };
+        for index in 0..8 {
+            append_round(&mut state, index);
+        }
+        let prefix: Vec<_> = state.entries.iter().take(2).collect();
+        let budget = Utf8ByteBudget.count(&state.summary_work_for_prefix(&prefix).unwrap().prompt);
+        let work = state
+            .summary_work_bounded(3, 1, budget, &Utf8ByteBudget)
+            .unwrap();
+        assert_eq!(work.base_through, 0);
+        assert_eq!(work.through, 2);
+        assert_eq!(Utf8ByteBudget.count(&work.prompt), budget);
+        assert_eq!(
+            work.pending_tokens,
+            state.entries[0].token_count + state.entries[1].token_count
+        );
+        assert!(work.prompt.contains("Existing factual history"));
+        assert!(work.prompt.contains("step-0"));
+        assert!(work.prompt.contains("step-1"));
+        assert!(!work.prompt.contains("step-2"));
+        assert!(!work.prompt.contains("step-7"));
+        assert!(state
+            .summary_work_bounded(3, usize::MAX, budget, &Utf8ByteBudget)
+            .is_none());
+    }
+
+    #[test]
+    fn bounded_summary_rejects_an_oversized_first_entry_or_summary_without_skipping_it() {
+        let mut state = RouterContextState::default();
+        append_round(&mut state, 0);
+        append_round(&mut state, 1);
+        let prefix: Vec<_> = state.entries.iter().take(1).collect();
+        let first_size =
+            Utf8ByteBudget.count(&state.summary_work_for_prefix(&prefix).unwrap().prompt);
+        assert!(state
+            .summary_work_bounded(0, 1, first_size - 1, &Utf8ByteBudget)
+            .is_none());
+        assert_eq!(state.entries.front().unwrap().sequence, 1);
+        assert_eq!(state.entries.len(), 2);
+        state.summary = "previous factual summary ".repeat(100);
+        assert!(state
+            .summary_work_bounded(0, 1, first_size, &Utf8ByteBudget)
+            .is_none());
+        assert!(RouterContextState::default()
+            .summary_work_bounded(0, 0, 10_000, &Utf8ByteBudget)
+            .is_none());
+    }
+
+    #[test]
+    fn bootstrap_cursor_roundtrips_and_blocks_classification_until_host_merge() {
+        let legacy = r#"{"task":"Inspect parser","omitted_through":40,"next_sequence":169}"#;
+        let mut state: RouterContextState = serde_json::from_str(legacy).unwrap();
+        assert!(state.history_bootstrap.is_none());
+        assert!(state.history_coverage.is_empty());
+        assert!(serde_json::to_value(&state)
+            .unwrap()
+            .get("history_bootstrap")
+            .is_none());
+        assert!(serde_json::to_value(&state)
+            .unwrap()
+            .get("history_coverage")
+            .is_none());
+        state.history_coverage = vec!["turn-one".into()];
+        state.history_bootstrap = Some(RouterHistoryBootstrap {
+            turn_ids: vec!["turn-one".into(), "turn-two".into()],
+            turn_cursor: 1,
+            entry_cursor: 7,
+            complete: false,
+        });
+        let encoded = serde_json::to_value(&state).unwrap();
+        let mut restored: RouterContextState = serde_json::from_value(encoded.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&restored).unwrap(), encoded);
+        assert_eq!(restored.history_coverage, vec!["turn-one"]);
+        let progress = restored.history_bootstrap.as_mut().unwrap();
+        progress.complete = true;
+        assert_eq!(progress.turn_cursor, 1);
+        assert_eq!(progress.entry_cursor, 7);
+        assert!(restored.prepare(3, 4096, &Utf8ByteBudget).history_truncated);
+        // A finished worker is not proof that the missing prefix was rebuilt.
+        assert_eq!(restored.omitted_through, 40);
+        restored.history_bootstrap = None;
+        assert!(restored.prepare(3, 4096, &Utf8ByteBudget).history_truncated);
+        restored.omitted_through = 0;
+        restored.history_bootstrap = Some(RouterHistoryBootstrap {
+            complete: true,
+            ..Default::default()
+        });
+        assert!(restored.prepare(3, 4096, &Utf8ByteBudget).history_truncated);
+        restored.history_bootstrap = None;
+        assert!(!restored.prepare(3, 4096, &Utf8ByteBudget).history_truncated);
+    }
+
+    #[test]
+    fn incremental_bootstrap_summarizes_more_than_buffer_capacity_without_losing_observations() {
+        let mut state = RouterContextState {
+            task: "Inspect the parser".into(),
+            history_bootstrap: Some(RouterHistoryBootstrap {
+                turn_ids: vec!["old-turn".into()],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let budget = 1500;
+        let mut summarized_count = 0;
+        let mut batches = 0;
+        for index in 0..250 {
+            assert!(!state.observation_buffer_full());
+            append_round(&mut state, index);
+            state.history_bootstrap.as_mut().unwrap().entry_cursor = index + 1;
+            if state.entries.len() >= 24 || index == 249 {
+                while state.entries.len() > 3 {
+                    let cursor = state.history_bootstrap.as_ref().unwrap().entry_cursor;
+                    let work = state
+                        .summary_work_bounded(3, 1, budget, &Utf8ByteBudget)
+                        .unwrap();
+                    assert!(Utf8ByteBudget.count(&work.prompt) <= budget);
+                    assert_eq!(work.omitted_through, 0);
+                    assert_eq!(work.base_through, summarized_count);
+                    assert!(work.through > summarized_count);
+                    summarized_count = work.through;
+                    assert!(state.apply_summary(
+                        &work,
+                        &format!("Verified history through step {}", work.through - 1)
+                    ));
+                    assert_eq!(
+                        state.history_bootstrap.as_ref().unwrap().entry_cursor,
+                        cursor
+                    );
+                    assert_eq!(state.omitted_through, 0);
+                    assert!(state.prepare(3, 65_536, &Utf8ByteBudget).history_truncated);
+                    batches += 1;
+                }
+                // A host can persist accepted progress after any chunk and resume it.
+                state = serde_json::from_value(serde_json::to_value(&state).unwrap()).unwrap();
+            }
+        }
+        assert!(batches > 1);
+        assert_eq!(summarized_count, 247);
+        assert_eq!(state.entries.front().unwrap().sequence, 248);
+        assert_eq!(state.entries.back().unwrap().sequence, 250);
+        assert_eq!(state.history_bootstrap.as_ref().unwrap().entry_cursor, 250);
+        assert_eq!(state.omitted_through, 0);
+        state.history_bootstrap.as_mut().unwrap().complete = true;
+        assert!(state.prepare(3, 65_536, &Utf8ByteBudget).history_truncated);
+        state.history_bootstrap = None;
+        assert!(!state.prepare(3, 65_536, &Utf8ByteBudget).history_truncated);
+    }
+
+    #[test]
+    fn bootstrap_can_flush_feedback_without_waiting_for_an_assistant_round() {
+        let mut state = RouterContextState::default();
+        state.append(
+            "feedback".into(),
+            RouterEntryKind::Feedback,
+            json!("The process exited with code 1"),
+            &Utf8ByteBudget,
+        );
+        assert!(state.summary_work(1, 1).is_none());
+        let work = state
+            .summary_work_bounded(0, 1, 4096, &Utf8ByteBudget)
+            .unwrap();
+        assert_eq!(work.through, 1);
+        assert!(work.prompt.contains("The process exited with code 1"));
+        assert!(state.apply_summary(&work, "The process failed with exit code 1"));
+        assert!(state.entries.is_empty());
     }
 
     #[test]

@@ -3632,6 +3632,10 @@ impl ExecutionEngine {
             )
         });
         if let Some(router_context) = router_context.as_mut() {
+            router_context.set_history_cancellation(
+                self.round_executor
+                    .ensure_cancel_token(&context.dialog_turn_id),
+            );
             // The host's complete visible turn order survives context compression
             // and changes when undo/rollback branches history. Controller state is
             // never used as Router recovery authority.
@@ -3649,6 +3653,20 @@ impl ExecutionEngine {
                     &messages,
                 )
                 .await;
+            if let Some(storage_path) = self
+                .session_manager
+                .effective_session_storage_path(&context.session_id)
+                .await
+            {
+                let source = super::round_model_routing::context::history_source::PersistentRouterHistorySource::new(
+                    self.session_manager.persistence_manager(), storage_path,
+                    context.session_id.clone(),
+                );
+                router_context.prepare_history(Arc::new(source), &visible_turn_ids, &messages);
+            } else if visible_turn_ids.len() > 1 {
+                router_context.history_source_unavailable(&visible_turn_ids);
+                warn!("Router history source is unavailable on the execution host; complete legacy history cannot be prepared: session_id={}", context.session_id);
+            }
             router_context.observe(&messages);
         }
 

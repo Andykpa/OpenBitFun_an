@@ -212,6 +212,10 @@ protocol. Changing a selection clears previous results.
 Smart mode automatically maintains Router history summaries with the economy
 model. Pending summaries do not prevent routing while complete history fits;
 only an input that cannot fit completely falls back to the primary model.
+Older conversations prepare Router history from the execution host's original
+visible turns in bounded chunks. Accepted progress is stored per conversation;
+once ready, routing resumes automatically without replacing the main transcript.
+Auxiliary requests choose the economy model's independent lowest supported effort.
 No tokenizer file is required: the execution host estimates
 input locally and tightens its budget using complete Router prompt usage.
 Legacy tokenizer paths remain optional overrides. Older hosts without

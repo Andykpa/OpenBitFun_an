@@ -40,6 +40,13 @@ actual model and fallback status. Smart mode automatically maintains Router
 context summaries with the economy model before input fills the budget. If the
 complete context still fits, pending or failed summaries do not interrupt routing;
 otherwise the current round uses the primary model until complete context is available.
+When an older conversation first enters smart mode, the execution host reads its
+visible persisted turns incrementally and builds a separate Router summary. Each
+accepted chunk saves its source cursor, so interrupted preparation resumes rather
+than losing the prefix. Preparation can continue between turns; the next routing
+boundary adopts the completed history together with new observations. Summary
+requests use the economy model's own lowest supported effort, independently of
+its chat default, and are bounded by that model's input window.
 Billing hints do not establish actual charges.
 
 Older execution hosts without `estimatedTokenBudgetSupported` can continue saving
@@ -51,8 +58,8 @@ add this capability to the host.
 Persisted conversations carry their independent Router summary into the next
 smart turn. Recovery validates the visible conversation history; reverting or
 forking never imports an abandoned or another conversation's summary. Legacy
-checkpoints without history proof, a preceding manual turn, or unavailable
-storage start from the remaining original messages instead of the main context
+checkpoints without history proof or following a manual turn rebuild from the
+execution host's visible original turn records instead of the main context
 compression summary.
 
 The execution host bounds Router requests per service (two running and up to
