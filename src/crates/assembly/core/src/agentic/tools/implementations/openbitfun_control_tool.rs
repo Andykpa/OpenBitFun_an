@@ -376,6 +376,7 @@ impl Tool for OpenBitFunControlTool {
                 },
                 "value_array": {
                     "type": "array",
+                    "items": {},
                     "description": "Configure value when get returns valueSchema.type=array."
                 },
                 "value_null": {
@@ -394,6 +395,31 @@ impl Tool for OpenBitFunControlTool {
                     "description": "Maximum results per page. Defaults to 50 for list and 20 for search; use nextCursor to continue."
                 }
             }
+        })
+    }
+
+    fn output_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "success": {"type": "boolean"},
+                "action": {"type": "string", "enum": ["list", "search", "get", "open", "execute", "configure"]},
+                "capabilities": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+                "items": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+                "operations": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+                "options": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+                "count": {"type": "integer"},
+                "nextCursor": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+                "capabilityId": {"type": "string"},
+                "capability": {"type": "object", "additionalProperties": true},
+                "toolInput": {"type": "object", "additionalProperties": true},
+                "nextToolCalls": {"type": "object", "additionalProperties": true},
+                "idNamespaceRules": {"type": "object", "additionalProperties": true},
+                "value": {},
+                "result": {},
+                "message": {"type": "string"}
+            },
+            "additionalProperties": true
         })
     }
 

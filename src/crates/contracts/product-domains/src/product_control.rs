@@ -672,20 +672,6 @@ fn split_terms(value: &str) -> Vec<String> {
         .collect()
 }
 
-fn is_subsequence(query: &str, candidate: &str) -> bool {
-    let mut query = query.chars();
-    let mut next = query.next();
-    for character in candidate.chars() {
-        if Some(character) == next {
-            next = query.next();
-            if next.is_none() {
-                return true;
-            }
-        }
-    }
-    next.is_none()
-}
-
 fn score_single_term(query: &str, field: &str) -> u32 {
     if field == query {
         return 100;
@@ -704,7 +690,9 @@ fn score_single_term(query: &str, field: &str) -> u32 {
         .iter()
         .filter_map(|word| word.chars().next())
         .collect();
-    if query.chars().count() > 1 && is_subsequence(query, &acronym) {
+    // Initials must be consecutive. Skipping arbitrary words makes long
+    // workflow prose spuriously match unrelated queries such as "pet".
+    if query.chars().count() > 1 && acronym.contains(query) {
         return 66;
     }
     0
@@ -1183,6 +1171,25 @@ mod tests {
     }
 
     #[test]
+    fn acronym_matches_require_consecutive_initials_instead_of_scattered_prose() {
+        assert!(score_text_match("gs", &["Global Search"]) > 0);
+        assert_eq!(
+            score_text_match(
+                "pet",
+                &["Publish the example after completing checks and tests"]
+            ),
+            0
+        );
+        assert_eq!(
+            score_text_match(
+                "mascot",
+                &["Move an app; select controls only when observed, then operate them"]
+            ),
+            0
+        );
+    }
+
+    #[test]
     fn generated_catalog_is_loadable_and_curated() {
         let catalog = catalog().unwrap();
         assert_eq!(catalog.capabilities.len(), catalog.counts.user_facing);
@@ -1587,6 +1594,28 @@ mod tests {
             validate_open_target("setting.application.shortcuts", Some("removed-setting-row"))
                 .unwrap_err()
                 .contains("Unknown documented item")
+        );
+    }
+
+    #[test]
+    fn diagnostics_log_level_accepts_off_and_rejects_unknown_levels() {
+        let log_level = capability("setting.data.diagnostics")
+            .unwrap()
+            .options
+            .iter()
+            .find(|option| option.id == "log-level")
+            .unwrap();
+        for level in ["trace", "debug", "info", "warn", "error", "off"] {
+            assert!(
+                validate_option_value(&log_level.value_schema, &Value::String(level.into()))
+                    .is_ok(),
+                "log level '{level}' should be accepted"
+            );
+        }
+        assert!(
+            validate_option_value(&log_level.value_schema, &Value::String("verbose".into()))
+                .unwrap_err()
+                .contains("value must be one of")
         );
     }
 }

@@ -225,6 +225,8 @@ export interface ModelRound {
   firstChunkMs?: number;
   firstVisibleOutputMs?: number;
   streamDurationMs?: number;
+  /** Request start to first effective output for the accepted model attempt. */
+  ttftMs?: number;
   attemptCount?: number;
   attemptDiagnostics?: ModelRoundAttemptDiagnostic[];
   failureCategory?: string;
@@ -401,7 +403,7 @@ export interface Session {
   externalHistory?: {
     mode: 'follow';
     contentVersion?: string;
-    sourceStatus?: 'available' | 'unavailable';
+    sourceStatus?: 'available' | 'unavailable' | 'unsupported';
     incomplete?: boolean;
     observedFingerprint?: string;
     materializedObservation?: string;
@@ -707,6 +709,8 @@ export interface QueuedComposerDraft {
 }
 
 export interface QueuedMessage {
+  /** Reserved execution identity; absent in older persisted queues. */
+  turnId?: string;
   id: string;
   sessionId: string;
   /** Rendered content sent to the model (may equal `displayMessage`). */

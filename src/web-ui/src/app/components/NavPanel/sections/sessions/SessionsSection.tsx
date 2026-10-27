@@ -230,14 +230,12 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
   const storedSessionOrdering = useWorkspaceSessionViewStore(state => state.ordering);
   const storedSessionShow = useWorkspaceSessionViewStore(state => state.show);
   const storedSessionFilters = useWorkspaceSessionViewStore(state => state.filters);
-  const sourceAgents = useWorkspaceSessionViewStore(state => state.sourceAgents);
-  const sourceAgent = sourceAgents[surfaceScopedKey(getActiveSurfaceId(), workspaceId)] ?? 'all';
-  const hasSourceFilter = sourceAgent !== 'all' || Boolean(workspaceScopes?.some(scope =>
-    (sourceAgents[surfaceScopedKey(getActiveSurfaceId(), scope.workspaceId)] ?? 'all') !== 'all'));
+  const storedSourceAgent = useWorkspaceSessionViewStore(state => state.sourceAgent);
+  const sourceAgent = useWorkspaceViewPreferences ? storedSourceAgent : 'all';
+  const hasSourceFilter = sourceAgent !== 'all';
   const matchesSourceAgent = useCallback((session: Session) => matchesWorkspaceSourceAgent(
-    session,
-    sourceAgents[surfaceScopedKey(getActiveSurfaceId(), workspaceId ?? session.workspaceId ?? session.config.workspaceId)] ?? 'all',
-  ), [sourceAgents, workspaceId]);
+    session, sourceAgent,
+  ), [sourceAgent]);
   const sessionOrdering = useWorkspaceViewPreferences ? storedSessionOrdering : 'created';
   const sessionShow = useWorkspaceViewPreferences ? storedSessionShow : 'all';
   const sessionFilters = useWorkspaceViewPreferences

@@ -56,11 +56,14 @@ remaining native acceptance scenarios separately.
 - `permissions.rs`, `process_identity.rs`, `grants.rs`, `share_grants.rs` — explicit OS requests and executable-bound remembered preferences
 - `desktop_host/shared_preview.rs` — scoped manual preview input through the same native host/lease as the Agent
 - `desktop_host/background_guard.rs` — before/after desktop witnesses; no focus restoration or replay
+- `desktop_host/foreground.rs` — explicit exact-window activation and global input destination checks
+- `desktop_host/linux_launch.rs` — literal executable/desktop-entry launch with bounded helper waits
 - `desktop_host/observation.rs`, `observation_cache.rs` — observation identity and bounded screenshot geometry; never input authority
 - `desktop_host/state.rs` — derived host feedback and view caches
 - `macos_*` / `windows_*` — platform AX, capture, list-apps, shortcuts
 - `windows_capture.rs` — WGC frame conversion and authoritative window bounds
 - `windows_wgc_capture.rs` — Windows.Graphics.Capture (Direct3D11)
+- `windows_window_target.rs` — Win32 window facts and portable default-target policy
 - `linux_ax_ui.rs` — AT-SPI locate
 - `linux_control.rs` — portal lifetime, PipeWire frame consumption, foreground seat input
 - `linux_control_ax.rs` — AT-SPI background semantic operations
@@ -73,6 +76,38 @@ The implementation contract is [Computer Use control-session SPEC](../../../../.
 macOS and Windows retain a real native single-window capture session. Never fall
 back to desktop pixels when window capture fails or the target is obscured.
 Background input must not activate a window or use the global input seat.
+For an ordinary user-requested GUI task, the Agent may explicitly change to
+foreground mode when background delivery is unsupported or verified ineffective,
+unless the user required background-only/no-disruption. This is a new tool
+decision, never a native retry or implicit escalation. macOS/Windows
+`activate-app-v1` activates the exact bound window and returns a fresh observation;
+global input must validate the foreground destination. Linux retains its separate
+portal consent/surface identity. Preserve user Stop, cancellation and OS denial.
+
+Surface errors name the state the host established (minimized, hidden, cloaked,
+off-Space, display affinity) for the exact window; keep the codes stable and
+the wording free of recovery advice, which the tool adds per mode. A bound
+stream that loses its surface reports that state too, never "closed": macOS
+per-window `CGWindowList` queries omit minimized and other-Space windows, so a
+window counts as closed only when the full list lacks it, and Windows checks
+the bound HWND's surface state before reusing its stream. Native status reports
+a lost surface as status 2 without querying Accessibility; describe it with
+`obf_capture_describe_surface` only after releasing `CAPTURE`, so Stop never
+waits on the target. Target validation and stream start hold `CAPTURE` by
+design.
+`restore_window` (unhide, un-minimize) runs only for foreground `activate_app`,
+requires `foreground_allowed` and `target_admissible`, and restores the window
+the surface error named: the requested or bound one, else the window capture
+selects for the process (Windows: its first minimized window). An unreadable
+minimized state is a restore failure, never "nothing to restore". On macOS
+activation sets the capture input barrier so the next observation is a
+post-activation frame.
+`app-zoom-v1` re-captures the bound window only: macOS 14+ uses a one-shot
+desktop-independent window filter at backing scale, older macOS and Windows
+crop the live frame. Zoomed pointer maps are marked zoomed and keep their
+window offset and size; never re-anchor them on raw region bounds, infer zoom
+from region size, or let a zoom read pixels outside the bound window. Only
+inputs that can name a screenshot_id require one after a zoom.
 
 ## Target-local macOS focus acceptance
 
@@ -125,6 +160,8 @@ node scripts/test-macos-control-capture.mjs
 node scripts/test-macos-control-capture.mjs --locked
 # macOS passive cursor lifecycle; no capture or accessibility permission required.
 node scripts/test-macos-control-pointer.mjs
+# Shared macOS/Windows presentation math; also runnable on Linux without a GUI.
+node scripts/test-computer-use-pointer-motion.mjs
 # macOS + Accessibility and Screen Recording permissions; clicks only its dedicated fixture process.
 node scripts/test-macos-directed-input.mjs
 # Covered standard controls: exact native AX hit + semantic action + fresh capture.
@@ -138,6 +175,9 @@ node scripts/test-macos-input-controls.mjs --orchestration
 # Real AX messaging timeout in a stopped disposable process, then one directed
 # click after resumption; retains exact delivery and foreground/cursor checks.
 node scripts/test-macos-input-controls.mjs --busy-ax
+# Explicit foreground transition on disposable windows; wrong-focus rejection,
+# exact activation and native Unicode/shortcut delivery.
+node scripts/test-macos-input-controls.mjs --foreground
 # Identical five-input sequence: five tool calls vs one batch, with default
 # images and AX-only observations. Fresh isolated app/host per case.
 node scripts/test-macos-input-controls.mjs --latency
@@ -147,6 +187,11 @@ node scripts/test-macos-input-controls.mjs --latency
 node scripts/test-macos-input-controls.mjs
 # Full Tool -> provider -> native loop on a dedicated window, with main-thread runloop.
 node scripts/test-macos-control-roundtrip.mjs
+# Same-process popup panel over a dedicated window, once as an attached child
+# window (inherits layer 0) and once at the pop-up menu level: composited pixels
+# and auxiliary metadata, popup-routed press without focus preparation
+# dismissing it, and an outside press reaching the bound window.
+node scripts/test-macos-popup-overlay.mjs
 ```
 
 For explicitly selected disposable real applications, the devtools JSONL probe
@@ -236,7 +281,19 @@ execution; full Desktop compilation and native fixtures still belong on Windows.
 node scripts/test-windows-computer-use-native.mjs
 # Other hosts with the target installed: compile production native modules only.
 node scripts/test-windows-computer-use-native.mjs --check --target x86_64-pc-windows-msvc
+# Interactive Windows: own-process main + topmost companion selection and real WGC pixels.
+node scripts/test-windows-computer-use-native.mjs default_window_captures_main_beside_topmost_companion -- --ignored --test-threads=1
 ```
+
+For default Windows target selection, run
+`node scripts/test-computer-use-context.mjs windows_window_target`.
+The portable regression includes issue #3291's reported HWNDs, styles and bounds;
+it is not evidence of WGC execution. Native default selection must prefer content
+over floating utility windows without app-name rules. Explicit HWNDs and existing
+bindings bypass ranking. WGC rejection reports the selected HWND and window facts;
+never probe another target or substitute desktop pixels after a failure. The
+interactive fixture captures only its own Win32 window; it does not establish
+Tauri/WebView2 compatibility on every Windows build.
 
 Observation IDs and target revisions are additive wire fields. Keep accepting
 legacy payloads, advertise `observation-id-v1`, and reject explicit stale IDs
@@ -263,3 +320,14 @@ These UI tests cover permission requests, stale device/grant responses, geometry
 gesture cancellation and cursor math. They do not establish native delivery or
 remote end-to-end behavior. The strict macOS fixture also exercises native shared
 preview capture/input and stale preview rejection after revocation.
+
+Native pointer presentation uses `pointer_motion.h` for both AppKit and Win32.
+Keep elapsed-time spring math free of OS/input dependencies. AppKit's visibility
+refresh must never snap an in-flight movement; Win32 reuses one worker/window,
+coalesces only visual targets and wakes on Stop. The native click pulse follows
+visual arrival without delaying input. Linux/Wayland uses the shared Web preview;
+do not introduce an X11/global pointer fallback. After native-motion changes run
+the portable math fixture plus the platform fixture above. The Windows
+`--check` command validates types only; its native test mode links the shared C
+model. Browser tests and portable math on macOS are not native Windows/Linux
+or remote-session evidence.

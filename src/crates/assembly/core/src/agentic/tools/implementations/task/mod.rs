@@ -125,7 +125,11 @@ impl AgentExecutionTool {
                 workspace_id,
                 list_scope: SubagentListScope::TaskVisible,
                 include_disabled: false,
-                external_sources_supported: context.is_none_or(|ctx| !ctx.is_remote()),
+                external_sources_supported: context.is_none_or(|ctx| {
+                    !ctx.is_remote()
+                        && ctx.delegation_policy().scope
+                            != openbitfun_runtime_ports::DelegationScope::Swarm
+                }),
             })
             .await
     }
@@ -341,6 +345,20 @@ impl Tool for TaskTool {
 
     fn input_schema(&self) -> Value {
         AgentExecutionTool::regular_input_schema()
+    }
+
+    fn output_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "agent_id": {"type": "string"},
+                "bg_task_id": {"type": "string"},
+                "result": {"type": "string"},
+                "error": {"type": "string"}
+            },
+            "additionalProperties": true
+        })
     }
 
     async fn input_schema_for_model_with_context(

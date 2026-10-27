@@ -4,6 +4,7 @@ import { useI18n } from '@/infrastructure/i18n';
 import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
 import { configManager } from '../services/ConfigManager';
 import type { AIModelConfig } from '../types';
+import { subscriptionProviderOf } from './modelRouting';
 import { MODEL_BILLING_KEY, getModelBilling, isModelBillingCurrent, modelBillingBinding, updateModelBilling, type ModelBilling, type ModelBillingKind } from '../services/modelBilling';
 import './ModelBilling.scss';
 
@@ -65,11 +66,12 @@ export function ModelBillingDetails({ model, onClose, onSaved }: Props) {
         <div className="model-billing__identity">
           <strong className="model-billing__model-title">{model.model_name} · {model.name}</strong>
           <p className="model-billing__hint">{t('billing.quoteHint')}</p>
+          {(model.auth?.type === 'subscription_pool' || model.channel_routing) && <p className="model-billing__hint">{t('billing.routingScopeHint')}</p>}
         </div>
         {unsupported && <p className="model-billing__warning" role="alert">{t('billing.unsupported')}</p>}
         {saved && !isModelBillingCurrent(model, saved) && <p className="model-billing__warning" role="status">{t('billing.stale')}</p>}
         <Field label={t('billing.method')} controlWidth="fill"
-          description={model.auth?.type === 'subscription' ? t('billing.subscriptionAuthHint') : t('billing.apiAuthHint')}>
+          description={subscriptionProviderOf(model.auth) ? t('billing.subscriptionAuthHint') : t('billing.apiAuthHint')}>
           <Select aria-label={t('billing.method')} size="sm" value={kind} disabled={saving || unsupported} onValueChange={value => setKind(value as ModelBillingKind)} options={[
             { value: 'unknown', label: t('billing.unknown') },
             { value: 'api', label: t('billing.api') },

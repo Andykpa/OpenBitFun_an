@@ -12,9 +12,11 @@ mod admission;
 mod sharing;
 use admission::Admission;
 pub(crate) use admission::ControlToken;
+#[cfg(target_os = "macos")]
+pub(crate) use sharing::shared_target_allowed;
 pub(crate) use sharing::{
     acquire_shared, begin_share, finish_share, grant_preference_result, request_share,
-    set_share_control, shared_process, shared_target_allowed,
+    set_share_control, shared_process,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -166,6 +168,8 @@ fn projected(r: &Resource) -> ControlSnapshot {
         [
             "window-capture",
             "window-target-v1",
+            "activate-app-v1",
+            "app-zoom-v1",
             "background-ax-semantic-input",
             "background-directed-keyboard",
             "background-directed-scroll",
@@ -179,6 +183,8 @@ fn projected(r: &Resource) -> ControlSnapshot {
         [
             "window-capture",
             "window-target-v1",
+            "activate-app-v1",
+            "app-zoom-v1",
             "background-uia-semantic-input",
             "background-window-messages",
             "foreground-seat-input",
@@ -323,8 +329,11 @@ pub(crate) fn input_allowed() -> Result<(), String> {
 }
 pub(crate) fn foreground_allowed() -> Result<(), String> {
     input_allowed()?;
-    if locked()?.admission.snapshot.mode != ControlMode::Foreground {
-        return Err(admission::FOREGROUND_REQUIRED.into());
+    let r = locked()?;
+    if r.admission.snapshot.mode != ControlMode::Foreground {
+        return Err(admission::foreground_required(
+            r.admission.snapshot.action.as_deref(),
+        ));
     }
     Ok(())
 }
@@ -345,6 +354,23 @@ pub(crate) fn bind_target(target: String) -> Result<(), String> {
         }
         #[cfg(target_os = "windows")]
         super::windows_pointer_feedback::hide_pointer();
+    }
+    Ok(())
+}
+/// Rejects a window that window-only sharing does not admit, without binding
+/// it, so foreground recovery can check before changing a window's state.
+pub(crate) fn target_admissible(target: &str) -> Result<(), String> {
+    let r = locked()?;
+    check_context(&r)?;
+    if r.admission
+        .snapshot
+        .sharing
+        .as_ref()
+        .is_some_and(|sharing| {
+            sharing.phase != openbitfun_agent_tools::computer_use_control::SharingPhase::Selecting
+        })
+    {
+        r.admission.shared_target_allowed(target)?;
     }
     Ok(())
 }

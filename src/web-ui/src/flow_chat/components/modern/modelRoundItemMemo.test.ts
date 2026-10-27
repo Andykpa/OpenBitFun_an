@@ -15,6 +15,13 @@ describe('model round memoization', () => {
       effectiveModelName: 'economy', routing: { route: 'economy', latencyMs: 11 } } })).toBe(false);
   });
 
+  it('refreshes completed metrics when host timing arrives without new content', () => {
+    expect(areModelRoundItemPropsEqual(props, { ...props, turnTtftMs: 0 })).toBe(false);
+    expect(areModelRoundItemPropsEqual(props, { ...props, turnOutputDurationMs: 1_000 })).toBe(false);
+    const timed = { ...props, turnTtftMs: 500, turnOutputDurationMs: 1_000 };
+    expect(areModelRoundItemPropsEqual(timed, { ...timed })).toBe(true);
+  });
+
   it('updates a settled row when recovery metadata adds or removes the continuation label', () => {
     const recovered = { ...props, round: { ...props.round,
       renderHints: { continuedAfterInterruption: true } } };

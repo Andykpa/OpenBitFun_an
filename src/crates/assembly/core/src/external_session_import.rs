@@ -74,14 +74,6 @@ impl ImportSource {
         }
     }
 
-    fn from_candidate(id: &str) -> ExternalSourceOperationResult<Self> {
-        Self::from_ecosystem(
-            id.split_once(':')
-                .map(|(ecosystem, _)| ecosystem)
-                .unwrap_or(""),
-        )
-    }
-
     fn name(self) -> &'static str {
         match self {
             Self::Codex => "Codex",
@@ -358,6 +350,7 @@ fn convert_document_turns(
             first_chunk_ms: None,
             first_visible_output_ms: None,
             stream_duration_ms: None,
+            ttft_ms: None,
             attempt_count: None,
             attempt_diagnostics: Vec::new(),
             failure_category: None,
@@ -527,15 +520,15 @@ mod tests {
     #[test]
     fn source_selection_never_falls_back_to_codex_for_an_unknown_ecosystem() {
         assert!(matches!(
-            ImportSource::from_candidate("codex:source").unwrap(),
+            ImportSource::from_ecosystem("codex").unwrap(),
             ImportSource::Codex
         ));
         assert!(matches!(
-            ImportSource::from_candidate("zcode:source").unwrap(),
+            ImportSource::from_ecosystem("zcode").unwrap(),
             ImportSource::Zcode
         ));
-        assert!(ImportSource::from_candidate("unregistered:source").is_err());
-        assert!(ImportSource::from_candidate("source").is_err());
+        assert!(ImportSource::from_ecosystem("unregistered").is_err());
+        assert!(ImportSource::from_ecosystem("").is_err());
     }
 
     #[tokio::test]

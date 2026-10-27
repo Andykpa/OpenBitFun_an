@@ -25,8 +25,7 @@ use std::time::Duration;
 
 impl DesktopComputerUseHost {
     pub(super) fn ensure_input_automation_allowed() -> OpenBitFunResult<()> {
-        crate::computer_use::control_session::foreground_allowed()
-            .map_err(OpenBitFunError::tool)?;
+        Self::ensure_foreground_target()?;
         #[cfg(target_os = "macos")]
         {
             if macos::ax_trusted() {
@@ -113,6 +112,7 @@ impl DesktopComputerUseHost {
     /// Move the pointer along a short visible path instead of warping in one event.
     #[cfg(target_os = "macos")]
     fn smooth_mouse_move_cg_global(x1: f64, y1: f64) -> OpenBitFunResult<()> {
+        Self::ensure_foreground_target()?;
         const MIN_DIST: f64 = 2.5;
         const MIN_STEPS: usize = 8;
         const MAX_STEPS: usize = 85;
@@ -294,11 +294,14 @@ impl DesktopComputerUseHost {
     }
 
     /// Resolve image/normalized input against the observation scope and live
-    /// native bounds, including legacy foreground actions.
+    /// native bounds, including legacy foreground actions. Inputs that accept
+    /// a screenshot_id set `zoom_needs_id`; legacy actions without one keep
+    /// addressing the latest image, zoomed or not.
     pub(super) fn observed_pointer_map(
         &self,
         expected_pid: Option<i32>,
         screenshot_id: Option<&str>,
+        zoom_needs_id: bool,
     ) -> OpenBitFunResult<PointerMap> {
         let scope = crate::computer_use::control_session::observation_scope()
             .map_err(OpenBitFunError::tool)?;
@@ -318,16 +321,11 @@ impl DesktopComputerUseHost {
                 .observations
                 .image(screenshot_id)
                 .map_err(OpenBitFunError::tool)?;
-            if !state
-                .observations
-                .latest_image()
-                .is_some_and(|current| current.same_window_projection(&selected))
-            {
-                return Err(OpenBitFunError::tool(
-                    "[STALE_CAPTURE] Screenshot does not match the target's current geometry",
-                ));
-            }
-            selected
+            PointerMap::for_coordinates(
+                selected,
+                state.observations.latest_image(),
+                zoom_needs_id && screenshot_id.is_none(),
+            )?
         };
         #[cfg(target_os = "macos")]
         let map = {
@@ -370,7 +368,7 @@ impl DesktopComputerUseHost {
         y: i32,
         screenshot_id: Option<&str>,
     ) -> OpenBitFunResult<(f64, f64)> {
-        self.observed_pointer_map(Some(pid), screenshot_id)?
+        self.observed_pointer_map(Some(pid), screenshot_id, true)?
             .map_image_to_global_f64(x, y)
     }
 
@@ -484,8 +482,18 @@ impl DesktopComputerUseHost {
                 "[SHARED_TARGET_ONLY] Application was not shared by the user",
             ));
         }
-        let hwnd = crate::computer_use::windows_list_apps::find_top_window_for_pid(pid as u32)
-            .ok_or_else(|| OpenBitFunError::tool("[TARGET_UNAVAILABLE] Target has no window"))?;
+        let hwnd = crate::computer_use::windows_list_apps::find_default_window_for_pid(pid as u32)
+            .ok_or_else(|| {
+                match crate::computer_use::windows_list_apps::minimized_window_for_pid(pid as u32) {
+                    Some(handle) => OpenBitFunError::tool(
+                        crate::computer_use::windows_window_target::CaptureUnavailable::Minimized
+                            .error(pid as u32, handle),
+                    ),
+                    None => OpenBitFunError::tool(
+                        "[TARGET_UNAVAILABLE] Target has no eligible visible window; inspect list_windows and select an explicit window_id",
+                    ),
+                }
+            })?;
         Ok((pid, hwnd.0 as isize))
     }
 
@@ -497,23 +505,6 @@ impl DesktopComputerUseHost {
         crate::computer_use::windows_ax_ui::foreground_window_pid()
             .map(|p| p as i32)
             .unwrap_or(0)
-    }
-
-    /// Screen-space center of the foreground window (physical pixels). Used as
-    /// the default scroll anchor when no explicit focus target is given.
-    #[cfg(target_os = "windows")]
-    pub(super) fn windows_foreground_window_center(hwnd_raw: isize) -> Option<(i32, i32)> {
-        use windows::Win32::Foundation::{HWND, RECT};
-        use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
-        if hwnd_raw == 0 {
-            return None;
-        }
-        let hwnd = HWND(hwnd_raw as *mut std::ffi::c_void);
-        let mut rect = RECT::default();
-        if unsafe { GetWindowRect(hwnd, &mut rect) }.is_err() {
-            return None;
-        }
-        Some(((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2))
     }
 
     /// Resolve a [`ClickTarget`] into a **global screen** `(x, y)` on Windows.
@@ -615,7 +606,7 @@ impl DesktopComputerUseHost {
         x: i32,
         y: i32,
     ) -> OpenBitFunResult<(f64, f64)> {
-        self.observed_pointer_map(None, None)?
+        self.observed_pointer_map(None, None, false)?
             .map_image_to_global_f64(x, y)
     }
 
@@ -624,7 +615,7 @@ impl DesktopComputerUseHost {
         x: i32,
         y: i32,
     ) -> OpenBitFunResult<(f64, f64)> {
-        self.observed_pointer_map(None, None)?
+        self.observed_pointer_map(None, None, false)?
             .map_normalized_to_global_f64(x, y)
     }
 
@@ -691,7 +682,7 @@ impl DesktopComputerUseHost {
             // pixel height — not the same space as `CGEvent` / our screenshot mapping. Use Quartz
             // position + scale from the last capture (display points per screenshot pixel).
             let (dpt_x, dpt_y) = self
-                .observed_pointer_map(None, None)?
+                .observed_pointer_map(None, None, false)?
                 .image_delta_to_global(dx, dy)?;
 
             crate::computer_use::control_session::spawn_blocking(move || {
@@ -812,6 +803,7 @@ impl DesktopComputerUseHost {
         button: &str,
         duration_ms: u64,
     ) -> OpenBitFunResult<()> {
+        Self::ensure_foreground_target()?;
         debug!(
             "computer_use: drag from=({:.1},{:.1}) to=({:.1},{:.1}) button={} dur={}ms",
             from.0, from.1, to.0, to.1, button, duration_ms
@@ -1078,6 +1070,7 @@ impl DesktopComputerUseHost {
     }
 
     pub(super) async fn type_text_impl(&self, text: &str) -> OpenBitFunResult<()> {
+        Self::ensure_foreground_target()?;
         if text.is_empty() {
             return Ok(());
         }

@@ -51,6 +51,19 @@ describe('billing editor', () => {
     expect(configManager.updateConfig).not.toHaveBeenCalled();
   });
 
+  it('describes subscription pools and scopes their quotes without inferring a price', async () => {
+    model = { ...model, auth: { type: 'subscription_pool', provider: 'codex', accounts: ['one', 'two'], revision: 1 }, metadata: {} };
+    hostModels = [model];
+    await render();
+    expect(document.body.textContent).toContain('billing.subscriptionAuthHint');
+    expect(document.body.textContent).not.toContain('billing.apiAuthHint');
+    expect(document.body.textContent).toContain('billing.routingScopeHint');
+    expect(document.body.querySelectorAll('input[type="number"]')).toHaveLength(0);
+    await act(async () => saveButton().click());
+    expect(getModelBilling(hostModels[0])?.kind).toBe('unknown');
+    expect(getModelBilling(hostModels[0])?.input).toBeUndefined();
+  });
+
   it('keeps the editor open and retains newer host data when the channel changed', async () => {
     await render(); hostModels = [{ ...model, base_url: 'https://new-provider.test' }];
     await act(async () => saveButton().click());

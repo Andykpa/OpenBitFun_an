@@ -3,6 +3,9 @@
 mod screenshot;
 use screenshot::PointerMap;
 mod background_guard;
+mod foreground;
+#[cfg(any(target_os = "linux", test))]
+mod linux_launch;
 mod observation;
 pub(crate) mod shared_preview;
 pub(crate) mod sharing;
@@ -31,8 +34,6 @@ use openbitfun_core::agentic::tools::computer_use_host::{
     ComputerUseForegroundApplication, ComputerUsePointerGlobal,
 };
 use openbitfun_core::util::errors::{OpenBitFunError, OpenBitFunResult};
-#[cfg(any(target_os = "windows", target_os = "linux"))]
-use screenshots::display_info::DisplayInfo;
 use screenshots::Screen;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -158,6 +159,7 @@ mod visual_grid_tests {
             .encode_image(&DynamicImage::ImageRgb8(img))
             .expect("encode synthetic grid");
         let shot = ComputerScreenshot {
+            capture_frame: None,
             screenshot_id: Some("test-shot".to_string()),
             bytes,
             mime_type: "image/jpeg".to_string(),
@@ -183,6 +185,7 @@ mod visual_grid_tests {
             image_global_bounds: None,
             ui_tree_text: None,
             implicit_confirmation_crop_applied: false,
+            auxiliary_windows: Vec::new(),
         };
 
         let (x0, y0, width, height) =
@@ -791,6 +794,7 @@ mod ax_orchestration;
 #[cfg(target_os = "macos")]
 mod macos;
 mod pointer_input;
+mod settle;
 
 impl DesktopComputerUseHost {
     /// Enumerate the registered keyboard shortcuts in `app`'s menu bar.
@@ -834,14 +838,15 @@ impl DesktopComputerUseHost {
         #[cfg(target_os = "windows")]
         {
             let pid = resolve_pid(self, &app).await? as u32;
-            let hwnd_isize = crate::computer_use::windows_list_apps::find_top_window_for_pid(pid)
-                .map(|h| h.0 as isize)
-                .ok_or_else(|| {
-                    OpenBitFunError::tool(format!(
-                        "APP_NOT_FOUND: no visible top-level window for pid={} (app={:?})",
-                        pid, app
-                    ))
-                })?;
+            let hwnd_isize =
+                crate::computer_use::windows_list_apps::find_default_window_for_pid(pid)
+                    .map(|h| h.0 as isize)
+                    .ok_or_else(|| {
+                        OpenBitFunError::tool(format!(
+                            "APP_NOT_FOUND: no visible top-level window for pid={} (app={:?})",
+                            pid, app
+                        ))
+                    })?;
 
             let (shortcuts, menu_items_without_shortcut) =
                 crate::computer_use::control_session::spawn_blocking(move || {
@@ -893,6 +898,14 @@ impl ComputerUseHost for DesktopComputerUseHost {
         self.dispatch_app_input_impl(app, action).await
     }
 
+    async fn settle_after_input(
+        &self,
+        app: AppSelector,
+        policy: openbitfun_core::agentic::tools::computer_use_host::AppInputSettlePolicy,
+    ) -> OpenBitFunResult<openbitfun_core::agentic::tools::computer_use_host::AppInputSettle> {
+        self.settle_after_input_impl(app, policy).await
+    }
+
     fn capture_scope(&self) -> Option<&'static str> {
         let target = crate::computer_use::control_session::snapshot().target?;
         if target.starts_with("pid:") && target.contains("/window:") {
@@ -942,14 +955,36 @@ impl ComputerUseHost for DesktopComputerUseHost {
                 app = AppSelector::by_pid(pid);
             }
         }
+        // A same-owner mode transition keeps its exact window identity even
+        // though native capture resources and observation IDs are renewed.
+        if app.window_id.is_none() {
+            if let Some(target) = crate::computer_use::control_session::snapshot().target {
+                if let Some((pid, window)) = foreground::parse_native_target(&target) {
+                    if app.pid == Some(pid) {
+                        app.window_id = Some(window);
+                    }
+                }
+            }
+        }
         #[cfg(target_os = "macos")]
         {
             let pid = resolve_pid_macos(self, &app).await?;
-            let window_id = app.window_id.map(u32::try_from).transpose().map_err(|_| {
-                OpenBitFunError::tool(
-                    "[INVALID_PARAMS] window_id exceeds the macOS window ID range",
-                )
-            })?;
+            let requested_window = app.window_id.or_else(|| {
+                crate::computer_use::control_session::snapshot()
+                    .target
+                    .as_deref()
+                    .and_then(foreground::parse_native_target)
+                    .filter(|(bound_pid, _)| *bound_pid == pid)
+                    .map(|(_, window)| window)
+            });
+            let window_id = requested_window
+                .map(u32::try_from)
+                .transpose()
+                .map_err(|_| {
+                    OpenBitFunError::tool(
+                        "[INVALID_PARAMS] window_id exceeds the macOS window ID range",
+                    )
+                })?;
             crate::computer_use::control_session::spawn_blocking(move || {
                 crate::computer_use::macos_capture::ensure_capture(pid, window_id)
             })
@@ -985,6 +1020,82 @@ impl ComputerUseHost for DesktopComputerUseHost {
             .map_err(OpenBitFunError::tool)?;
         drop(self.state_for_scope(&scope)?);
         Ok(())
+    }
+
+    async fn activate_app(&self, _app: AppSelector) -> OpenBitFunResult<()> {
+        crate::computer_use::control_session::spawn_blocking(Self::activate_prepared_window)
+            .await
+            .map_err(|e| OpenBitFunError::tool(e.to_string()))?
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    async fn zoom_observation(
+        &self,
+        app: AppSelector,
+        region: openbitfun_core::agentic::tools::computer_use_host::ComputerUseZoomRegion,
+    ) -> OpenBitFunResult<ComputerScreenshot> {
+        self.zoom_observation_impl(app, region).await
+    }
+
+    async fn restore_window(&self, app: AppSelector) -> OpenBitFunResult<bool> {
+        app.validate_window_target()
+            .map_err(OpenBitFunError::tool)?;
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        let bound_window = |pid: i32| {
+            app.window_id.or_else(|| {
+                crate::computer_use::control_session::snapshot()
+                    .target
+                    .as_deref()
+                    .and_then(foreground::parse_native_target)
+                    .filter(|(bound_pid, _)| *bound_pid == pid)
+                    .map(|(_, window)| window)
+            })
+        };
+        #[cfg(target_os = "macos")]
+        {
+            let pid = resolve_pid_macos(self, &app).await?;
+            let window = bound_window(pid)
+                .map(u32::try_from)
+                .transpose()
+                .map_err(|_| {
+                    OpenBitFunError::tool(
+                        "[INVALID_PARAMS] window_id exceeds the macOS window ID range",
+                    )
+                })?;
+            crate::computer_use::control_session::spawn_blocking(move || {
+                // Without an explicit or bound window, restore the one capture
+                // selects, which is the window its surface error names.
+                let window = match window {
+                    Some(window) => window,
+                    None => crate::computer_use::macos_capture::default_window(pid)
+                        .map_err(OpenBitFunError::tool)?,
+                };
+                crate::computer_use::macos_ax_ui::restore_window(pid, window)
+            })
+            .await
+            .map_err(|e| OpenBitFunError::tool(e.to_string()))?
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let pid = resolve_pid(self, &app).await?;
+            let window = bound_window(pid)
+                .map(usize::try_from)
+                .transpose()
+                .map_err(|_| {
+                    OpenBitFunError::tool(
+                        "[INVALID_PARAMS] window_id exceeds the native window handle range",
+                    )
+                })?;
+            crate::computer_use::control_session::spawn_blocking(move || {
+                crate::computer_use::windows_list_apps::restore_window(pid as u32, window)
+            })
+            .await
+            .map_err(|e| OpenBitFunError::tool(e.to_string()))?
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            Ok(false)
+        }
     }
 
     async fn start_control(
@@ -1027,7 +1138,7 @@ impl ComputerUseHost for DesktopComputerUseHost {
         &self,
         owner: &str,
     ) -> OpenBitFunResult<openbitfun_core::agentic::tools::computer_use_host::ControlSnapshot> {
-        crate::computer_use::control_session::stop(Some(owner), "user_stopped")
+        crate::computer_use::control_session::stop(Some(owner), "agent_stopped")
             .map_err(OpenBitFunError::tool)
     }
     async fn stop_control_generation(
@@ -1317,6 +1428,7 @@ impl ComputerUseHost for DesktopComputerUseHost {
         &self,
         app_name: &str,
     ) -> OpenBitFunResult<openbitfun_core::agentic::tools::computer_use_host::OpenAppResult> {
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         use openbitfun_core::agentic::tools::computer_use_host::OpenAppResult;
         let name = app_name.to_string();
         crate::computer_use::control_session::input_allowed().map_err(OpenBitFunError::tool)?;
@@ -1352,38 +1464,7 @@ impl ComputerUseHost for DesktopComputerUseHost {
             if background {
                 return Err(OpenBitFunError::tool("[BACKGROUND_LAUNCH_UNSUPPORTED] This Linux host cannot request application launch without compositor activation. Already-running applications remain available through list_apps and AT-SPI."));
             }
-            let result = crate::computer_use::control_session::spawn_blocking(
-                move || -> OpenBitFunResult<OpenAppResult> {
-                    let output = openbitfun_core::util::process_manager::create_command("xdg-open")
-                        .arg(&name)
-                        .output()
-                        .or_else(|_| {
-                            openbitfun_core::util::process_manager::create_command(&name).output()
-                        })
-                        .map_err(|e| OpenBitFunError::tool(format!("open_app: {}", e)))?;
-                    Ok(OpenAppResult {
-                        app_name: name,
-                        success: output.status.success(),
-                        process_id: None,
-                        error_message: if output.status.success() {
-                            None
-                        } else {
-                            Some(String::from_utf8_lossy(&output.stderr).trim().to_string())
-                        },
-                        // Linux is the legacy tier: no AX layer, so there is no pid
-                        // to resolve identity or window count from. `None` means
-                        // "not measured" — do not substitute `Some(0)`, which the
-                        // model reads as a definite windowless app.
-                        bundle_id: None,
-                        process_name: None,
-                        window_count: None,
-                        launch_path: Some("xdg_open".to_string()),
-                    })
-                },
-            )
-            .await
-            .map_err(|e| OpenBitFunError::tool(e.to_string()))??;
-            return Ok(result);
+            return linux_launch::open(&name).await;
         }
 
         #[allow(unreachable_code)]

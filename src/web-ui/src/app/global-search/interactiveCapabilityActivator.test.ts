@@ -86,4 +86,12 @@ describe('activateInteractiveCapability', () => {
     expect(mocks.openScene).toHaveBeenCalledWith('settings');
     expect(mocks.openDestination).toHaveBeenCalledWith({ kind: 'settings', pageId: 'ai.models' });
   });
+
+  it('rejects Git panel requests, including documented items, without opening a scene', async () => {
+    for (const itemId of [undefined, 'commit', 'status-diff']) {
+      await expect(activateInteractiveCapability('feature.git', { itemId }))
+        .rejects.toThrow('The Git panel is no longer available');
+    }
+    expect(mocks.openScene).not.toHaveBeenCalled();
+  });
 });

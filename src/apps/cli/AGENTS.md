@@ -12,6 +12,12 @@ read:
 
 ## Ownership
 
+Model-edit compatibility has a focused check:
+`cargo test --locked -p openbitfun-cli --bin openbitfun model_selection::tests`.
+Older mutation DTOs preserve account/channel policy. Merge write-only credentials
+and unexpressed routing fields against the current model inside the existing
+config write lock, so a concurrent settings edit cannot be overwritten.
+
 CLI owns only surface concerns:
 
 - Clap entrypoints and CLI-local configuration
@@ -151,6 +157,15 @@ For streaming `exec` retry, context recovery, and final-event contracts:
 ```bash
 cargo test --locked -p openbitfun-cli --test cli_command_contracts exec_cli_contracts::stream_json_
 ```
+
+For ACP stdio session restore, duplicate-load rejection, history replay and close:
+
+```bash
+cargo test --locked -p openbitfun-cli --test acp_stdio_cli
+```
+
+Back-to-back requests can reach the server during or after the first transition;
+the fixture validates both rejection states and exactly one history replay.
 
 When a CLI change crosses a shared boundary, use the focused command maintained
 by that owner: Agent Runtime for port/SDK behavior, the IPC adapter for shared

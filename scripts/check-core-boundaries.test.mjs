@@ -319,6 +319,7 @@ test('Agent Runtime leaf capabilities have one managed feature and source contra
   );
   assert.ok(rule, 'openbitfun-agent-runtime must be a managed capability target');
   assert.deepEqual(Object.keys(rule.featureProfiles).sort(), [
+    'account-routing',
     'agent-runtime',
     'default',
     'definition-contracts',
@@ -354,6 +355,16 @@ test('Agent Runtime leaf capabilities have one managed feature and source contra
     'utf8',
   );
   assert.equal(flatRootRule.patterns[0].regex.test(rootSource), false);
+  const channelRule = requiredContentRules.find(
+    (sourceRule) => sourceRule.path === 'src/crates/execution/agent-runtime/src/lib.rs'
+      && sourceRule.reason.includes('leaf capability modules'),
+  ).patterns.find((pattern) => pattern.message.startsWith('channel_routing '));
+  assert.ok(channelRule, 'channel admission must have an exact pure owner gate');
+  assert.equal(channelRule.regex.test(rootSource), true);
+  assert.equal(channelRule.regex.test(rootSource.replace(
+    '#[cfg(feature = "account-routing")]\npub mod channel_routing;',
+    '#[cfg(feature = "agent-runtime")]\npub mod channel_routing;',
+  )), false);
   for (const mutation of [
     '#[doc(hidden)] pub mod accidental_feature_free_api;',
     'pub union AccidentalFeatureFreeApi { value: u64 }',
@@ -546,6 +557,7 @@ test('portable contract crates expose only capability-local feature slices', asy
       'permission',
       'plugin-runtime',
       'product-search',
+      'ptc-runtime',
       'remote-exec-port',
       'remote-workspace-ports',
       'runtime-event-port',
@@ -562,6 +574,7 @@ test('portable contract crates expose only capability-local feature slices', asy
   assert.deepEqual(runtimePortFeatures['plugin-runtime'], []);
   assert.deepEqual(runtimePortFeatures['product-search'], ['dep:openbitfun-product-domains']);
   assert.deepEqual(runtimePortFeatures['script-tool-runtime'], []);
+  assert.deepEqual(runtimePortFeatures['ptc-runtime'], []);
   assert.deepEqual(runtimePortFeatures['web-search-port'], []);
   // Workspace byte readers expose AsyncRead/AsyncSeek without selecting a
   // process, network, scheduler, or full Tokio runtime at the contract layer.
@@ -717,6 +730,38 @@ test('Services Core text runtime features keep independent exact owner profiles'
   ]);
 });
 
+test('image inspection and generation keep independent exact feature closures', async () => {
+  const manifestPath = 'src/crates/assembly/core/Cargo.toml';
+  const manifest = await readFile(new URL(`../${manifestPath}`, import.meta.url), 'utf8');
+  const features = parseManifestFeatures(manifest);
+  for (const [name, refs] of [
+    ['tools-image-analysis', ['openbitfun-tool-packs/image-analysis']],
+    ['tools-image-generation', [
+      'openbitfun-tool-packs/image-generation',
+      'ai-adapter-runtime',
+      'openbitfun-ai-adapters/image-generation',
+    ]],
+  ]) {
+    const rule = coreClosedFeatureProfileRules.find(candidate => candidate.manifestPath === manifestPath && candidate.featureName === name);
+    assert.equal(rule?.exact, true);
+    assert.deepEqual(rule.requiredFeatureRefs, refs);
+    assert.deepEqual(features[name], refs);
+  }
+});
+
+test('system proxy discovery owns registry access without process or storage capabilities', async () => {
+  const manifestPath = 'src/crates/services/services-core/Cargo.toml';
+  const manifest = await readFile(new URL(`../${manifestPath}`, import.meta.url), 'utf8');
+  const expected = ['dep:windows', 'windows/Win32_Foundation', 'windows/Win32_System_Registry'];
+  assert.deepEqual(parseManifestFeatures(manifest)['system-proxy'], expected);
+  const rule = coreClosedFeatureProfileRules.find(candidate => candidate.manifestPath === manifestPath && candidate.featureName === 'system-proxy');
+  assert.equal(rule?.exact, true);
+  assert.deepEqual(rule.requiredFeatureRefs, expected);
+  const windows = optionalDependencyFeatureOwnerRules.find(candidate => candidate.crateName === 'services-core')
+    .dependencies.find(dependency => dependency.depName === 'windows');
+  assert.ok(windows.ownerFeatures.includes('system-proxy'));
+});
+
 function parseManifestFeatures(manifest) {
   const section = manifest.match(/^\[features\]\s*$([\s\S]*?)(?=^\[|(?![\s\S]))/m)?.[1] ?? '';
   const features = {};
@@ -772,6 +817,7 @@ const RUNTIME_PORT_FEATURE_PROFILES = {
   permission: ['dep:openbitfun-product-domains'],
   'plugin-runtime': [],
   'product-search': ['dep:openbitfun-product-domains'],
+  'ptc-runtime': [],
   'remote-exec-port': ['dep:tokio'],
   'remote-workspace-ports': [],
   'runtime-event-port': [],
@@ -1022,6 +1068,11 @@ test('contract and AI adapter tests keep reviewed feature and failure-domain top
       name: 'script_tool_port_contracts',
       path: 'tests/script_tool_port_contracts.rs',
       requiredFeatures: ['script-tool-runtime'],
+    },
+    {
+      name: 'ptc_tool_port_contracts',
+      path: 'tests/ptc_tool_port_contracts.rs',
+      requiredFeatures: ['ptc-runtime'],
     },
     {
       name: 'session_store_contracts',
@@ -1445,6 +1496,9 @@ test('Core optional document and subscription capabilities have independent modi
   ]);
   assert.deepEqual(ruleByFeature.get('ai-adapter-runtime')?.requiredFeatureRefs, [
     'dep:openbitfun-ai-adapters',
+    'dep:openbitfun-agent-runtime',
+    'openbitfun-agent-runtime/account-routing',
+    'openbitfun-services-core/routing-state',
   ]);
   assert.ok(
     !ruleByFeature.get('tools-basic')?.requiredFeatureRefs.includes('tool-runtime/document-read'),
@@ -1472,6 +1526,7 @@ test('Core product-full explicitly assembles service and tool capability owners'
     'tools-computer-use',
     'tools-creation',
     'tools-image-analysis',
+    'tools-image-generation',
     'tools-miniapp',
     'tools-canvas',
     'tools-agent-control',
@@ -1845,6 +1900,7 @@ const SDK_HOST_REVIEWED_CORE_FEATURES = [
   'tools-browser-web',
   'tools-computer-use',
   'tools-image-analysis',
+  'tools-image-generation',
   'tools-agent-control',
 ];
 
@@ -4230,6 +4286,8 @@ test('Services Core accepts only the reviewed feature-owned Tokio runtime graph'
       diff: ['dep:tokio', 'tokio/rt', 'tokio/time'],
       filesystem: ['dep:tokio', 'tokio/fs', 'tokio/rt', 'tokio/sync'],
       'json-io': ['dep:tokio', 'tokio/fs', 'tokio/rt', 'tokio/sync', 'tokio/time'],
+      'routing-state': ['json-io'],
+      'resource-capacity': ['json-io'],
       'local-storage': [
         'dep:tokio',
         'tokio/fs',

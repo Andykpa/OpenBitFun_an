@@ -170,6 +170,7 @@ product-full = [
     "tools-browser-web",
     "tools-computer-use",
     "tools-image-analysis",
+    "tools-image-generation",
     "tools-miniapp",
     "tools-pages",
     "tools-creation",
@@ -184,6 +185,7 @@ product-full = [
     "workspace-watch",
     "ssh-remote",
     "dispatch-store",
+    "ptc-runtime",
     "filesystem",
     "git",
     "local-storage",
@@ -337,6 +339,12 @@ script-tool-runtime = [
     "openbitfun-runtime-ports/script-tool-runtime",
     "openbitfun-services-integrations/script-tool-runtime",
 ]
+ptc-runtime = [
+    "agent-runtime",
+    "git",
+    "openbitfun-runtime-ports/ptc-runtime",
+    "openbitfun-services-integrations/ptc-runtime",
+]
 scheduled-jobs = [
     "dep:chrono-tz",
     "dep:cron",
@@ -371,6 +379,11 @@ tools-computer-use = [
 ]
 tools-image-analysis = [
     "openbitfun-tool-packs/image-analysis",
+]
+tools-image-generation = [
+    "openbitfun-tool-packs/image-generation",
+    "ai-adapter-runtime",
+    "openbitfun-ai-adapters/image-generation",
 ]
 tools-miniapp = [
     "dep:openbitfun-product-domains",
@@ -414,6 +427,9 @@ opencode-plugin-host = [
 ]
 ai-adapter-runtime = [
     "dep:openbitfun-ai-adapters",
+    "dep:openbitfun-agent-runtime",
+    "openbitfun-agent-runtime/account-routing",
+    "openbitfun-services-core/routing-state",
 ]
 product-capabilities = ["dep:openbitfun-product-capabilities"]
 plugin-source = [

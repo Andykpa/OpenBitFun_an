@@ -12,6 +12,7 @@
     "branchHint": "继续自 {{source}}",
     "openSource": "打开来源会话",
     "unavailable": "来源暂不可用，显示上次缓存",
+    "unsupported": "来源格式暂不支持，请升级 OpenBitFun 后重试。",
     "incomplete": "来源对话尚未完成，当前显示已读取的历史",
     "openBeforeContinue": "请先打开来源会话并等待历史加载完成，再继续对话。"
   },
@@ -313,7 +314,9 @@
       "filesDescription": "当前会话没有找到文件编辑记录。",
       "errorsDescription": "本次报告没有记录到可展示的工具或模型错误样例。",
       "slowest": "无慢耗时记录",
-      "slowestDescription": "没有记录到带耗时的轮次、模型调用或工具片段。"
+      "slowestDescription": "没有记录到带耗时的轮次、模型调用或工具片段。",
+      "session": "还没有会话活动",
+      "sessionDescription": "在此会话中发送一条消息即可开始。运行后，这里会显示模型用量、工具调用和耗时。"
     },
     "runtime": {
       "open": "生成会话用量",
@@ -434,18 +437,18 @@
     }
   },
   "threadGoal": {
-    "replaceConfirmTitle": "替换线程目标？",
+    "replaceConfirmTitle": "替换会话目标？",
     "replaceConfirmMessage": "是否替换当前目标？\n\n当前：{{existing}}\n\n新目标：{{next}}",
-    "clearConfirmTitle": "清除线程目标？",
+    "clearConfirmTitle": "清除会话目标？",
     "clearConfirmMessage": "是否清除当前目标？\n\n目标：{{objective}}",
-    "menuTitle": "线程目标",
+    "menuTitle": "会话目标",
     "objectiveLabel": "目标描述",
-    "updatedUserMessage": "线程目标已更新：{{objective}}",
-    "kickoffUserMessage": "继续推进线程目标：{{objective}}",
+    "updatedUserMessage": "会话目标已更新：{{objective}}",
+    "kickoffUserMessage": "继续推进会话目标：{{objective}}",
     "continuationCheckHeader": "目标完成检查",
     "continuationCheckHeaderWithAttempt": "目标完成检查（自动续跑 {{attempt}}/{{max}}）",
     "continuationCheckUserMessage": "目标完成检查：{{objective}}",
-    "menuEmpty": "尚未设置线程目标。填写目标描述后，代理会在空闲时持续朝该方向推进。",
+    "menuEmpty": "尚未设置会话目标。填写目标描述后，代理会在空闲时持续朝该方向推进。",
     "workflow": {
       "title": "完成检查",
       "steps": {
@@ -462,8 +465,8 @@
         "budgetLimited": "已达 token 预算上限，可编辑目标或清除后重新设置。"
       }
     },
-    "editTitleCreate": "设置线程目标",
-    "editTitleUpdate": "编辑线程目标",
+    "editTitleCreate": "设置会话目标",
+    "editTitleUpdate": "编辑会话目标",
     "editHint": "输入目标描述并保存；会话空闲时会继续朝该目标推进。",
     "editPlaceholder": "目标描述…",
     "editCancel": "取消",
@@ -473,10 +476,10 @@
     "resumeHint": "标记为进行中后，会话空闲时会继续执行。也可保持暂停，稍后用 /goal resume。",
     "resumeConfirm": "恢复目标",
     "resumeLeavePaused": "保持暂停",
-    "stripTooltipEmpty": "设置或查看线程目标",
+    "stripTooltipEmpty": "设置或查看会话目标",
     "stripTooltipWithGoal": "{{status}}：{{objective}}",
-    "stripOpenEmpty": "打开线程目标",
-    "stripOpenWithGoal": "打开线程目标菜单",
+    "stripOpenEmpty": "打开会话目标",
+    "stripOpenWithGoal": "打开会话目标菜单",
     "stripPauseGoal": "暂停目标",
     "stripResumeGoal": "恢复目标",
     "stripClearGoal": "清除目标",
@@ -666,6 +669,7 @@
     "retry": "重试",
     "addImage": "添加图片",
     "maxImagesWarning": "最多只能选择{{count}}张图片",
+    "imageOnlyPrompt": "请参考附带的图片。",
     "imagePasteFailed": "图片粘贴失败",
     "clipboardImageToolsUnavailable": "无法读取剪贴板图片：请安装 wl-clipboard（Wayland）或 xclip（X11）后重试。",
     "externalFiles": {
@@ -971,7 +975,7 @@
       "openDefaultSettings": "打开权限设置"
     },
     "boostSectionContext": "上下文",
-    "boostThreadGoal": "设置线程目标",
+    "boostThreadGoal": "设置会话目标",
     "boostStartBtw": "发起侧问",
     "boostNewSession": "新建会话",
     "boostAddContext": "引用文件或文件夹",
@@ -1007,12 +1011,12 @@
     "goalVerifyFailed": "目标验证失败，请检查模型配置后重试。",
     "goalNoSession": "当前没有可用于 /goal 的会话",
     "goalUsage": "使用 /goal 并可选择附加目标描述，例如 /goal 修复登录问题。",
-    "goalFailed": "线程目标操作失败",
-    "goalActivated": "线程目标已设置",
-    "goalCleared": "线程目标已清除",
-    "goalPaused": "线程目标已暂停",
-    "goalResumed": "线程目标已恢复",
-    "goalEdited": "线程目标已更新",
+    "goalFailed": "会话目标操作失败",
+    "goalActivated": "会话目标已设置",
+    "goalCleared": "会话目标已清除",
+    "goalPaused": "会话目标已暂停",
+    "goalResumed": "会话目标已恢复",
+    "goalEdited": "会话目标已更新",
     "goalNestedDisabled": "目标模式只能从主会话启动。",
     "initAction": "生成 AGENTS.md",
     "initNoSession": "当前没有可用于 /init 的会话",
@@ -1119,7 +1123,7 @@
       "label": "MCP",
       "server": "MCP 服务",
       "empty": "当前模式没有可用的已连接 MCP 工具。请在 MCP 设置中启用并启动服务。",
-      "modeRestricted": "当前模式不提供已连接的 MCP 工具。请切换到 Standard、Ultimate 或 Creative 使用。",
+      "modeRestricted": "当前模式不提供已连接的 MCP 工具。请切换到$t(shared:agents.Standard)、$t(shared:agents.Ultimate) 或 $t(shared:agents.Creative)使用。",
       "loadFailed": "MCP 工具加载失败，请刷新重试。",
       "refresh": "刷新 MCP 工具",
       "remoteWorkspace": "远程工作区暂不支持选择 MCP。",
@@ -1734,7 +1738,10 @@
       "averageRate": "平均输出",
       "speedLevel": "速度档位",
       "rateValue": "{{value}} t/s",
-      "rateBasis": "输出 Token 除以从首个 Token 到流结束的时长，不含工具执行、排队与等待；档位分界为 15、40、80 Token/秒",
+      "ttft": "首 Token 延迟",
+      "ttftValue": "TTFT {{value}}",
+      "ttftBasis": "本轮首次模型调用从发送请求到收到首个文字、思考或工具输出的耗时。发生重试时，显示最终采用的请求耗时。",
+      "rateBasis": "输出 Token 除以各次模型调用从首个有效输出到流结束的时长之和，不含 TTFT 和工具执行；档位分界为 15、40、80 Token/秒",
       "slow": "慢",
       "normal": "一般",
       "fast": "快",
@@ -3018,6 +3025,7 @@
         "AgentDelete": "删除子代理",
         "SessionHistory": "导出会话历史",
         "analyze_image": "分析图片",
+        "generate_image": "生成图片",
         "GetTime": "读取时间",
         "ListMCPResources": "发现资源",
         "ReadMCPResource": "读取资源",
@@ -3029,6 +3037,7 @@
         "FrontendWorkbench": "界面定制",
         "FinalizeMiniApp": "更新小应用",
         "PublishMiniApp": "提交小应用审核",
+        "MiniAppBrowser": "操作小程序",
         "PublishAppearance": "提交皮肤审核",
         "Playbook": "读取操作流程",
         "DesktopCard": "小卡片"
@@ -3053,6 +3062,7 @@
         "includeToolInputs": "包含工具参数",
         "includeThinking": "包含思考",
         "model": "视觉模型",
+        "service": "服务",
         "dimensions": "图片尺寸",
         "question": "分析问题",
         "analysis": "分析结果",
@@ -3139,6 +3149,7 @@
         "dataSource": "数据来源",
         "visibility": "显示状态",
         "refreshError": "最近刷新错误",
+        "commandStderr": "命令错误输出",
         "presets": "预置卡片",
         "cards": "卡片"
       },
@@ -3275,6 +3286,7 @@
       "imageCurrent": "当前源图像",
       "imageUnavailable": "无法预览图像，可打开记录的路径查看源文件。",
       "imageLoading": "正在读取源图像…",
+      "generatedImages": "已生成图片：{{value}} 张",
       "hostUnavailable": "这条记录来自被派发任务的主机，请在该主机打开资源；当前无法从本机跳转。",
       "remoteLoopback": "这个回环地址属于执行主机，请在该主机上打开。",
       "desktopCard": {
@@ -3295,6 +3307,7 @@
           "note": "便签",
           "progress": "进度",
           "metrics": "指标",
+          "chart": "图表",
           "cronJob": "定时任务",
           "custom": "自定义"
         },
@@ -3702,6 +3715,7 @@
     "send": "发送"
   },
   "miniAppComposer": {
+    "imagesUnsupportedPeer": "连接的设备暂不支持向 MiniApp 发送图片。请更新该设备上的 OpenBitFun 后重试。",
     "placeholder": "把需求发给 {{app}}…",
     "send": "发送",
     "hint": "消息将由 {{app}} 处理"

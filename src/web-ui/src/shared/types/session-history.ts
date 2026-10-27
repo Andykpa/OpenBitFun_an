@@ -30,7 +30,7 @@ export interface SessionCustomMetadata extends Record<string, unknown> {
   externalHistoryMode?: 'follow';
   externalHistoryPending?: boolean;
   externalContentVersion?: string;
-  externalSourceStatus?: 'available' | 'unavailable';
+  externalSourceStatus?: 'available' | 'unavailable' | 'unsupported';
   externalSourceIncomplete?: boolean;
   externalObservedFingerprint?: string;
   externalMaterializedObservation?: string;
@@ -305,6 +305,8 @@ export interface ModelRoundData {
   firstChunkMs?: number;
   firstVisibleOutputMs?: number;
   streamDurationMs?: number;
+  /** Request start to first effective output for the accepted model attempt. */
+  ttftMs?: number;
   attemptCount?: number;
   attemptDiagnostics?: ModelRoundAttemptDiagnostic[];
   failureCategory?: string;

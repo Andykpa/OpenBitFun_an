@@ -17,15 +17,27 @@ export interface ModelBilling {
   needsReview?: boolean;
 }
 
-/** No credential material is stored in the annotation. */
+/** No credential material is stored in the annotation. Quotes describe the base channel. */
 export function modelBillingBinding(model: AIModelConfig): string {
-  return JSON.stringify([
+  const identity: unknown[] = [
     model.id, model.provider, model.base_url, model.model_name,
     model.metadata?.provider_instance_id ?? null,
     model.auth?.type ?? 'api_key',
     model.auth?.type === 'subscription' ? model.auth.provider : null,
     model.auth?.type === 'subscription' ? model.auth.plan ?? null : null,
-  ]);
+  ];
+  const accountId = model.auth?.type === 'subscription'
+    && model.auth.account_id && model.auth.account_id !== model.auth.provider
+    ? model.auth.account_id : null;
+  // Pool revisions fence edits; only the provider and ordered members identify billing.
+  const pool = model.auth?.type === 'subscription_pool'
+    ? [model.auth.provider, model.auth.accounts] : null;
+  const routing = model.channel_routing
+    ? [model.channel_routing.version, model.channel_routing.fallback_model_ids,
+      model.channel_routing.manual_channel ?? null] : null;
+  // Keep legacy single-channel quotes valid until their channel identity changes.
+  if (accountId || pool || routing) identity.push({ accountId, pool, routing });
+  return JSON.stringify(identity);
 }
 
 const rate = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;

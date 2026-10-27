@@ -51,7 +51,16 @@ export interface PeerHostCapabilities {
   readonly tokenUsageStatistics: boolean;
   /** MiniApp Agent runs accept immutable virtual context-file snapshots. */
   readonly miniAppAgentContextFilesV1: boolean;
+  readonly miniAppAgentImagesV1: boolean;
   readonly wslWorkspacesV1?: boolean;
+  /** Host stores ordered subscription account pools on model configs. */
+  readonly subscriptionAccountPoolsV1?: boolean;
+  /** Host-owned read-only subscription allowance query. */
+  readonly subscriptionQuotaV1?: boolean;
+  readonly grokQuotaV1?: boolean;
+  readonly subscriptionModelQuotaV1?: boolean;
+  /** Host routes a model to its configured backup channels. */
+  readonly modelChannelRoutingV1?: boolean;
   readonly wholeSessionCopyV1?: boolean;
   readonly modelRoutingV1?: boolean;
   readonly modelPoolSelectionV1?: boolean;
@@ -181,7 +190,13 @@ const NO_CAPABILITIES: PeerHostCapabilities = {
   targetedSessionRollback: false,
   tokenUsageStatistics: false,
   miniAppAgentContextFilesV1: false,
+  miniAppAgentImagesV1: false,
   wslWorkspacesV1: false,
+  subscriptionAccountPoolsV1: false,
+  subscriptionQuotaV1: false,
+  grokQuotaV1: false,
+  subscriptionModelQuotaV1: false,
+  modelChannelRoutingV1: false,
   wholeSessionCopyV1: false,
   modelRoutingV1: false,
   modelPoolSelectionV1: false,
@@ -438,6 +453,7 @@ export class PeerConnectionManager {
       supportsTargetedSessionRollback: entry.capabilities.targetedSessionRollback,
       supportsTokenUsageStatistics: entry.capabilities.tokenUsageStatistics,
       supportsMiniAppAgentContextFilesV1: entry.capabilities.miniAppAgentContextFilesV1,
+      supportsMiniAppAgentImagesV1: entry.capabilities.miniAppAgentImagesV1,
       supportsWslWorkspacesV1: entry.capabilities.wslWorkspacesV1,
       supportsWholeSessionCopyV1: entry.capabilities.wholeSessionCopyV1,
       supportsModelRoutingV1: entry.capabilities.modelRoutingV1,
@@ -530,7 +546,13 @@ export class PeerConnectionManager {
       targetedSessionRollback: caps?.targeted_session_rollback === true,
       tokenUsageStatistics: caps?.token_usage_statistics === true,
       miniAppAgentContextFilesV1: caps?.miniapp_agent_context_files_v1 === true,
+      miniAppAgentImagesV1: caps?.miniapp_agent_images_v1 === true,
       wslWorkspacesV1: caps?.wsl_workspaces_v1 === true,
+      subscriptionAccountPoolsV1: caps?.subscription_account_pools_v1 === true,
+      subscriptionQuotaV1: caps?.subscription_quota_v1 === true,
+      grokQuotaV1: caps?.grok_quota_v1 === true,
+      subscriptionModelQuotaV1: caps?.subscription_model_quota_v1 === true,
+      modelChannelRoutingV1: caps?.model_channel_routing_v1 === true,
       wholeSessionCopyV1: caps?.whole_session_copy_v1 === true,
       modelRoutingV1: caps?.model_routing_v1 === true,
       modelPoolSelectionV1: caps?.model_pool_selection_v1 === true,
@@ -629,6 +651,7 @@ export class PeerConnectionManager {
         supportsTargetedSessionRollback: capabilities.targetedSessionRollback,
         supportsTokenUsageStatistics: capabilities.tokenUsageStatistics,
         supportsMiniAppAgentContextFilesV1: capabilities.miniAppAgentContextFilesV1,
+        supportsMiniAppAgentImagesV1: capabilities.miniAppAgentImagesV1,
         supportsWslWorkspacesV1: capabilities.wslWorkspacesV1,
         supportsWholeSessionCopyV1: capabilities.wholeSessionCopyV1,
         supportsModelRoutingV1: capabilities.modelRoutingV1,
@@ -779,7 +802,13 @@ function capabilitiesEqual(
     a.targetedSessionRollback === b.targetedSessionRollback &&
     a.tokenUsageStatistics === b.tokenUsageStatistics &&
     a.miniAppAgentContextFilesV1 === b.miniAppAgentContextFilesV1 &&
+    a.miniAppAgentImagesV1 === b.miniAppAgentImagesV1 &&
     a.wslWorkspacesV1 === b.wslWorkspacesV1 &&
+    a.subscriptionAccountPoolsV1 === b.subscriptionAccountPoolsV1 &&
+    a.subscriptionQuotaV1 === b.subscriptionQuotaV1 &&
+    a.grokQuotaV1 === b.grokQuotaV1 &&
+    a.subscriptionModelQuotaV1 === b.subscriptionModelQuotaV1 &&
+    a.modelChannelRoutingV1 === b.modelChannelRoutingV1 &&
     a.wholeSessionCopyV1 === b.wholeSessionCopyV1 &&
     a.modelRoutingV1 === b.modelRoutingV1 &&
     a.modelPoolSelectionV1 === b.modelPoolSelectionV1 &&

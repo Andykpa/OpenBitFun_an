@@ -5,7 +5,23 @@ use openbitfun_agent_tools::computer_use_control::{
     ControlActionPolicy, ControlMode, ControlSharing, ControlSnapshot, SharingPhase,
 };
 
-pub(super) const FOREGROUND_REQUIRED: &str = "[FOREGROUND_REQUIRED] This global action uses the human's foreground application or cursor. Keep background control and use app_click, app_type_text, app_key_chord, app_scroll or app_drag with observed application/window targets. Do not request foreground takeover to recover from this error. Use start_control with mode=foreground only when the user explicitly requests taking over the visible desktop.";
+const FOREGROUND_GUIDANCE: &str = "Prefer app_batch, app_click, app_type_text, app_key_chord, app_scroll or app_drag when supported; they deliver to the bound window without activating it. For the user's requested GUI task, you may call start_control with mode=foreground when background delivery is unavailable or verified ineffective, unless the user required background-only/no-disruption. Then activate_app on a supported native target and observe it again, or use the consented Linux portal surface. Respect Stop and permission denial; never replay input with an uncertain outcome.";
+
+/// The rejected action is named so the caller can tell a mode mismatch from a
+/// target or capability failure without parsing generic prose.
+pub(super) fn foreground_required(action: Option<&str>) -> String {
+    match action {
+        Some("activate_app") => format!(
+            "[FOREGROUND_REQUIRED] activate_app raises a window on the visible desktop, so it needs a foreground control session; the current session is not foreground and nothing was activated. {FOREGROUND_GUIDANCE}"
+        ),
+        Some(action) => format!(
+            "[FOREGROUND_REQUIRED] {action} uses visible desktop focus or the global cursor, so it needs a foreground control session; the current session is not foreground and no input was sent. {FOREGROUND_GUIDANCE}"
+        ),
+        None => format!(
+            "[FOREGROUND_REQUIRED] This action uses visible desktop focus or the global cursor, so it needs a foreground control session. {FOREGROUND_GUIDANCE}"
+        ),
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ControlToken {
@@ -17,6 +33,7 @@ pub(crate) struct ControlToken {
 }
 
 impl ControlToken {
+    #[cfg(target_os = "macos")]
     pub(crate) fn generation(self) -> u64 {
         self.generation
     }
@@ -276,13 +293,18 @@ impl<E: Copy + PartialEq> Admission<E> {
             .generation
             .checked_add(1)
             .ok_or("[CONTROL_FAILED] Control generation exhausted")?;
+        let retained_target = (self.active()
+            && self.snapshot.owner.as_deref() == Some(owner)
+            && self.snapshot.sharing.is_none())
+        .then(|| self.snapshot.target.clone())
+        .flatten();
         self.cleaning = true;
         self.last_revoked_generation = None;
         self.snapshot.generation = generation;
         self.snapshot.target_revision = 0;
         self.snapshot.owner = Some(owner.into());
         self.snapshot.mode = mode;
-        self.snapshot.target = None;
+        self.snapshot.target = retained_target;
         self.snapshot.pointer = None;
         self.snapshot.reason = None;
         self.snapshot.action = None;
@@ -430,7 +452,7 @@ impl<E: Copy + PartialEq> Admission<E> {
             return Err("[CONTROL_OBSERVE_ONLY] Start a control session to send input".into());
         }
         if policy.foreground && mode != ControlMode::Foreground {
-            return Err(FOREGROUND_REQUIRED.into());
+            return Err(foreground_required(Some(action)));
         }
         let sequence = self
             .snapshot
@@ -477,6 +499,29 @@ impl<E: Copy + PartialEq> Admission<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use openbitfun_agent_tools::computer_use_control::ObservationScope;
+    #[test]
+    fn changing_mode_preserves_exact_target_but_revokes_old_observations() {
+        let mut state = Admission::<u8>::default();
+        let lease = state.admit("task", "get_app_state", 1).unwrap();
+        state.bind("pid:42/window:17".into()).unwrap();
+        state.release(lease, true);
+        let previous = ObservationScope::from_control(&state.snapshot);
+        let generation = state.begin_start("task", ControlMode::Foreground).unwrap();
+        state.finish_start(generation).unwrap();
+        assert_eq!(state.snapshot.target.as_deref(), Some("pid:42/window:17"));
+        assert_ne!(ObservationScope::from_control(&state.snapshot), previous);
+        let activate = state.admit("task", "activate_app", 1).unwrap();
+        state.release(activate, true);
+        state.revoke("user_stopped");
+        // A new task cannot inherit an old task's window merely because the
+        // chat owner string happens to be reused.
+        state.cleaning = false;
+        let generation = state.begin_start("task", ControlMode::Background).unwrap();
+        state.finish_start(generation).unwrap();
+        assert!(state.snapshot.target.is_none());
+    }
+
     #[test]
     fn agent_selects_targets_and_operates_without_a_manual_share() {
         let mut state = Admission::<u8>::default();
@@ -485,12 +530,23 @@ mod tests {
         assert!(state.snapshot.sharing.is_none());
         state.bind("pid:1/window:10".into()).unwrap();
         state.release(observe, true);
-        for action in ["click", "type_text", "key_chord", "scroll", "drag"] {
+        for action in [
+            "click",
+            "type_text",
+            "key_chord",
+            "scroll",
+            "drag",
+            "activate_app",
+        ] {
             let error = state.admit("task", action, 1).unwrap_err();
             assert!(error.starts_with("[FOREGROUND_REQUIRED]"), "{error}");
+            assert!(
+                error.starts_with(&format!("[FOREGROUND_REQUIRED] {action} ")),
+                "{error}"
+            );
             assert!(error.contains("app_click, app_type_text, app_key_chord"));
-            assert!(error.contains("Do not request foreground takeover"));
-            assert!(error.contains("only when the user explicitly requests"));
+            assert!(error.contains("background-only/no-disruption"));
+            assert!(error.contains("start_control with mode=foreground"));
             assert_eq!(state.snapshot.mode, ControlMode::Background);
             assert!(!state.busy);
         }

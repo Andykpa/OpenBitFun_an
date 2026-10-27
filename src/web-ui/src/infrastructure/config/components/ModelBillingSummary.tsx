@@ -66,6 +66,7 @@ export function ModelBillingSummary({ primary, fast, selected, disabled, compact
         <Button size="sm" variant="outline" disabled={disabled} onClick={() => setEditing({ model, epoch: scope.epoch })}>{t('billing.edit')}</Button>
       </div>)}
       <p className="model-billing__hint">{t('billing.noPolicy')}</p>
+      {models.some(model => model.auth?.type === 'subscription_pool' || model.channel_routing) && <p className="model-billing__hint">{t('billing.routingScopeHint')}</p>}
     </div>}
     {editing?.epoch === scope.epoch && <ModelBillingDetails key={editing.model.id} model={editing.model} onClose={() => setEditing(null)} onSaved={onSaved} />}
   </div>;

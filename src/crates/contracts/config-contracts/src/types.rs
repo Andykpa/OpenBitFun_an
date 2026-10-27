@@ -2,8 +2,11 @@
 //!
 //! Defines all configuration-related types shared between backend and frontend.
 
-use openbitfun_core_types::{product_identity, WorktreeSettings};
-pub use openbitfun_core_types::{ReasoningConfig, ReasoningPreset, ReasoningPresetAction};
+use openbitfun_core_types::{product_identity, ToolPresentationMode, WorktreeSettings};
+pub use openbitfun_core_types::{
+    ImageDialect, ReasoningConfig, ReasoningPreset, ReasoningPresetAction,
+    MAX_IMAGES_PER_GENERATION_REQUEST,
+};
 use openbitfun_product_domains::tool_permissions::{PermissionRule, ToolPermissionConfig};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -58,6 +61,12 @@ pub struct GlobalConfig {
     pub terminal: TerminalConfig,
     pub workspace: WorkspaceConfig,
     pub ai: AIConfig,
+    /// Image and other media service configuration.
+    ///
+    /// Always serialized, even when empty: the settings surface reads this path
+    /// through the generic dot-path getter, which fails on an absent key.
+    #[serde(default)]
+    pub media: MediaConfig,
     /// User-level static tool permission policy and interaction preferences.
     #[serde(default)]
     pub tool_permissions: ToolPermissionConfig,
@@ -881,6 +890,110 @@ pub struct DefaultModelsConfig {
     pub speech_recognition: Option<String>,
 }
 
+/// Per-service generation parameters. They act as `generate_image` tool defaults
+/// and can be overridden per call.
+///
+/// `size` stays a dialect-native expression on purpose: a new provider then only
+/// needs a UI preset instead of a contract change. `OpenAiImages` uses `1024x1024`
+/// while `DashScopeNative` uses `2048*2048`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ImageGenerationParams {
+    /// Dialect-native size expression.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<String>,
+    /// Number of images requested per call.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub n: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub negative_prompt: Option<String>,
+    /// OpenAI Images quality preset (`auto` / `low` / `medium` / `high`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<String>,
+    /// OpenAI Images background (`auto` / `opaque` / `transparent`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background: Option<String>,
+    /// Output encoding (`png` / `jpeg` / `webp`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_format: Option<String>,
+    /// DashScope watermark flag.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub watermark: Option<bool>,
+    /// DashScope prompt rewrite flag.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_extend: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed: Option<i64>,
+}
+
+/// One independently configured image generation service.
+///
+/// This deliberately does not reuse [`AIModelConfig`]: an image service has no
+/// context window, no token limits and no chat capability tags, and its request
+/// shape is owned by [`ImageDialect`] rather than by the model name.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ImageServiceConfig {
+    /// Stable identifier referenced by [`MediaConfig::default_image_service`].
+    pub id: String,
+    pub name: String,
+    pub dialect: ImageDialect,
+    /// Service root without the dialect's endpoint path.
+    pub base_url: String,
+    /// Full request URL override. When set it replaces `base_url` + dialect path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_url: Option<String>,
+    pub model_name: String,
+    pub api_key: String,
+    #[serde(default)]
+    pub auth: AuthConfig,
+    pub enabled: bool,
+    pub params: ImageGenerationParams,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_headers: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_headers_mode: Option<String>,
+    pub skip_ssl_verify: bool,
+}
+
+/// Media service configuration.
+///
+/// A sibling of `ai` on purpose: the `generate_image` tool resolves its target
+/// here, so a session's text model never decides which image provider is called,
+/// and image services never borrow the chat model shape.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MediaConfig {
+    pub image_services: Vec<ImageServiceConfig>,
+    /// [`ImageServiceConfig::id`] used by the `generate_image` tool when a call
+    /// does not name a service.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_image_service: Option<String>,
+}
+
+impl MediaConfig {
+    pub fn enabled_image_service(&self, id: &str) -> Option<&ImageServiceConfig> {
+        self.image_services
+            .iter()
+            .find(|service| service.id == id && service.enabled)
+    }
+
+    /// Default service, or the only enabled service when no default was set.
+    pub fn effective_image_service(&self) -> Option<&ImageServiceConfig> {
+        if let Some(service) = self
+            .default_image_service
+            .as_deref()
+            .and_then(|id| self.enabled_image_service(id))
+        {
+            return Some(service);
+        }
+
+        let mut enabled = self.image_services.iter().filter(|service| service.enabled);
+        let first = enabled.next()?;
+        enabled.next().is_none().then_some(first)
+    }
+}
+
 /// Model choice for a subagent created in the context of a parent session.
 ///
 /// `Inherit` is intentionally distinct from a model ID so a user-configured
@@ -1134,6 +1247,11 @@ impl Default for ModelRoutingConfig {
 pub struct AIConfig {
     /// All configured models.
     pub models: Vec<AIModelConfig>,
+
+    /// Tool presentation used by sessions created after this setting changes.
+    /// Existing sessions retain their persisted presentation mode.
+    #[serde(default)]
+    pub tool_presentation_mode: ToolPresentationMode,
 
     #[serde(default)]
     pub model_pools: crate::model_pool::ModelPoolDocument,
@@ -1788,11 +1906,15 @@ pub struct AIModelConfig {
     pub custom_request_body_mode: Option<String>,
 
     /// Authentication source for this model. Defaults to a static API key;
-    /// selecting a CLI source causes the AI client
-    /// factory to look up `~/.codex/auth.json` or `~/.gemini/...` at request
-    /// time and inject the resolved Bearer token / extra headers.
+    /// subscription credentials come from OpenBitFun's in-app OAuth store
+    /// and are resolved at request time, never from third-party CLI files.
     #[serde(default)]
     pub auth: AuthConfig,
+
+    /// Explicit fallback channels, each referring to an independently configured
+    /// model endpoint and credential source. Absent keeps fixed-channel behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel_routing: Option<crate::channel_routing::ModelChannelRouting>,
 }
 
 /// Stable identity of the runtime-affecting parts of a concrete model config.
@@ -1834,6 +1956,12 @@ pub fn model_runtime_binding_fingerprint(model: &AIModelConfig) -> String {
 }
 
 /// Subscription provider whose in-app OAuth tokens authenticate a model.
+///
+/// `Workbuddy` and `WorkbuddyAi` are retired providers: their sign-in and
+/// request protocols were removed because the vendor stopped allowing
+/// subscription-token access. The variants are never offered and every request
+/// path refuses them, but they stay readable so persisted model configuration
+/// written by an earlier release still loads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SubscriptionProvider {
@@ -1842,6 +1970,26 @@ pub enum SubscriptionProvider {
     Opencode,
     Grok,
     Hermes,
+    Workbuddy,
+    WorkbuddyAi,
+    Zcode,
+    ZcodeCn,
+}
+
+impl SubscriptionProvider {
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Codex => "codex",
+            Self::Antigravity => "antigravity",
+            Self::Opencode => "opencode",
+            Self::Grok => "grok",
+            Self::Hermes => "hermes",
+            Self::Workbuddy => "workbuddy",
+            Self::WorkbuddyAi => "workbuddy_ai",
+            Self::Zcode => "zcode",
+            Self::ZcodeCn => "zcode_cn",
+        }
+    }
 }
 
 /// OpenCode API product selected for a subscription-authenticated model.
@@ -1871,6 +2019,19 @@ pub enum AuthConfig {
         provider: SubscriptionProvider,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         plan: Option<OpenCodePlan>,
+        /// Explicit host-local credential slot. Absent preserves the legacy
+        /// provider-default account; unsupported hosts must not receive it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        account_id: Option<String>,
+    },
+    /// Ordered accounts for one unchanged provider/model. Older readers reject
+    /// this distinct tag instead of ignoring routing fields and using default.
+    SubscriptionPool {
+        provider: SubscriptionProvider,
+        #[serde(default)]
+        accounts: Vec<String>,
+        #[serde(default)]
+        revision: u64,
     },
 }
 
@@ -1947,6 +2108,7 @@ impl Default for GlobalConfig {
             terminal: TerminalConfig::default(),
             workspace: WorkspaceConfig::default(),
             ai: AIConfig::default(),
+            media: MediaConfig::default(),
             memories: MemoriesConfig::default(),
             project: ProjectConfig::default(),
             tool_permissions: ToolPermissionConfig::default(),
@@ -2121,6 +2283,7 @@ impl Default for AIConfig {
         Self {
             model_pools: crate::model_pool::ModelPoolDocument::default(),
             models: vec![],
+            tool_presentation_mode: ToolPresentationMode::default(),
             task_models: TaskModelsConfig::default(),
             default_models: DefaultModelsConfig::default(),
             model_routing: ModelRoutingConfig::default(),
@@ -2203,6 +2366,7 @@ impl Default for AIModelConfig {
             custom_request_body: None,
             custom_request_body_mode: None,
             auth: AuthConfig::ApiKey,
+            channel_routing: None,
         }
     }
 }
@@ -2631,6 +2795,7 @@ mod tests {
             AuthConfig::Subscription {
                 provider: SubscriptionProvider::Opencode,
                 plan: None,
+                account_id: None,
             }
         );
         assert_eq!(
@@ -2644,6 +2809,7 @@ mod tests {
         let go = AuthConfig::Subscription {
             provider: SubscriptionProvider::Opencode,
             plan: Some(OpenCodePlan::Go),
+            account_id: None,
         };
         let serialized = serde_json::to_value(&go).expect("Go auth should serialize");
         assert_eq!(serialized["plan"], "go");
@@ -2654,10 +2820,30 @@ mod tests {
     }
 
     #[test]
+    fn explicit_subscription_account_roundtrips_without_changing_legacy_bindings() {
+        let legacy_payload = serde_json::json!({"type":"subscription","provider":"codex"});
+        let legacy: AuthConfig = serde_json::from_value(legacy_payload.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&legacy).unwrap(), legacy_payload);
+        let mut model = AIModelConfig::default();
+        model.auth = legacy;
+        let before = super::model_runtime_binding_fingerprint(&model);
+        let legacy_model_payload = serde_json::to_value(&model).unwrap();
+        assert!(legacy_model_payload["auth"].get("account_id").is_none());
+        let restored: AIModelConfig = serde_json::from_value(legacy_model_payload).unwrap();
+        assert_eq!(before, super::model_runtime_binding_fingerprint(&restored));
+
+        let explicit_payload = serde_json::json!({"type":"subscription","provider":"codex","account_id":"codex-account-58134808-15a6-45db-ae33-2ad7d85cc570"});
+        model.auth = serde_json::from_value(explicit_payload.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&model.auth).unwrap(), explicit_payload);
+        assert_ne!(before, super::model_runtime_binding_fingerprint(&model));
+    }
+
+    #[test]
     fn grok_subscription_auth_roundtrips_without_opencode_plan() {
         let grok = AuthConfig::Subscription {
             provider: SubscriptionProvider::Grok,
             plan: None,
+            account_id: None,
         };
         let serialized = serde_json::to_value(&grok).expect("Grok auth should serialize");
         assert_eq!(
@@ -2678,6 +2864,7 @@ mod tests {
         let hermes = AuthConfig::Subscription {
             provider: SubscriptionProvider::Hermes,
             plan: None,
+            account_id: None,
         };
         let serialized = serde_json::to_value(&hermes).expect("Hermes auth should serialize");
         assert_eq!(
@@ -3334,6 +3521,66 @@ mod tests {
             hidden_serialized["app"]["flow_chat"]["show_permission_mode_control"],
             false
         );
+    }
+
+    #[test]
+    fn ai_tool_presentation_defaults_to_native_and_round_trips_ptc() {
+        let legacy: super::AIConfig = serde_json::from_value(serde_json::json!({
+            "models": []
+        }))
+        .expect("AI config without tool presentation should deserialize");
+        assert_eq!(
+            legacy.tool_presentation_mode,
+            openbitfun_core_types::ToolPresentationMode::Native
+        );
+        assert_eq!(
+            serde_json::to_value(&legacy).unwrap()["tool_presentation_mode"],
+            "native"
+        );
+
+        let ptc: super::AIConfig = serde_json::from_value(serde_json::json!({
+            "models": [],
+            "tool_presentation_mode": "ptc"
+        }))
+        .expect("PTC AI config should deserialize");
+        assert_eq!(
+            ptc.tool_presentation_mode,
+            openbitfun_core_types::ToolPresentationMode::Ptc
+        );
+        let written = serde_json::to_value(ptc).unwrap();
+        assert_eq!(written["tool_presentation_mode"], "ptc");
+        let restored: super::AIConfig = serde_json::from_value(written).unwrap();
+        assert_eq!(
+            restored.tool_presentation_mode,
+            openbitfun_core_types::ToolPresentationMode::Ptc
+        );
+
+        let future: super::AIConfig = serde_json::from_value(serde_json::json!({
+            "models": [],
+            "tool_presentation_mode": "future_mode"
+        }))
+        .expect("future tool presentation values should degrade to native");
+        assert_eq!(
+            future.tool_presentation_mode,
+            openbitfun_core_types::ToolPresentationMode::Native
+        );
+
+        let global: super::GlobalConfig =
+            serde_json::from_value(current_global_config_with(serde_json::json!({
+                "ai": {
+                    "tool_presentation_mode": "ptc"
+                }
+            })))
+            .expect("global config should read the runtime tool presentation setting");
+        assert_eq!(
+            global.ai.tool_presentation_mode,
+            openbitfun_core_types::ToolPresentationMode::Ptc
+        );
+        let global_written = serde_json::to_value(global).unwrap();
+        assert_eq!(global_written["ai"]["tool_presentation_mode"], "ptc");
+        assert!(global_written["app"]["flow_chat"]
+            .get("tool_presentation_mode")
+            .is_none());
     }
 
     #[test]
@@ -4484,5 +4731,117 @@ mod external_session_discovery_tests {
             serde_json::json!({"codex": true, "zcode": false, "future-agent": true});
         let config: AppConfig = serde_json::from_value(legacy.clone()).unwrap();
         assert_eq!(serde_json::to_value(config).unwrap(), legacy);
+    }
+}
+
+#[cfg(test)]
+mod media_config_tests {
+    use super::*;
+
+    fn service(id: &str, enabled: bool) -> ImageServiceConfig {
+        ImageServiceConfig {
+            id: id.to_string(),
+            name: id.to_string(),
+            dialect: ImageDialect::DashScopeNative,
+            base_url: "https://dashscope.aliyuncs.com/api/v1".to_string(),
+            model_name: "qwen-image-2.0".to_string(),
+            api_key: "sk-test".to_string(),
+            enabled,
+            params: ImageGenerationParams {
+                size: Some("2048*2048".to_string()),
+                watermark: Some(false),
+                ..ImageGenerationParams::default()
+            },
+            ..ImageServiceConfig::default()
+        }
+    }
+
+    #[test]
+    fn documents_written_before_media_existed_load_with_an_empty_section() {
+        let mut legacy = serde_json::to_value(GlobalConfig::default()).unwrap();
+        legacy.as_object_mut().unwrap().remove("media");
+
+        let config: GlobalConfig = serde_json::from_value(legacy).unwrap();
+
+        assert!(config.media.image_services.is_empty());
+        assert_eq!(config.media.default_image_service, None);
+        assert!(config.media.effective_image_service().is_none());
+    }
+
+    #[test]
+    fn media_section_is_always_serialized_so_the_dot_path_getter_can_read_it() {
+        let value = serde_json::to_value(GlobalConfig::default()).unwrap();
+
+        assert_eq!(
+            value.get("media"),
+            Some(&serde_json::json!({ "image_services": [] }))
+        );
+    }
+
+    #[test]
+    fn image_service_round_trips_and_ignores_unknown_future_fields() {
+        let media = MediaConfig {
+            image_services: vec![service("svc-a", true)],
+            default_image_service: Some("svc-a".to_string()),
+        };
+        let mut value = serde_json::to_value(&media).unwrap();
+        value["image_services"][0]["future_field"] = serde_json::json!("ignored");
+
+        let parsed: MediaConfig = serde_json::from_value(value).unwrap();
+
+        assert_eq!(parsed, media);
+        assert_eq!(
+            parsed.image_services[0].dialect,
+            ImageDialect::DashScopeNative
+        );
+    }
+
+    #[test]
+    fn dialect_wire_names_are_stable() {
+        for (dialect, wire) in [
+            (ImageDialect::OpenAiImages, "openai_images"),
+            (ImageDialect::DashScopeNative, "dashscope_native"),
+        ] {
+            assert_eq!(serde_json::to_value(dialect).unwrap(), wire);
+            assert_eq!(
+                serde_json::from_value::<ImageDialect>(wire.into()).unwrap(),
+                dialect
+            );
+        }
+    }
+
+    #[test]
+    fn effective_service_prefers_the_default_pointer() {
+        let media = MediaConfig {
+            image_services: vec![service("svc-a", true), service("svc-b", true)],
+            default_image_service: Some("svc-b".to_string()),
+        };
+
+        assert_eq!(media.effective_image_service().unwrap().id, "svc-b");
+    }
+
+    #[test]
+    fn effective_service_falls_back_only_when_exactly_one_is_enabled() {
+        let single = MediaConfig {
+            image_services: vec![service("svc-a", true), service("svc-b", false)],
+            default_image_service: None,
+        };
+        assert_eq!(single.effective_image_service().unwrap().id, "svc-a");
+
+        let ambiguous = MediaConfig {
+            image_services: vec![service("svc-a", true), service("svc-b", true)],
+            default_image_service: None,
+        };
+        assert!(ambiguous.effective_image_service().is_none());
+    }
+
+    #[test]
+    fn a_disabled_default_pointer_is_not_served() {
+        let media = MediaConfig {
+            image_services: vec![service("svc-a", false)],
+            default_image_service: Some("svc-a".to_string()),
+        };
+
+        assert!(media.effective_image_service().is_none());
     }
 }

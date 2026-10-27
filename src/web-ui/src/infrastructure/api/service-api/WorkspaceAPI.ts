@@ -19,6 +19,7 @@ import type {
   FileSearchResultGroup,
   FileSearchStreamKind,
   FileSearchStreamStartResponse,
+  FileWatchStatus,
   WorkspaceSearchIndexStatus,
   WorkspaceSearchIndexTaskHandle,
 } from './tauri-commands';
@@ -1102,6 +1103,20 @@ export class WorkspaceAPI {
     } catch (error) {
       throw createTauriCommandError('get_watched_paths', error);
     }
+  }
+
+  /** Whether filesystem changes still reach product surfaces, and why not. */
+  async getFileWatchStatus(): Promise<FileWatchStatus> {
+    try {
+      return await api.invoke('get_file_watch_status', {});
+    } catch (error) {
+      throw createTauriCommandError('get_file_watch_status', error);
+    }
+  }
+
+  /** Re-register every watched root after the user fixes a backend failure. */
+  async retryFileWatch(): Promise<void> {
+    await invokePrepared('retry_file_watch', async () => ({}));
   }
 
    

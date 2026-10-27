@@ -411,12 +411,57 @@ pub(crate) async fn run() {
     let image_y = content["top"].as_f64().unwrap()
         + (y - global["top"].as_f64().unwrap()) * content["height"].as_f64().unwrap()
             / global["height"].as_f64().unwrap();
+    // Click through a zoomed observation of the target region: a wrong
+    // region mapping would miss the field and fail the exact counts below.
+    let region = |center: f64, start: &Value, extent: &Value, size: f64| {
+        let start = start.as_f64().unwrap();
+        let end = start + extent.as_f64().unwrap() - size;
+        (center - size / 2.0).clamp(start, end).round() as u32
+    };
+    let zoom_source = json!({
+        "screenshot_id": meta["screenshot_id"],
+        "x": region(image_x, &content["left"], &content["width"], 60.0),
+        "y": region(image_y, &content["top"], &content["height"], 40.0),
+        "width": 60,
+        "height": 40,
+    });
+    let zoomed = call_observation(
+        &tool,
+        &context,
+        json!({"action":"get_app_state", "app":{"pid":pid}, "zoom":zoom_source}),
+    )
+    .await;
+    assert_eq!(zoomed.image_count, 1);
+    assert_eq!(zoomed.data["zoom_source"], zoom_source);
+    let zoom_meta = &zoomed.data["app_state"]["screenshot_meta"];
+    assert_ne!(zoom_meta["screenshot_id"], meta["screenshot_id"]);
+    let zoom_global = &zoom_meta["image_global_bounds"];
+    let zoom_width = zoom_meta["image_width"].as_f64().unwrap();
+    let zoom_height = zoom_meta["image_height"].as_f64().unwrap();
+    let points_per_image_pixel =
+        global["width"].as_f64().unwrap() / content["width"].as_f64().unwrap();
+    assert!(
+        (zoom_global["width"].as_f64().unwrap() - 60.0 * points_per_image_pixel).abs() <= 1.0,
+        "zoom covers the requested region: {zoom_meta}"
+    );
+    assert!(
+        zoom_width / zoom_global["width"].as_f64().unwrap() >= 2.0,
+        "zoom is enlarged beyond the logical-size observation: {zoom_meta}"
+    );
+    eprintln!(
+        "zoom fixture: source={zoom_source} image={zoom_width}x{zoom_height} bounds={zoom_global}"
+    );
+    let zoom_x = (x - zoom_global["left"].as_f64().unwrap()) * zoom_width
+        / zoom_global["width"].as_f64().unwrap();
+    let zoom_y = (y - zoom_global["top"].as_f64().unwrap()) * zoom_height
+        / zoom_global["height"].as_f64().unwrap();
+    assert_session(&host, generation, &target, foreground);
     let batch = call(
         &tool,
         &context,
         json!({"action":"app_batch", "app":{"pid":pid}, "steps":[
-            {"action":"app_click", "target":{"kind":"image_xy", "x":image_x.round() as i32, "y":image_y.round() as i32,
-                  "screenshot_id":meta["screenshot_id"]}},
+            {"action":"app_click", "target":{"kind":"image_xy", "x":zoom_x.round() as i32, "y":zoom_y.round() as i32,
+                  "screenshot_id":zoom_meta["screenshot_id"]}},
             {"action":"app_type_text", "text":"背景"},
             {"action":"app_type_text", "text":"输入"},
             {"action":"app_type_text", "text":" Test"},
@@ -500,6 +545,127 @@ async fn run_covered_semantic() {
     context.primary_model_facts.api_format = "anthropic".into();
     let tool = ComputerUseTool::new();
     let _cleanup = StopOnExit;
+    if std::env::var_os("OPENBITFUN_INPUT_FOREGROUND").is_some() {
+        let app = json!({"pid":pid,"window_id":initial["window_id"]});
+        call(&tool, &context, json!({"action":"get_app_state","app":app})).await;
+        let background = host.control_snapshot();
+        call(
+            &tool,
+            &context,
+            json!({"action":"start_control","mode":"foreground"}),
+        )
+        .await;
+        assert_eq!(host.control_snapshot().target, background.target);
+        assert_ne!(host.control_snapshot().generation, background.generation);
+        let wrong_focus = tool
+            .call_impl(
+                &json!({"action":"type_text","text":"must-not-reach-observer","app":app}),
+                &context,
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            wrong_focus
+                .to_string()
+                .contains("FOREGROUND_TARGET_MISMATCH"),
+            "{wrong_focus}"
+        );
+        let active = call(&tool, &context, json!({"action":"activate_app","app":app})).await;
+        assert_eq!(active["activated"], true);
+        assert_eq!(
+            crate::computer_use::macos_bg_input::frontmost_pid_macos(),
+            Some(pid)
+        );
+        let field = observed_node_index(&active, "fixture-text-field");
+        call(&tool, &context, json!({"action":"app_type_text","app":app,"text":"foreground","focus":{"kind":"node_idx","idx":field}})).await;
+        call(
+            &tool,
+            &context,
+            json!({"action":"type_text","app":app,"text":"✓"}),
+        )
+        .await;
+        call(
+            &tool,
+            &context,
+            json!({"action":"key_chord","app":app,"keys":["command","shift","k"]}),
+        )
+        .await;
+        let after = call(&tool, &context, json!({"action":"get_app_state","app":app})).await;
+        assert!(after["app_state"]["tree_text"]
+            .as_str()
+            .unwrap()
+            .contains("foreground✓"));
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert_eq!(read(&path)["field_text"], "foreground✓");
+        assert_eq!(read(&path)["shortcut_actions"], 1);
+        assert_eq!(read(&path)["foreign_actions"], 0);
+        assert!(read(&observer_path)["input_events"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+
+        // A minimized window has no live surface. The error names that state
+        // with live alternatives; foreground activate_app restores the exact
+        // window before activating it and returns a fresh observation.
+        let window_id = initial["window_id"].as_u64().unwrap();
+        crate::computer_use::macos_ax_ui::minimize_window_for_fixture(pid, window_id as u32)
+            .unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let unavailable = loop {
+            match tool
+                .call_impl(&json!({"action":"get_app_state","app":app}), &context)
+                .await
+            {
+                Err(error) => break error.to_string(),
+                Ok(_) => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "a minimized window must not return an observation"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+            }
+        };
+        eprintln!("minimized fixture observation: {unavailable}");
+        assert!(
+            unavailable.contains("TARGET_SURFACE_UNAVAILABLE")
+                && unavailable.contains("is minimized"),
+            "{unavailable}"
+        );
+        assert!(unavailable.contains("activate_app"), "{unavailable}");
+        let listed = call(
+            &tool,
+            &context,
+            json!({"action":"list_windows","app":{"pid":pid}}),
+        )
+        .await;
+        let entry = listed["windows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|window| window["window_id"].as_u64() == Some(window_id))
+            .cloned()
+            .unwrap_or_else(|| panic!("minimized window stays discoverable: {listed}"));
+        assert_eq!(entry["is_on_screen"], false, "{entry}");
+        let restored = call(&tool, &context, json!({"action":"activate_app","app":app})).await;
+        assert_eq!(restored["restored_window"], true, "{restored}");
+        assert_eq!(restored["activated"], true, "{restored}");
+        assert!(restored["app_state"]["screenshot_meta"]["screenshot_id"]
+            .as_str()
+            .is_some_and(|id| !id.is_empty()));
+        assert_eq!(
+            host.control_snapshot().target,
+            Some(format!("pid:{pid}/window:{window_id}"))
+        );
+        assert_eq!(
+            crate::computer_use::macos_bg_input::frontmost_pid_macos(),
+            Some(pid)
+        );
+        assert_eq!(read(&path)["foreign_actions"], 0);
+        call(&tool, &context, json!({"action":"stop_control"})).await;
+        eprintln!("PASS foreground recovery retains exact target, rejects wrong focus, activates once and delivers Unicode/shortcut only to the fixture; a minimized window reports its state and activate_app restores it");
+        return;
+    }
     call(
         &tool,
         &context,

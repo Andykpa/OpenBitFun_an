@@ -13,6 +13,7 @@ import { getRecentReasoningPreset } from '../utils/reasoningPresets';
 import { useConfirmDialogStore } from '@/infrastructure/confirm-dialog';
 import { notificationStore } from '@/shared/notification-system';
 import { agentAPI } from '@/infrastructure/api/service-api/AgentAPI';
+import { configAPI } from '@/infrastructure/api/service-api/ConfigAPI';
 import { quickActions } from '@/shared/services/ide-control';
 import type { AIModelCatalog } from '@/infrastructure/api/service-api/AIApi';
 import type { AIModelConfig, DefaultModelsConfig } from '@/infrastructure/config/types';
@@ -1209,7 +1210,11 @@ describe('ModelSelector provider levels', () => {
   });
 
   it('keeps configured smart mode off after saving setup until the switch is enabled', async () => {
-    await renderSelector(); await previewSmart();
+    await renderSelector();
+    vi.spyOn(configAPI, 'getConfig').mockResolvedValue(
+      (await configManager.getConfigs(['ai.default_models']))['ai.default_models'],
+    );
+    await previewSmart();
     expect(smartToggle()).toBeNull();
     await act(async () => document.body.querySelector<HTMLButtonElement>('[data-testid="model-routing-settings"]')!.click());
     routingHost.ready = true;
@@ -1221,6 +1226,7 @@ describe('ModelSelector provider levels', () => {
     expect(routingHost.defaultMode).toBe('manual');
     expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
     expect(configManager.setConfig).not.toHaveBeenCalled();
+    expect(configAPI.getConfig).toHaveBeenCalledWith('ai.default_models');
   });
 
   it('keeps active smart contents when the host rejects switching it off', async () => {

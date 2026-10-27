@@ -61,6 +61,61 @@ describe('configured-channel billing annotations', () => {
     expect(compareModelCosts(m, base('second')).status).toBe('unknown');
   });
 
+  it('keeps legacy single-channel bindings valid and treats the implicit default account identically', () => {
+    const api = priced(1, 2);
+    expect(getModelBilling(api)?.binding).toBe(JSON.stringify([
+      api.id, api.provider, api.base_url, api.model_name, null, 'api_key', null, null,
+    ]));
+    const subscription: AIModelConfig = { ...base(), auth: { type: 'subscription', provider: 'codex' } };
+    const legacyBinding = JSON.stringify([
+      subscription.id, subscription.provider, subscription.base_url, subscription.model_name,
+      null, 'subscription', 'codex', null,
+    ]);
+    expect(modelBillingBinding(subscription)).toBe(legacyBinding);
+    expect(modelBillingBinding({ ...subscription, auth: { ...subscription.auth, type: 'subscription', provider: 'codex', account_id: 'codex' } })).toBe(legacyBinding);
+  });
+
+  it('invalidates account, pool and channel changes without discarding the previous quote', () => {
+    const account: AIModelConfig = { ...base(), auth: { type: 'subscription', provider: 'codex', account_id: 'account-one' } };
+    const pool: AIModelConfig = { ...base(), auth: { type: 'subscription_pool', provider: 'codex', accounts: ['one', 'two'], revision: 2 } };
+    const channel: AIModelConfig = { ...base(), channel_routing: { version: 1, fallback_model_ids: ['backup'] } };
+    const quote = (model: AIModelConfig) => withModelBilling(model, {
+      ...getModelBilling(priced(1, 2))!, binding: modelBillingBinding(model),
+    });
+    const changes: [AIModelConfig, Partial<AIModelConfig>][] = [
+      [account, { auth: { type: 'subscription', provider: 'codex', account_id: 'account-two' } }],
+      [pool, { auth: { type: 'subscription_pool', provider: 'opencode', accounts: ['one', 'two'], revision: 2 } }],
+      [pool, { auth: { type: 'subscription_pool', provider: 'codex', accounts: ['two', 'one'], revision: 2 } }],
+      [pool, { auth: { type: 'subscription_pool', provider: 'codex', accounts: ['one', 'three'], revision: 2 } }],
+      [channel, { channel_routing: { version: 1, fallback_model_ids: ['other'] } }],
+      [channel, { channel_routing: { version: 1, fallback_model_ids: ['backup'], manual_channel: 'backup' } }],
+    ];
+    for (const [original, change] of changes) {
+      const model = quote(original);
+      const changed = { ...model, ...change };
+      expect(isModelBillingCurrent(changed)).toBe(false);
+      const preserved = preserveModelAnnotations(model, changed);
+      expect(getModelBilling(preserved)?.needsReview).toBe(true);
+      expect(getModelBilling(preserved)?.input).toBe(1);
+      expect(estimateModelCost(preserved, COMPARISON_USAGE)).toBeUndefined();
+      expect(() => updateModelBilling([changed], model, getModelBilling(model)!)).toThrow();
+    }
+    const reviewedPool = quote(pool);
+    expect(isModelBillingCurrent({ ...reviewedPool, auth: { type: 'subscription_pool', provider: 'codex', accounts: ['one', 'two'], revision: 3 } })).toBe(true);
+  });
+
+  it('binds only non-credential routing identities and leaves unquoted pools unknown', () => {
+    const pool: AIModelConfig = { ...base(), api_key: 'fixture-api-secret',
+      custom_headers: { Authorization: 'fixture-header-secret' },
+      auth: { type: 'subscription_pool', provider: 'codex', accounts: ['one', 'two'], revision: 1 },
+      channel_routing: { version: 1, fallback_model_ids: ['backup'] } };
+    const binding = modelBillingBinding(pool);
+    expect(binding).not.toContain('fixture-api-secret');
+    expect(binding).not.toContain('fixture-header-secret');
+    expect(binding).toContain('backup');
+    expect(estimateModelCost(pool, COMPARISON_USAGE)).toBeUndefined();
+  });
+
   it('invalidates a changed endpoint, model, auth or credential while preserving the quote', () => {
     const m = priced(1, 2);
     for (const change of [{ base_url: 'https://other.test' }, { model_name: 'new-model' }, { api_key: 'rotated' }]) {

@@ -10,7 +10,6 @@ use crate::infrastructure::ai::reasoning_catalog::{
 use crate::service::config::get_global_config_service;
 use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 use crate::util::types::Message as AIMessage;
-use openbitfun_agent_runtime::prompt_suggestion::lowest_prompt_suggestion_reasoning_preset;
 use openbitfun_agent_runtime::router_context::{EstimatedRouterTokens, RouterTokenCounter};
 use openbitfun_ai_adapters::models_dev::is_protocol_generic_reasoning_preset;
 use openbitfun_ai_adapters::{AIClient, GeminiResponse};
@@ -117,6 +116,37 @@ pub(super) async fn send_request(
         .map_err(|error| OpenBitFunError::AIClient(error.to_string()))
 }
 
+fn lowest_summary_reasoning_preset(
+    presets: &[ReasoningPresetDescriptor],
+) -> Option<&ReasoningPresetDescriptor> {
+    presets.iter().min_by_key(|preset| {
+        let rank = preset
+            .actions
+            .iter()
+            .filter_map(|action| match action {
+                ReasoningPresetAction::Toggle { enabled: false } => Some((0, 0)),
+                ReasoningPresetAction::Effort { value } => {
+                    match preset.effective_effort.as_deref().unwrap_or(value) {
+                        "none" => Some((0, 0)),
+                        "minimal" => Some((1, 0)),
+                        "low" => Some((1, 1)),
+                        "medium" => Some((1, 2)),
+                        "high" => Some((1, 3)),
+                        "xhigh" => Some((1, 4)),
+                        "max" => Some((1, 5)),
+                        "ultra" => Some((1, 6)),
+                        _ => None,
+                    }
+                }
+                ReasoningPresetAction::BudgetTokens { value } => Some((2, *value)),
+                _ => None,
+            })
+            .min()
+            .unwrap_or((3, 0));
+        (rank, preset.order)
+    })
+}
+
 fn automatic_preset(projection: &ReasoningCatalogProjection) -> Option<ReasoningPresetDescriptor> {
     // Manual protocol controls are offered for an explicit selection, not proof
     // that an unknown service accepts them. Only catalog/model declarations or
@@ -137,7 +167,7 @@ fn automatic_preset(projection: &ReasoningCatalogProjection) -> Option<Reasoning
         })
         .cloned()
         .collect::<Vec<_>>();
-    if let Some(preset) = lowest_prompt_suggestion_reasoning_preset(&efforts) {
+    if let Some(preset) = lowest_summary_reasoning_preset(&efforts) {
         return Some(preset.clone());
     }
     let declared = projection
@@ -146,7 +176,7 @@ fn automatic_preset(projection: &ReasoningCatalogProjection) -> Option<Reasoning
         .filter(|preset| preset.source != ReasoningPresetSource::AdapterFallback)
         .cloned()
         .collect::<Vec<_>>();
-    lowest_prompt_suggestion_reasoning_preset(&declared).cloned()
+    lowest_summary_reasoning_preset(&declared).cloned()
 }
 
 fn request_client(

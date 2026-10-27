@@ -117,6 +117,29 @@ pnpm --dir src/web-ui run test:run src/app/layout/useNavResize.test.tsx src/app/
 These local DOM fixtures cover gesture state and spring settling, not native
 WebView rendering or live remote scenarios.
 
+For project creation entry points, work-location/environment selection, and local / SSH / WSL / Docker routing:
+
+```bash
+pnpm --dir src/web-ui run test:run src/app/components/NewProjectDialog/NewProjectDialog.test.tsx src/app/components/NavPanel/MainNav.projectCreation.test.tsx src/app/services/createProject.test.ts src/features/ssh-remote/SSHConnectionDialog.test.tsx
+```
+
+These fixtures cover location/environment combinations, source routing, connection configuration, cancellation and
+device-switch fences; they do not establish live WSL, Docker or remote-host behavior.
+
+For connection and authentication form size consistency, labels, source capsules,
+host-scoped container discovery, capsule deselection, inherited-host configuration, independent editing/saving, saved-connection actions,
+and remote browser keyboard/modal behavior:
+
+```bash
+pnpm --dir src/web-ui run test:run src/features/ssh-remote/SSHConnectionDialog.fields.test.tsx src/features/ssh-remote/SSHConnectionDialog.test.tsx src/features/ssh-remote/useWorkspaceSourceOptions.test.tsx src/features/ssh-remote/workspaceSourceError.test.ts src/features/ssh-remote/SSHRemoteProvider.test.tsx src/features/ssh-remote/SSHAuthPromptDialog.test.tsx src/features/ssh-remote/RemoteFileBrowser.test.tsx
+```
+
+The form composition fixtures use public UI components to catch default-size
+drift and cover conditional settings, saved/new views, separate endpoint drafts,
+credential-only retries, custom container values, search clearing, independent actions,
+numeric bounds, and focus ownership; DOM assertions do not establish native
+rendering or live connections.
+
 For conversation selection and the floating annotation editor (placement,
 dragging, resizing, draft retention, and nonmodal interaction):
 
@@ -125,6 +148,15 @@ pnpm --dir src/web-ui run test:run src/flow_chat/selection/FlowChatSelectionBar.
 ```
 
 These DOM fixtures do not establish native WebView rendering or live remote behavior.
+
+For Hi-to-MiniApp image preparation, SDK inheritance, admission and peer compatibility:
+
+```bash
+pnpm --dir src/web-ui run test:run src/app/scenes/miniapps/miniAppComposerMessages.test.ts src/app/scenes/miniapps/miniAppBridgeImages.test.ts src/app/scenes/miniapps/hooks/useMiniAppBridge.test.tsx src/infrastructure/api/service-api/MiniAppAPI.test.ts src/flow_chat/utils/imagePayload.test.ts src/infrastructure/api/adapters/peer-device-adapter.test.ts
+```
+
+These tests exercise production JS with host/transport fixtures; they do not establish
+live model, SSH workspace, Remote Control, Peer Device or Detached Dispatch behavior.
 
 For Appearance descriptor changes, also exercise production registration; its ID
 and property validation goes beyond the static DOM audit:
@@ -139,6 +171,15 @@ also run the focused state contracts:
 ```bash
 pnpm --dir src/web-ui run test:run src/app/services/sessionSceneLifecycle.test.ts src/flow_chat/services/sessionActivation.test.ts src/flow_chat/services/storeSync.test.ts src/app/stores/sceneStore.test.ts
 ```
+
+For composer mode restoration, passive synchronization, or explicit mode selection:
+
+```bash
+pnpm --dir src/web-ui run test:run src/flow_chat/hooks/useChatInputModeSync.test.tsx src/flow_chat/hooks/useSessionModeSelection.test.tsx src/flow_chat/utils/chatInputMode.test.ts
+```
+
+These state/hook fixtures cover delayed session loading and selected peer-surface
+replacement; they do not establish native rendering or live remote behavior.
 
 For cross-device undo/redo/rollback history invalidation and settled-Turn fences,
 run `pnpm --dir src/web-ui run test:run src/flow_chat/services/flow-chat-manager/EventHandlerModule.test.ts`.
@@ -168,6 +209,14 @@ explicit Peer gating; they do not validate native WebView or remote-host behavio
 For workspace catalog pagination, source filters, count/expansion behavior and
 old-host fallback, run `pnpm --dir src/web-ui run test:run src/app/components/NavPanel/sections/sessions src/app/components/NavPanel/workspaceSessionView.test.ts src/flow_chat/store/FlowChatStore.test.ts src/infrastructure/api/service-api/SessionAPI.test.ts`.
 These fixtures verify bounded page requests and transport payloads, not live remote connections.
+
+For session header filter menus, per-filter Select All, reset, and persisted preferences:
+
+```bash
+pnpm --dir src/web-ui run test:run src/app/components/NavPanel/components/WorkspaceSessionFilterMenu.test.tsx src/app/components/NavPanel/workspaceSessionView.test.ts src/app/components/NavPanel/workspaceSessionView.persistence.test.ts src/shared/ui/MenuComposition.contract.test.ts
+```
+
+These DOM and store fixtures do not establish native rendering or live remote behavior.
 
 For application update discovery, skip persistence, notification timing, and
 download/install transitions, run the focused behavior tests (these do not
@@ -200,3 +249,11 @@ pnpm --dir src/web-ui run test:run src/flow_chat/components/ModelSelectorProvide
 These DOM and transport fixtures cover local and simulated Peer surfaces,
 including old-host gating and stale-device completions. They do not establish
 live SSH, relay remote control or detached-dispatch behavior.
+
+For Markdown Mermaid rendering states and supported syntax:
+
+```bash
+pnpm --dir src/web-ui run test:run src/infrastructure/markdown/MermaidBlock.test.tsx src/tools/mermaid-editor/services/MermaidService.test.ts
+```
+
+The service tests use the real Mermaid parser; native SVG rendering still needs UI verification.

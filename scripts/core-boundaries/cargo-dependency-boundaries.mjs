@@ -168,6 +168,7 @@ const SERVICES_INTEGRATIONS_TOKIO_FEATURES = new Map([
   ['speech-realtime', ['fs', 'io-util', 'macros', 'net', 'rt', 'sync', 'time']],
   ['workspace-search', ['io-util', 'rt', 'sync', 'time']],
   ['script-tool-runtime', ['io-util', 'process', 'rt', 'sync', 'time']],
+  ['ptc-runtime', ['io-util', 'process', 'rt', 'sync', 'time']],
 ]);
 
 const SERVICES_CORE_TOKIO_FEATURES = new Map([
@@ -175,6 +176,8 @@ const SERVICES_CORE_TOKIO_FEATURES = new Map([
   ['diff', ['rt', 'time']],
   ['filesystem', ['fs', 'rt', 'sync']],
   ['json-io', ['fs', 'rt', 'sync', 'time']],
+  ['routing-state', ['fs', 'rt', 'sync', 'time']],
+  ['resource-capacity', ['fs', 'rt', 'sync', 'time']],
   ['local-storage', ['fs', 'rt', 'sync', 'time']],
   // Offline repair uses strict atomic storage writes; no processes or network.
   ['session-recovery', ['fs', 'rt', 'sync', 'time']],
@@ -196,6 +199,8 @@ const CORE_TOKIO_FEATURES = new Map([
   ['browser-control', ['net', 'rt', 'time']],
 ]);
 const CORE_TOKIO_AGGREGATES = new Set([
+  // PTC composes the Agent Runtime baseline and the service-owned Node runtime.
+  'ptc-runtime',
   'external-sources',
   'plugin-runtime',
   'product-search',
@@ -1450,6 +1455,7 @@ export function findProductEntrypointCoreFeatureViolations(
     'tools-browser-web',
     'tools-computer-use',
     'tools-image-analysis',
+    'tools-image-generation',
     'tools-agent-control',
   ];
   const CORE_TEST_SUPPORT_FEATURE = 'test-support';
@@ -1507,6 +1513,7 @@ export function findProductEntrypointCoreFeatureViolations(
     'tools-creation',
     'tools-git',
     'tools-image-analysis',
+    'tools-image-generation',
     'tools-mcp',
     'tools-miniapp',
     'web-tools',

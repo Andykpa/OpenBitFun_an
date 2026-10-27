@@ -419,6 +419,8 @@ fn try_build_request_body_with_context(
         });
     }
 
+    suspend_thinking_for_unsigned_tool_loop(&mut request_body, &model_name);
+
     shared::log_request_body(
         "ai::anthropic_stream_request",
         "Anthropic stream request body (excluding tools):",
@@ -439,7 +441,178 @@ fn try_build_request_body_with_context(
         }
     }
 
+    apply_prompt_cache_breakpoints(&mut request_body);
+
     Ok(request_body)
+}
+
+/// With thinking on, Anthropic requires the final assistant tool turn to
+/// start with its signed thinking block. History continued from another
+/// account or provider has no such block, so this request runs without
+/// thinking; the next user turn starts a fresh signed loop.
+fn suspend_thinking_for_unsigned_tool_loop(request_body: &mut serde_json::Value, model_name: &str) {
+    let thinking_on = request_body["thinking"]["type"]
+        .as_str()
+        .is_some_and(|kind| kind != "disabled");
+    if !thinking_on {
+        return;
+    }
+    let Some(last_assistant) = request_body["messages"].as_array().and_then(|messages| {
+        messages
+            .iter()
+            .rev()
+            .find(|message| message["role"] == "assistant")
+    }) else {
+        return;
+    };
+    let blocks = last_assistant["content"].as_array();
+    let has_tool_use =
+        blocks.is_some_and(|blocks| blocks.iter().any(|block| block["type"] == "tool_use"));
+    let signed_start = blocks
+        .and_then(|blocks| blocks.first())
+        .is_some_and(|block| {
+            matches!(
+                block["type"].as_str(),
+                Some("thinking" | "redacted_thinking")
+            ) && block["signature"]
+                .as_str()
+                .is_some_and(|signature| !signature.is_empty())
+                || block["type"] == "redacted_thinking"
+        });
+    if !has_tool_use || signed_start {
+        return;
+    }
+    let Some(body) = request_body.as_object_mut() else {
+        return;
+    };
+    if anthropic_thinking_capability(model_name)
+        == AnthropicThinkingCapability::AdaptiveDefaultNoDisabled
+    {
+        // These models reject an explicit disabled value; omit the request.
+        body.remove("thinking");
+    } else {
+        body.insert("thinking".into(), serde_json::json!({ "type": "disabled" }));
+    }
+    if let Some(output) = body
+        .get_mut("output_config")
+        .and_then(|value| value.as_object_mut())
+    {
+        output.remove("effort");
+        if output.is_empty() {
+            body.remove("output_config");
+        }
+    }
+}
+
+/// Anthropic only caches prompts that carry `cache_control`, and only writes
+/// cache entries at those breakpoints. Mark the end of the stable head
+/// (tools + system) so new sessions reuse it, and the last two messages so each
+/// request extends the previous request's entry within the 20-block lookback.
+/// That is three of the four allowed breakpoints. Compatible gateways accept
+/// the same block-level markers that Claude Code sends; a top-level
+/// `cache_control` from the custom request body (automatic caching, or `null`
+/// to opt out) replaces this policy, and existing markers are left untouched.
+fn apply_prompt_cache_breakpoints(request_body: &mut serde_json::Value) {
+    let Some(body) = request_body.as_object_mut() else {
+        return;
+    };
+    if let Some(custom) = body.get("cache_control") {
+        if custom.is_null() {
+            body.remove("cache_control");
+        }
+        return;
+    }
+    if ["system", "tools", "messages"]
+        .iter()
+        .any(|key| body.get(*key).is_some_and(contains_cache_control))
+    {
+        return;
+    }
+
+    let head_marked = body
+        .get_mut("system")
+        .is_some_and(mark_last_cacheable_content_block);
+    if !head_marked {
+        if let Some(last_tool) = body
+            .get_mut("tools")
+            .and_then(serde_json::Value::as_array_mut)
+            .and_then(|tools| tools.last_mut())
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            last_tool.insert("cache_control".to_string(), ephemeral_cache_control());
+        }
+    }
+
+    if let Some(messages) = body
+        .get_mut("messages")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for content in messages
+            .iter_mut()
+            .rev()
+            .take(2)
+            .filter_map(|message| message.get_mut("content"))
+        {
+            mark_last_cacheable_content_block(content);
+        }
+    }
+}
+
+fn ephemeral_cache_control() -> serde_json::Value {
+    serde_json::json!({ "type": "ephemeral" })
+}
+
+fn contains_cache_control(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Object(map) => {
+            map.contains_key("cache_control") || map.values().any(contains_cache_control)
+        }
+        serde_json::Value::Array(items) => items.iter().any(contains_cache_control),
+        _ => false,
+    }
+}
+
+/// Accepts the string or block-array forms of `system` and message `content`.
+/// A non-empty string becomes one text block so it can carry the marker.
+fn mark_last_cacheable_content_block(content: &mut serde_json::Value) -> bool {
+    if let Some(text) = content
+        .as_str()
+        .filter(|text| !text.trim().is_empty())
+        .map(str::to_owned)
+    {
+        *content = serde_json::json!([{
+            "type": "text",
+            "text": text,
+            "cache_control": ephemeral_cache_control(),
+        }]);
+        return true;
+    }
+    content
+        .as_array_mut()
+        .is_some_and(|blocks| mark_last_cacheable_block(blocks))
+}
+
+/// Thinking blocks and blank text blocks cannot carry `cache_control`.
+fn mark_last_cacheable_block(blocks: &mut [serde_json::Value]) -> bool {
+    let Some(block) = blocks
+        .iter_mut()
+        .rev()
+        .filter_map(serde_json::Value::as_object_mut)
+        .find(
+            |block| match block.get("type").and_then(|kind| kind.as_str()) {
+                Some("thinking" | "redacted_thinking") | None => false,
+                Some("text") => block
+                    .get("text")
+                    .and_then(|text| text.as_str())
+                    .is_some_and(|text| !text.trim().is_empty()),
+                Some(_) => true,
+            },
+        )
+    else {
+        return false;
+    };
+    block.insert("cache_control".to_string(), ephemeral_cache_control());
+    true
 }
 
 pub(crate) fn try_build_request_body(
@@ -522,7 +695,7 @@ pub(crate) async fn send_stream(
     let (system_message, anthropic_messages) =
         AnthropicMessageConverter::convert_messages(messages);
     let anthropic_tools = AnthropicMessageConverter::convert_tools(tools);
-    let request_body = try_build_request_body_with_context(
+    let mut request_body = try_build_request_body_with_context(
         client,
         &url,
         system_message,
@@ -535,7 +708,10 @@ pub(crate) async fn send_stream(
     let idle_timeout = client.stream_options.idle_timeout;
     let ttft_timeout = client.stream_options.ttft_timeout;
 
+    let compatibility = crate::providers::opencode::FreeTools::prepare(client, &mut request_body)?;
+
     execute_sse_request(
+        Some(client),
         "Anthropic Streaming API",
         &url,
         &request_body,
@@ -562,11 +738,54 @@ pub(crate) async fn send_stream(
         },
     )
     .await
+    .map(|response| compatibility.wrap(response))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsigned_tool_loop_runs_without_thinking_but_signed_loops_keep_it() {
+        let body = |assistant: serde_json::Value| {
+            serde_json::json!({
+                "thinking": {"type": "enabled", "budget_tokens": 1024},
+                "output_config": {"effort": "high"},
+                "messages": [
+                    {"role": "user", "content": [{"type": "text", "text": "go"}]},
+                    assistant,
+                    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}
+                ]
+            })
+        };
+        let tool_use =
+            serde_json::json!({"type": "tool_use", "id": "t1", "name": "read", "input": {}});
+        let mut unsigned =
+            body(serde_json::json!({"role": "assistant", "content": [tool_use.clone()]}));
+        suspend_thinking_for_unsigned_tool_loop(&mut unsigned, "claude-sonnet-4-5");
+        assert_eq!(
+            unsigned["thinking"],
+            serde_json::json!({"type": "disabled"})
+        );
+        assert!(unsigned.get("output_config").is_none());
+
+        let mut adaptive_only =
+            body(serde_json::json!({"role": "assistant", "content": [tool_use.clone()]}));
+        suspend_thinking_for_unsigned_tool_loop(&mut adaptive_only, "claude-fable-5");
+        assert!(adaptive_only.get("thinking").is_none());
+
+        let mut signed = body(serde_json::json!({"role": "assistant", "content": [
+            {"type": "thinking", "thinking": "plan", "signature": "sig"}, tool_use.clone()
+        ]}));
+        suspend_thinking_for_unsigned_tool_loop(&mut signed, "claude-sonnet-4-5");
+        assert_eq!(signed["thinking"]["type"], "enabled");
+
+        let mut plain = body(
+            serde_json::json!({"role": "assistant", "content": [{"type": "text", "text": "done"}]}),
+        );
+        suspend_thinking_for_unsigned_tool_loop(&mut plain, "claude-sonnet-4-5");
+        assert_eq!(plain["thinking"]["type"], "enabled");
+    }
 
     #[test]
     fn xiaomi_mimo_headers_use_bearer_for_messages_and_discovery() {
@@ -686,6 +905,169 @@ mod tests {
             anthropic_thinking_capability("claude-haiku-4-5"),
             ManualOnly
         );
+    }
+
+    fn cache_test_client() -> AIClient {
+        AIClient::new(
+            serde_json::from_value(serde_json::json!({
+                "name": "Claude", "base_url": "https://api.anthropic.com",
+                "request_url": "https://api.anthropic.com/v1/messages", "api_key": "synthetic",
+                "model": "claude-sonnet-5", "format": "anthropic",
+                "context_window": 200000, "inline_think_in_text": false,
+                "skip_ssl_verify": false
+            }))
+            .unwrap(),
+        )
+    }
+
+    fn cache_test_tools() -> Option<Vec<serde_json::Value>> {
+        Some(vec![
+            serde_json::json!({"name": "Read", "description": "Read", "input_schema": {"type": "object"}}),
+            serde_json::json!({"name": "Bash", "description": "Bash", "input_schema": {"type": "object"}}),
+        ])
+    }
+
+    fn cache_marker_paths(value: &serde_json::Value, path: String, out: &mut Vec<String>) {
+        match value {
+            serde_json::Value::Object(map) => {
+                if map.contains_key("cache_control") {
+                    out.push(path.clone());
+                }
+                for (key, child) in map {
+                    cache_marker_paths(child, format!("{path}/{key}"), out);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for (index, child) in items.iter().enumerate() {
+                    cache_marker_paths(child, format!("{path}/{index}"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn cache_markers(body: &serde_json::Value) -> Vec<String> {
+        let mut out = Vec::new();
+        cache_marker_paths(body, String::new(), &mut out);
+        out
+    }
+
+    #[test]
+    fn prompt_cache_breakpoints_mark_stable_head_and_last_two_messages() {
+        let client = cache_test_client();
+        let messages = vec![
+            serde_json::json!({"role": "user", "content": [{"type": "text", "text": "Fix the build"}]}),
+            serde_json::json!({"role": "assistant", "content": [
+                {"type": "thinking", "thinking": "plan", "signature": "sig"},
+                {"type": "text", "text": "Reading."},
+                {"type": "tool_use", "id": "call_1", "name": "Read", "input": {"path": "a"}}
+            ]}),
+            serde_json::json!({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "call_1", "content": "file body"}
+            ]}),
+        ];
+        let body = build_request_body(
+            &client,
+            &client.config.request_url,
+            Some("System prompt".to_string()),
+            messages,
+            cache_test_tools(),
+            None,
+        );
+
+        assert_eq!(
+            cache_markers(&body),
+            vec![
+                "/messages/1/content/2",
+                "/messages/2/content/0",
+                "/system/0"
+            ]
+        );
+        assert_eq!(
+            body["system"],
+            serde_json::json!([{
+                "type": "text", "text": "System prompt",
+                "cache_control": {"type": "ephemeral"}
+            }])
+        );
+        assert_eq!(body["messages"][0]["content"][0]["text"], "Fix the build");
+    }
+
+    #[test]
+    fn prompt_cache_breakpoints_skip_thinking_and_blank_blocks() {
+        let client = cache_test_client();
+        let body = build_request_body(
+            &client,
+            &client.config.request_url,
+            None,
+            vec![
+                serde_json::json!({"role": "user", "content": [
+                    {"type": "text", "text": "Explain"},
+                    {"type": "text", "text": "   "}
+                ]}),
+                serde_json::json!({"role": "assistant", "content": [
+                    {"type": "thinking", "thinking": "only reasoning", "signature": "sig"}
+                ]}),
+            ],
+            cache_test_tools(),
+            None,
+        );
+
+        // Without a system prompt the last tool ends the stable head.
+        assert_eq!(
+            cache_markers(&body),
+            vec!["/messages/0/content/0", "/tools/1"]
+        );
+    }
+
+    #[test]
+    fn custom_top_level_cache_control_replaces_the_breakpoint_policy() {
+        let client = cache_test_client();
+        let messages = vec![
+            serde_json::json!({"role": "user", "content": [{"type": "text", "text": "hello"}]}),
+        ];
+
+        let automatic = build_request_body(
+            &client,
+            &client.config.request_url,
+            Some("System prompt".to_string()),
+            messages.clone(),
+            cache_test_tools(),
+            Some(serde_json::json!({"cache_control": {"type": "ephemeral", "ttl": "1h"}})),
+        );
+        assert_eq!(cache_markers(&automatic), vec![""]);
+        assert_eq!(automatic["system"], "System prompt");
+
+        let opted_out = build_request_body(
+            &client,
+            &client.config.request_url,
+            Some("System prompt".to_string()),
+            messages,
+            cache_test_tools(),
+            Some(serde_json::json!({"cache_control": null})),
+        );
+        assert!(cache_markers(&opted_out).is_empty());
+        assert!(opted_out.get("cache_control").is_none());
+        assert_eq!(opted_out["system"], "System prompt");
+    }
+
+    #[test]
+    fn existing_block_level_cache_control_is_left_untouched() {
+        let client = cache_test_client();
+        let body = build_request_body(
+            &client,
+            &client.config.request_url,
+            Some("System prompt".to_string()),
+            vec![serde_json::json!({"role": "user", "content": [
+                {"type": "text", "text": "pinned", "cache_control": {"type": "ephemeral", "ttl": "1h"}},
+                {"type": "text", "text": "hello"}
+            ]})],
+            None,
+            None,
+        );
+
+        assert_eq!(cache_markers(&body), vec!["/messages/0/content/0"]);
+        assert_eq!(body["system"], "System prompt");
     }
 
     #[test]

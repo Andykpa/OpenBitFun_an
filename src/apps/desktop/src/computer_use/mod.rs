@@ -32,6 +32,8 @@ mod macos_list_apps;
 mod macos_skylight;
 mod observation_cache;
 mod ocr_context;
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+mod overlay_windows;
 pub(crate) mod permissions;
 pub(crate) mod process_identity;
 #[cfg(any(target_os = "windows", test))]
@@ -53,10 +55,14 @@ mod windows_capture;
 mod windows_list_apps;
 #[cfg(target_os = "windows")]
 mod windows_msaa;
+#[cfg(any(target_os = "windows", test))]
+mod windows_overlay;
 #[cfg(target_os = "windows")]
 mod windows_pointer_feedback;
 #[cfg(target_os = "windows")]
 mod windows_wgc_capture;
+#[cfg(any(target_os = "windows", test))]
+mod windows_window_target;
 
 pub(crate) use desktop_host::shared_preview;
 pub(crate) use desktop_host::sharing::targets as share_targets;

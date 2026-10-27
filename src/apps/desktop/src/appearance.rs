@@ -327,6 +327,16 @@ impl AppearanceConfig {
             serde_json::to_string(&startup_locale).unwrap_or_else(|_| "\"zh-CN\"".to_string());
         let show_startup_window_controls = !cfg!(target_os = "macos");
         let native_sidebar_material = cfg!(any(target_os = "windows", target_os = "macos"));
+        // The Linux shell paints the frame radius itself because WebKitGTK keeps
+        // the GTK frame square on Wayland. Advertise that so neither this
+        // bootstrap nor the Web UI paints an opaque page background over the
+        // transparent corners.
+        let native_frame_attribute = if cfg!(target_os = "linux") {
+            "root.setAttribute('data-openbitfun-native-frame', 'client');"
+        } else {
+            ""
+        };
+        let transparent_page_background = native_sidebar_material || cfg!(target_os = "linux");
         let startup_trace_id_json = serde_json::to_string(startup_trace_id)
             .unwrap_or_else(|_| "\"desktop-unknown\"".to_string());
         let bootstrap_log_level_json = serde_json::to_string(crate::logging::level_to_str(
@@ -382,6 +392,7 @@ impl AppearanceConfig {
                     if ({native_sidebar_material}) {{
                         root.setAttribute('data-openbitfun-native-material', 'sidebar');
                     }}
+                    {native_frame_attribute}
                     
                     root.style.setProperty('--openbitfun-color-surface-canvas', '{bg_primary}');
                     root.style.setProperty('--openbitfun-color-surface-panel', '{bg_secondary}');
@@ -392,10 +403,10 @@ impl AppearanceConfig {
                     root.style.setProperty('--openbitfun-color-content-primary', '{text_primary}');
                     root.style.setProperty('--openbitfun-color-content-muted', '{text_muted}');
                     root.style.setProperty('--openbitfun-color-accent-default', '{accent_color}');
-                    root.style.backgroundColor = {native_sidebar_material} ? 'transparent' : '{bg_primary}';
+                    root.style.backgroundColor = {transparent_page_background} ? 'transparent' : '{bg_primary}';
                     
                     if (document.body) {{
-                        document.body.style.backgroundColor = {native_sidebar_material} ? 'transparent' : '{bg_primary}';
+                        document.body.style.backgroundColor = {transparent_page_background} ? 'transparent' : '{bg_primary}';
                     }}
                     
                     return true;
@@ -529,7 +540,6 @@ pub fn create_main_window(
     let (startup_page_ready, mut startup_page_ready_rx) = tokio::sync::watch::channel(false);
     let bootstrap_config = AppearanceConfig::load_startup_bootstrap_config();
     let appearance = bootstrap_config.appearance.clone();
-    let bg_color = appearance.to_tauri_color();
     let init_script = appearance.generate_init_script(
         startup_trace_id,
         &bootstrap_config,
@@ -593,7 +603,6 @@ pub fn create_main_window(
         .resizable(true)
         .fullscreen(false)
         .visible(false)
-        .background_color(bg_color)
         .accept_first_mouse(true)
         .initialization_script(&init_script)
         .on_page_load({
@@ -641,6 +650,15 @@ pub fn create_main_window(
             );
     }
 
+    // The Linux window is transparent because the shell draws the frame radius
+    // itself: WebKitGTK keeps the GTK frame square on Wayland.
+    #[cfg(target_os = "linux")]
+    {
+        builder = builder
+            .transparent(true)
+            .background_color(tauri::window::Color(0, 0, 0, 0));
+    }
+
     #[cfg(debug_assertions)]
     if !use_development_frontend() {
         // Product-path isolation alone does not isolate WKWebView storage.
@@ -678,7 +696,11 @@ pub fn create_main_window(
     builder =
         builder.on_navigation(move |url| navigation_workbench.should_allow_main_navigation(url));
 
-    #[cfg(target_os = "windows")]
+    // Windows and Linux both own their window chrome: the frontend renders the
+    // window controls and the drag regions, so GTK's header bar would add a
+    // second title bar above them. tao keeps a hidden CSD header on Wayland so
+    // the compositor does not paint server-side decorations instead.
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
         builder = builder.decorations(false);
     }
@@ -1064,7 +1086,7 @@ pub async fn show_agent_companion_desktop_pet(app: tauri::AppHandle) -> Result<(
     // it there, while `always_on_top` keeps floating it above other applications
     // on X11, where the window manager honors the hint.
     #[cfg(target_os = "linux")]
-    if let Some(main_window) = app.get_webview_window("main") {
+    if let Some(main_window) = app.get_window("main") {
         match main_window.gtk_window() {
             Ok(parent) => builder = builder.transient_for_raw(&parent),
             Err(error) => warn!(
@@ -1149,7 +1171,9 @@ pub async fn hide_agent_companion_desktop_pet(app: tauri::AppHandle) -> Result<(
 #[tauri::command]
 pub async fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
     let total_started_at = Instant::now();
-    if let Some(main_window) = app.get_webview_window("main") {
+    // Embedded browsers add child WebViews, so the main host is no longer a
+    // single-WebView window. Look up the native window independently of its views.
+    if let Some(main_window) = app.get_window("main") {
         main_window
             .unminimize()
             .map_err(|error| error.to_string())?;

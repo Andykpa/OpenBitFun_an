@@ -44,6 +44,13 @@ product wiring and compatibility bridges in `src/crates/assembly/core`.
 - Keep desktop-only integrations here; do not move them into shared core
 - Window lifecycle behavior, including close/minimize-to-tray defaults, is a
   desktop surface concern. Preserve saved user preferences when changing it.
+- Main-window lifecycle and geometry use `get_window("main")`. Embedded browser
+  child WebViews make `get_webview_window("main")` return `None` even while the
+  native window exists; use `get_webview("main")` for the frontend view itself.
+  Main-frontend commands accept `tauri::Webview` and validate its own label before
+  accessing `webview.window()`; accepting only the parent window would let a
+  browser child pass a main-window label check. `WebviewWindow` command extraction
+  also fails once the main host has browser children.
 - `window_state_support` owns main-window geometry validation and atomic
   persistence in the legacy `.window-state.json` format. Do not reinstall the
   window-state plugin alongside it: the plugin's exit cache can overwrite repairs.
@@ -118,6 +125,22 @@ and recording in the signed app on macOS. Ad-hoc fixture tests do not prove TCC 
 ```bash
 cargo check -p openbitfun-desktop && cargo test -p openbitfun-desktop
 ```
+
+Token-usage bootstrap must construct and register the host's service before
+`RoundExecutor::new`; that constructor captures the service for direct attempt
+records. The subscriber and AppState must reuse the same authority. An unknown
+usage failure/cancellation emits no TokenUsageUpdated event, so subscribing to
+events alone cannot record it. For this wiring, run the Desktop check above and
+the [Core factory-backed acceptance paths](../../crates/assembly/core/src/agentic/execution/AGENTS.md),
+whose process fixture uses the production round constructor and host service
+registration rather than assigning the executor's private usage field.
+
+Guarded E2E startup also isolates subscription metadata and secrets under
+the guarded PathManager user-data root, using the existing encrypted fixture
+vault instead of any native credential store. Debug-only subscription mock TLS
+may add the CA from `OPENBITFUN_E2E_SUBSCRIPTION_CA_FILE` under that same guard;
+it does not turn off certificate verification. The native application fixture
+is `node tests/e2e/scripts/run-subscription-pool.mjs` (see its E2E guide).
 
 For session storage directory access, run
 `cargo test -p openbitfun-desktop --lib api::session_storage_directory::tests`
@@ -221,6 +244,13 @@ For peer system-info response compatibility, run
 `cargo test -p openbitfun-desktop --lib system_info_home_contract`.
 For window geometry recovery, legacy state compatibility, and snapshot persistence,
 run `cargo test -p openbitfun-desktop --lib window_state_support::tests`.
+For main-window activation with embedded browsers, build Desktop and run
+`node tests/e2e/scripts/run-browser-window-activation.mjs` with completed frontend
+assets. It checks the native command shared by pet/bubble clicks with zero, one
+and two browser children, hide/show, minimize/restore, focus and state persistence
+in an isolated profile. It also checks main-view command extraction, remote
+child-view ACL rejection and DevTools. It does not exercise remote hosts or pet
+pointer events.
 For macOS close-to-hide fullscreen sequencing, run
 `cargo check --locked -p openbitfun-desktop` and
 `node scripts/test-macos-window-close.mjs` on a graphical macOS session.
@@ -240,6 +270,12 @@ For native sidebar material and appearance bootstrap, run
 and `pnpm --dir src/web-ui run test:run src/infrastructure/appearance/adapters/ThemeTokenAppearanceAdapter.test.ts`.
 For embedded browser preview encoding and target correlation, run
 `cargo test -p openbitfun-desktop --lib api::browser_api::tests`.
+For conversation-owned browser lifetime, build Desktop and Web UI, then run
+`node tests/e2e/scripts/run-browser-session-isolation.mjs`. Its isolated native
+fixture delays A's model response until B is selected, exercises background
+opening and concurrent reads through real Agent tools, and verifies native
+visibility and retained document state across session switches. It scripts only
+model HTTP, not browser or session behavior; it does not establish remote coverage.
 After browser command registration changes, also run
 `cargo test -p openbitfun-desktop --lib remote_workspace_policy`.
 After changing updater command registration, also run
@@ -271,6 +307,17 @@ release builds always use the packaged protocol.
 For alternate dev-server ports and preview startup URL changes, run
 `node --test scripts/dev-startup.test.mjs` and
 `cargo test -p openbitfun-desktop --no-default-features --lib appearance::development_frontend_tests`.
+For launcher-only development storage mode changes, run
+`node --test scripts/dev-startup.test.mjs`; no native app launch is required.
+By default (or with `--isolated-data`), both desktop development launchers set `OPENBITFUN_USER_ROOT` and
+`OPENBITFUN_HOME` before spawning children, defaulting to the checkout-local
+`.openbitfun/desktop-dev/{user,home}` directories. `--shared-data` leaves storage
+selection to the app; the two flags are mutually exclusive. Preserve explicit
+overrides and the legacy E2E aliases in both modes. Development launchers set
+`OPENBITFUN_DESKTOP_HOST_CHANNEL=development`: its MiniApp lease, discovery and
+launch records are separate even when product storage is shared. Keep per-session
+writer and scheduler leases intact. See the MiniApp presentation guide for the
+native host-channel and launch-record compatibility checks.
 `OPENBITFUN_DEV_PORT` selects the HTTP port; `OPENBITFUN_DEV_HMR_PORT` defaults
 to the previous port. Desktop and Vite must use the same values. Development
 launchers reuse the locked Sherpa library/archive cache across Git worktrees,
@@ -283,3 +330,10 @@ The harness has its own main-thread CFRunLoop and exercises the production
 main-queue dispatcher; do not run this test through libtest or bypass that
 dispatcher. It requires local Accessibility and Screen Recording permission.
 To reuse the compiled harness, set `OPENBITFUN_TEST_BINARY` to its absolute path.
+
+For the additive saved-model quota request and legacy account-request round trip:
+`cargo test --locked -p openbitfun-desktop --lib quota_request_compatibility_tests`.
+The host resolves the saved model, rejects non-API authentication and custom auth,
+and rechecks its authorization binding before publishing the result. Model-scoped
+requests require the separately advertised `subscription_model_quota_v1` capability;
+legacy requests retain the exact account-slot path. These tests do not contact billing.

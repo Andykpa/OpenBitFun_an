@@ -12,6 +12,7 @@
     "branchHint": "Continued from {{source}}",
     "openSource": "Open source session",
     "unavailable": "Source unavailable; showing the last cached view",
+    "unsupported": "This source format is not supported yet. Update OpenBitFun and retry.",
     "incomplete": "The source conversation is unfinished; showing the available history",
     "openBeforeContinue": "Open the source session and wait for its history to load before continuing."
   },
@@ -313,7 +314,9 @@
       "errors": "No error examples",
       "errorsDescription": "No sampled tool or model errors were recorded.",
       "slowest": "No slow spans",
-      "slowestDescription": "No timed turn, model-call, or tool spans were recorded."
+      "slowestDescription": "No timed turn, model-call, or tool spans were recorded.",
+      "session": "No activity yet",
+      "sessionDescription": "Send a message in this session to start. Model usage, tools and timing will appear here after the session runs."
     },
     "help": {
       "wall": "Span from the first recorded turn start to the last recorded turn end. Idle gaps can be included.",
@@ -666,6 +669,7 @@
     "retry": "Retry",
     "addImage": "Add image",
     "maxImagesWarning": "Maximum {{count}} images allowed",
+    "imageOnlyPrompt": "Use the attached images as context.",
     "imagePasteFailed": "Image paste failed",
     "clipboardImageToolsUnavailable": "The clipboard image could not be read: install wl-clipboard (Wayland) or xclip (X11) and try again.",
     "externalFiles": {
@@ -1734,7 +1738,10 @@
       "averageRate": "Average output",
       "speedLevel": "Speed level",
       "rateValue": "{{value}} t/s",
-      "rateBasis": "Output tokens divided by the time from the first token to end of stream, excluding tool execution, queueing and waiting; speed levels change at 15, 40 and 80 tokens/s",
+      "ttft": "Time to first token",
+      "ttftValue": "TTFT {{value}}",
+      "ttftBasis": "Request start to the first text, thinking or tool output of the first model call in this turn. For retried calls, this measures the accepted attempt.",
+      "rateBasis": "Output tokens divided by the sum of each model call’s time from first effective output to end of stream, excluding TTFT and tool execution; speed levels change at 15, 40 and 80 tokens/s",
       "slow": "Slow",
       "normal": "Normal",
       "fast": "Fast",
@@ -3018,6 +3025,7 @@
         "AgentDelete": "Delete agents",
         "SessionHistory": "Export history",
         "analyze_image": "Analyze image",
+        "generate_image": "Generate image",
         "GetTime": "Read time",
         "ListMCPResources": "Discover resources",
         "ReadMCPResource": "Read resource",
@@ -3029,6 +3037,7 @@
         "FrontendWorkbench": "Frontend customization",
         "FinalizeMiniApp": "Update Mini App",
         "PublishMiniApp": "Submit Mini App",
+        "MiniAppBrowser": "Operate Mini App",
         "PublishAppearance": "Submit Skin",
         "Playbook": "Read operation guide",
         "DesktopCard": "Desktop card"
@@ -3053,6 +3062,7 @@
         "includeToolInputs": "Include tool inputs",
         "includeThinking": "Include thinking",
         "model": "Vision model",
+        "service": "Service",
         "dimensions": "Image size",
         "question": "Question",
         "analysis": "Analysis",
@@ -3139,6 +3149,7 @@
         "dataSource": "Data source",
         "visibility": "Visibility",
         "refreshError": "Last refresh error",
+        "commandStderr": "Command stderr",
         "presets": "Presets",
         "cards": "Cards"
       },
@@ -3275,6 +3286,7 @@
       "imageCurrent": "Current source image",
       "imageUnavailable": "Image preview is unavailable. You can open the recorded path to inspect the source.",
       "imageLoading": "Loading source image…",
+      "generatedImages": "Images generated: {{value}}",
       "hostUnavailable": "This record belongs to a dispatched host. Open the resource on that host; local navigation is unavailable.",
       "remoteLoopback": "This loopback address belongs to the executing host. Open it on that host.",
       "desktopCard": {
@@ -3295,6 +3307,7 @@
           "note": "Note",
           "progress": "Progress",
           "metrics": "Metrics",
+          "chart": "Chart",
           "cronJob": "Scheduled job",
           "custom": "Custom"
         },
@@ -3702,6 +3715,7 @@
     "send": "Send"
   },
   "miniAppComposer": {
+    "imagesUnsupportedPeer": "The connected device does not support image messages for MiniApps yet. Update OpenBitFun on that device and try again.",
     "placeholder": "Send a request to {{app}}…",
     "send": "Send",
     "hint": "Messages are handled by {{app}}"

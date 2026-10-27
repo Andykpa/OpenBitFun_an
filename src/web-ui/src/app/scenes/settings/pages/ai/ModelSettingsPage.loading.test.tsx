@@ -3,12 +3,15 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { aiApi } from '@/infrastructure/api';
+import { aiApi, systemAPI } from '@/infrastructure/api';
 import { agentAPI } from '@/infrastructure/api/service-api/AgentAPI';
-import { configManager } from '@/infrastructure/config/services/ConfigManager';
+import { configAPI } from '@/infrastructure/api/service-api/ConfigAPI';
+import { ConfigConflictError, configManager } from '@/infrastructure/config/services/ConfigManager';
+import { cancelPendingSettingsNavigation, getSettingsDraftSnapshot, requestAllSettingsDraftsExit } from '@/infrastructure/config/settingsDraftRegistry';
 import type { AIModelConfig, ModelRoutingConfig } from '@/infrastructure/config/types';
 import { i18nService } from '@/infrastructure/i18n';
 import { activateSurface } from '@/infrastructure/peer-device/deviceSurface';
+import { notificationService } from '@/shared/notification-system';
 import ModelSettingsPage from './ModelSettingsPage';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -49,7 +52,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
   )];
 
   beforeAll(async () => {
-    await Promise.all((['settings', 'settings/models', 'settings/default-model', 'components'] as const).map(
+    await Promise.all((['settings', 'settings/models', 'settings/default-model', 'settings/media', 'components'] as const).map(
       namespace => i18nService.loadNamespace(namespace),
     ));
   });
@@ -60,6 +63,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     reads = new Map([
       'ai.models', 'ai.default_models', 'ai.proxy',
       'ai.stream_idle_timeout_secs', 'ai.stream_ttft_timeout_secs',
+      'media',
     ].map(path => [path, deferred()]));
     vi.spyOn(configManager, 'getOptionalConfig').mockImplementation(
       <T,>(path: string) => reads.get(path)!.promise as Promise<T | undefined>,
@@ -80,12 +84,87 @@ describe('ModelSettingsPage loading and provider actions', () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
     vi.restoreAllMocks();
     activateSurface('local');
   });
 
+  it.each([false, true])('shows host accounts on the page without importing a model (account slots: %s)', async slotsSupported => {
+    const account = {
+      provider: 'codex' as const, connected: true, account: 'shared@example.invalid',
+      display_label: 'Codex', suggested_format: 'openai',
+      suggested_base_url: 'https://example.test/v1', suggested_model: 'fixture-model', api_offerings: [],
+    };
+    vi.mocked(aiApi.listSubscriptionAccounts).mockResolvedValue([account]);
+    vi.spyOn(aiApi, 'listSubscriptionAccountInstances').mockResolvedValue(slotsSupported ? [
+      { account_id: 'codex', is_default: true, account, enabled: true },
+      { account_id: 'codex:second-slot', is_default: false, account, enabled: false },
+    ] : []);
+    const update = vi.spyOn(configManager, 'updateConfig');
+    await act(async () => root.render(<ModelSettingsPage />));
+    const summary = container.querySelector('[data-testid="settings-subscription-services"]')!;
+    expect(summary.textContent).toContain('shared@example.invalid');
+    expect(summary.closest('.openbitfun-config-page-row')?.textContent).toContain(copy('acquisition.subscriptions'));
+    expect(summary.querySelector('ul')?.getAttribute('aria-label')).toBe(copy('acquisition.subscriptions'));
+    expect(summary.querySelectorAll('[data-account-id]')).toHaveLength(slotsSupported ? 2 : 1);
+    if (slotsSupported) expect(summary.textContent).toContain(copy('subscriptionAuth.pool.disabled'));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(update).not.toHaveBeenCalled();
+    await act(async () => summary.querySelector<HTMLButtonElement>('button')!.click());
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('shared@example.invalid');
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it.each(['subscription', 'subscription_pool'] as const)('merges host accounts with configured services without duplicating a %s account', async type => {
+    const account = { provider: 'codex' as const, connected: true, account: 'shared@example.invalid',
+      display_label: 'Codex', suggested_format: 'openai', suggested_base_url: 'https://example.test/v1', suggested_model: 'fixture-model', api_offerings: [] };
+    vi.mocked(aiApi.listSubscriptionAccounts).mockResolvedValue([account]);
+    vi.spyOn(aiApi, 'listSubscriptionAccountInstances').mockResolvedValue([
+      { account_id: 'codex', is_default: true, account, enabled: true },
+      { account_id: 'codex:second-slot', is_default: false, account, enabled: true },
+    ]);
+    const configured: AIModelConfig = { ...model, auth: type === 'subscription'
+      ? { type, provider: 'codex' }
+      : { type, provider: 'codex', accounts: ['codex'], revision: 0 } };
+    const values: Record<string, unknown> = {
+      'ai.models': [configured], 'ai.default_models': { primary: model.id },
+      'ai.proxy': { enabled: false, url: '', username: '', password: '' },
+      'ai.stream_idle_timeout_secs': 120, 'ai.stream_ttft_timeout_secs': 60,
+    };
+    vi.spyOn(configManager, 'hasCachedConfig').mockImplementation(path => path in values);
+    vi.spyOn(configManager, 'getCachedConfig').mockImplementation(<T,>(path: string) => values[path] as T);
+    await act(async () => root.render(<ModelSettingsPage />));
+    const summary = container.querySelector('[data-testid="settings-subscription-services"]')!;
+    expect(summary.querySelectorAll('li')).toHaveLength(2);
+    expect(summary.querySelector('[data-account-id="codex"]')).toBeNull();
+    expect(summary.querySelector('[data-account-id="codex:second-slot"]')).not.toBeNull();
+    expect(summary.querySelector(`button[aria-label="${copy('actions.deleteProvider')}: ${model.name}"]`)).not.toBeNull();
+  });
+
+  it('refreshes host accounts on focus and ignores older reads without discarding accounts on failure', async () => {
+    const account = { provider: 'codex' as const, connected: true, account: 'first@example.invalid',
+      display_label: 'Codex', suggested_format: 'openai', suggested_base_url: 'https://example.test/v1', suggested_model: 'fixture-model', api_offerings: [] };
+    const list = vi.mocked(aiApi.listSubscriptionAccounts).mockResolvedValue([account]);
+    vi.spyOn(aiApi, 'listSubscriptionAccountInstances').mockResolvedValue([]);
+    await act(async () => root.render(<ModelSettingsPage />));
+    const summary = () => container.querySelector('[data-testid="settings-subscription-services"]')!;
+    expect(summary().textContent).toContain(account.account);
+    const old = deferred();
+    list.mockImplementationOnce(() => old.promise as never).mockResolvedValueOnce([{ ...account, account: 'new@example.invalid' }]);
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    expect(summary().textContent).toContain('new@example.invalid');
+    await act(async () => old.resolve([account]));
+    expect(summary().textContent).not.toContain(account.account);
+    list.mockRejectedValueOnce(new Error('Host account read unavailable'));
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    expect(summary().textContent).toContain('new@example.invalid');
+    expect(summary().textContent).toContain(copy('acquisition.loadFailed'));
+  });
+
   it('renders a warm model pool immediately without starting a read that could overwrite edits', () => {
     const values: Record<string, unknown> = {
+      media: { image_services: [] },
       'ai.models': [model], 'ai.default_models': { primary: model.id },
       'ai.proxy': { enabled: false, url: '', username: '', password: '' },
       'ai.stream_idle_timeout_secs': 120, 'ai.stream_ttft_timeout_secs': 60,
@@ -99,6 +178,167 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(configManager.getConfig).not.toHaveBeenCalled();
   });
 
+  it.each(['add', 'remove', 'reorder', 'manual'] as const)('protects a channel-only %s edit and saves its original model snapshot', async operation => {
+    const primary: AIModelConfig = {
+      ...model, api_key: 'fixture-key', context_window: 128_000, max_tokens: 8_000,
+      capabilities: ['text_chat', 'function_calling'],
+      metadata: { provider_instance_id: 'primary-provider' },
+      ...(operation === 'add' ? {} : { channel_routing: {
+        version: 1, fallback_model_ids: operation === 'reorder' ? ['backup', 'second'] : ['backup'],
+      } }),
+    };
+    const backup: AIModelConfig = { ...primary, id: 'backup', name: 'Backup', model_name: 'backup-model',
+      channel_routing: undefined, metadata: { provider_instance_id: 'backup-provider' } };
+    const second: AIModelConfig = { ...backup, id: 'second', name: 'Second', model_name: 'second-model',
+      metadata: { provider_instance_id: 'second-provider' } };
+    const models = [primary, backup, second];
+    const baseline = structuredClone(models);
+    const values: Record<string, unknown> = {
+      'ai.models': models, 'ai.default_models': { primary: primary.id },
+      'ai.proxy': { enabled: false, url: '', username: '', password: '' },
+      'ai.stream_idle_timeout_secs': 120, 'ai.stream_ttft_timeout_secs': 60,
+    };
+    vi.spyOn(configManager, 'hasCachedConfig').mockImplementation(path => path in values);
+    vi.spyOn(configManager, 'getCachedConfig').mockImplementation(<T,>(path: string) => values[path] as T);
+    const update = vi.spyOn(configManager, 'updateConfig').mockImplementation(
+      async <T,>(_path: string, transform: (current: T) => T) => transform(models as T),
+    );
+    vi.spyOn(aiApi, 'testAIConfigConnection').mockImplementation(() => new Promise(() => {}));
+    await act(async () => root.render(<ModelSettingsPage />));
+    await act(async () => container.querySelector<HTMLButtonElement>(
+      `[data-config-id="${primary.id}"] button[aria-label="${copy('actions.edit')}"]`,
+    )!.click());
+    const editor = () => document.querySelector<HTMLElement>('.openbitfun-model-settings__editor-dialog')!;
+    const editorButton = (key: string) => [...editor().querySelectorAll<HTMLButtonElement>('button')]
+      .find(element => element.textContent === copy(key))!;
+    const draft = () => getSettingsDraftSnapshot().resources.find(resource => resource.id === 'model-provider-editor')!;
+    expect(draft().dirty).toBe(false);
+    if (operation === 'add' || operation === 'manual') {
+      const label = copy(operation === 'add' ? 'channelRouting.add' : 'channelRouting.mode');
+      await act(async () => editor().querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!.click());
+      await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+        .find(option => option.textContent?.includes('backup-model'))!.click());
+    } else {
+      const label = copy(operation === 'remove' ? 'channelRouting.remove' : 'subscriptionAuth.pool.moveDown');
+      await act(async () => editor().querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!.click());
+    }
+    expect(draft().dirty).toBe(true);
+    const leave = vi.fn();
+    expect(requestAllSettingsDraftsExit(leave)).toBe(false);
+    expect(leave).not.toHaveBeenCalled();
+    cancelPendingSettingsNavigation();
+    await act(async () => editorButton('actions.cancel').click());
+    const confirmation = document.querySelector<HTMLElement>('[role="alertdialog"]')!;
+    expect(confirmation.textContent).toContain(copy('draftClose.title'));
+    await act(async () => [...confirmation.querySelectorAll<HTMLButtonElement>('button')]
+      .find(element => element.textContent === copy('draftClose.continueEditing'))!.click());
+    // A refresh/mutation of the cached object must not change the edit baseline.
+    models[0].description = 'Concurrent change';
+    if (operation === 'add') {
+      const error = vi.spyOn(notificationService, 'error');
+      update.mockRejectedValueOnce(new ConfigConflictError());
+      await act(async () => editorButton('actions.save').click());
+      expect(error).toHaveBeenCalledWith(copy('messages.configChanged'), undefined);
+      expect(draft().dirty).toBe(true);
+      expect(editor()).not.toBeNull();
+      update.mockClear();
+    }
+    await act(async () => editorButton('actions.save').click());
+    expect(update).toHaveBeenCalledOnce();
+    expect(update.mock.calls[0][2]).toEqual({ expectedValue: baseline });
+    const saved = await update.mock.results[0].value as AIModelConfig[];
+    expect(saved[0].channel_routing).toEqual({
+      add: { version: 1, fallback_model_ids: ['backup'] },
+      remove: undefined,
+      reorder: { version: 1, fallback_model_ids: ['second', 'backup'] },
+      manual: { version: 1, fallback_model_ids: ['backup'], manual_channel: 'backup' },
+    }[operation]);
+  });
+
+  it.each([false, true])('cancelling a new Hermes account preserves the settings draft state (model editor: %s)', async inModelEditor => {
+    const account = {
+      provider: 'hermes' as const, display_label: 'Hermes', connected: true,
+      account: 'Existing account', suggested_format: 'openai',
+      suggested_base_url: 'https://inference-api.nousresearch.com/v1', suggested_model: 'hermes-4', api_offerings: [],
+    };
+    vi.spyOn(aiApi, 'listSubscriptionAccounts').mockResolvedValue([account]);
+    vi.spyOn(aiApi, 'listSubscriptionAccountInstances').mockResolvedValue([{
+      account_id: 'hermes', is_default: true, account, enabled: true, supports_multiple_accounts: true,
+    }]);
+    vi.spyOn(aiApi, 'getSubscriptionAccountQuota').mockImplementation(() => new Promise(() => {}));
+    const started = deferred();
+    const start = vi.spyOn(aiApi, 'startSubscriptionAccountLogin').mockImplementation(() => started.promise as never);
+    const cancel = vi.spyOn(aiApi, 'cancelSubscriptionLogin').mockResolvedValue(undefined);
+    vi.spyOn(systemAPI, 'openExternal').mockResolvedValue(undefined);
+    vi.spyOn(aiApi, 'getSubscriptionLoginStatus').mockImplementation(async (provider, sessionId) => ({
+      provider, session_id: sessionId!, status: 'pending',
+    }));
+    const update = vi.spyOn(configManager, 'updateConfig');
+    const warning = vi.spyOn(notificationService, 'warning');
+    const values: Record<string, unknown> = {
+      'ai.models': [model], 'ai.default_models': { primary: model.id },
+      'ai.proxy': { enabled: false, url: '', username: '', password: '' },
+      'ai.stream_idle_timeout_secs': 120, 'ai.stream_ttft_timeout_secs': 60,
+    };
+    vi.spyOn(configManager, 'hasCachedConfig').mockImplementation(path => path in values);
+    vi.spyOn(configManager, 'getCachedConfig').mockImplementation(<T,>(path: string) => values[path] as T);
+    await act(async () => root.render(<ModelSettingsPage />));
+    await act(async () => button('acquisition.import').click());
+    const dialog = () => [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].at(-1)!;
+    const dialogButton = (key: string) => [...dialog().querySelectorAll<HTMLButtonElement>('button')]
+      .find(element => element.textContent === copy(key))!;
+    if (inModelEditor) {
+      await act(async () => dialogButton('subscriptionAuth.import').click());
+      await act(async () => dialogButton('subscriptionAuth.manageAccount').click());
+    }
+    await act(async () => dialogButton('subscriptionAuth.pool.addAccount').click());
+    expect(start).toHaveBeenCalledOnce();
+    if (inModelEditor) {
+      vi.useFakeTimers();
+      await act(async () => started.resolve({ session_id: start.mock.calls[0][2], authorization_url: 'https://example.test/login' }));
+    }
+    await act(async () => dialogButton('subscriptionAuth.cancel').click());
+    if (inModelEditor) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+      vi.useRealTimers();
+    } else {
+      await act(async () => started.resolve({ session_id: start.mock.calls[0][2], authorization_url: '' }));
+    }
+    expect(cancel).toHaveBeenCalled();
+    expect(dialog().textContent).not.toContain(copy('subscriptionAuth.newAccount'));
+    expect([...dialog().querySelectorAll<HTMLButtonElement>('button')].some(
+      element => element.textContent === copy('subscriptionAuth.pool.addAccount') && !element.disabled,
+    )).toBe(true);
+    if (inModelEditor) {
+      await act(async () => dialogButton('actions.done').click());
+      await act(async () => dialogButton('actions.save').click());
+      const missingModels = i18nService.getI18nInstance().t('messages.missingFields', {
+        ns: 'settings/models', fields: copy('form.modelName'),
+      });
+      expect(warning).not.toHaveBeenCalled();
+      expect(dialog().querySelector('[role="alert"]')?.textContent).toContain(missingModels);
+      expect(update).not.toHaveBeenCalled();
+      vi.spyOn(aiApi, 'listModelsByConfig').mockResolvedValue([{ id: 'fixture-hermes-model' }]);
+      vi.spyOn(aiApi, 'testAIConfigConnection').mockImplementation(() => new Promise(() => {}));
+      update.mockImplementation(async <T,>(_path: string, transform: (current: T) => T) => transform([model] as T));
+      await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="settings-model-select"]')!.click());
+      await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="settings-model-option"]')!.click());
+      await act(async () => dialogButton('actions.done').click());
+      expect(document.querySelector('.openbitfun-model-settings__editor-dialog [role="alert"]')).toBeNull();
+      await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="settings-model-save-btn"]')!.click());
+      expect(update).toHaveBeenCalledOnce();
+      const saved = update.mock.calls[0][1]([model]) as AIModelConfig[];
+      expect(saved.at(-1)?.auth).toEqual({ type: 'subscription', provider: 'hermes' });
+      expect(saved.at(-1)?.model_name).toBe('fixture-hermes-model');
+    } else {
+      expect(getSettingsDraftSnapshot().resources.every(resource => !resource.dirty && !resource.saving)).toBe(true);
+      const leave = vi.fn();
+      expect(requestAllSettingsDraftsExit(leave)).toBe(true);
+      expect(leave).toHaveBeenCalledOnce();
+      expect(update).not.toHaveBeenCalled();
+    }
+  });
+
   it('shows stable content immediately and releases models without waiting for catalogs or network settings', async () => {
     await act(async () => root.render(<ModelSettingsPage />));
 
@@ -108,7 +348,11 @@ describe('ModelSettingsPage loading and provider actions', () => {
     for (const key of ['acquisition.noneConfigured', 'acquisition.noneImported', 'pool.empty']) {
       expect(container.textContent).not.toContain(copy(key));
     }
-    expect(selectors()).toHaveLength(5);
+    const defaultLabel = (key: string) => String(i18nService.getI18nInstance().t(key, { ns: 'settings/default-model' }));
+    expect(selectors().map(element => element.getAttribute('aria-label'))).toEqual([
+      'core.primary.label', 'core.fast.label', 'core.economy.label', 'optional.capabilities.image_understanding.label',
+      'optional.capabilities.image_generation.label', 'optional.capabilities.speech_recognition.label',
+    ].map(defaultLabel));
     expect(selectors().every(element => element.disabled)).toBe(true);
     expect(button('actions.addModel').disabled).toBe(true);
     expect(container.querySelector<HTMLButtonElement>('[data-testid="settings-smart-mode-configure"]')?.disabled).toBe(true);
@@ -124,12 +368,24 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(selectors()[0].textContent).toContain(model.model_name);
     expect(button('actions.addModel').disabled).toBe(false);
     expect(container.querySelector<HTMLButtonElement>('[data-testid="settings-smart-mode-configure"]')?.disabled).toBe(false);
+    const imageSelector = container.querySelector<HTMLButtonElement>('[data-testid="image-service-default-select"] button[role="combobox"]')!;
+    expect(imageSelector.disabled).toBe(true);
+    const image = {
+      id: 'loading-image-service', name: 'Image service', dialect: 'openai_images',
+      base_url: 'https://images.example/v1', model_name: 'image-model', api_key: 'fixture-key',
+      enabled: true, params: { n: 1 },
+    };
+    await act(async () => { reads.get('media')!.resolve({ image_services: [image], default_image_service: image.id }); });
+    expect(imageSelector.disabled).toBe(false);
+    expect(imageSelector.textContent).toContain(image.name);
+    expect(selectors()[0].textContent).toContain(model.model_name);
   });
 
   it('opens the shared smart configuration dialog and saves without enabling routing', async () => {
     let routing: ModelRoutingConfig = { default_mode: 'manual', router_model_id: null,
       simple_threshold: .75, timeout_ms: 10000, summary_enabled: false };
     vi.spyOn(configManager, 'getConfigs').mockResolvedValue({ 'ai.model_routing': routing, 'ai.default_models': { primary: model.id } });
+    vi.spyOn(configAPI, 'getConfig').mockResolvedValue({ primary: model.id });
     const updateConfig = vi.spyOn(configManager, 'updateConfig').mockImplementation(async <T,>(path: string, update: (current: T) => T) => {
       expect(path).toBe('ai.model_routing'); routing = update(routing as T) as ModelRoutingConfig; return routing as T;
     });
@@ -149,7 +405,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(routing.summary_enabled).toBe(true);
     expect(routing.default_mode).toBe('manual');
     expect(updateConfig).toHaveBeenCalledOnce(); expect(updateSession).not.toHaveBeenCalled();
-    expect(configManager.getOptionalConfig).toHaveBeenCalledTimes(4);
+    expect(configAPI.getConfig).toHaveBeenCalledWith('ai.default_models');
   });
 
   it('closes smart configuration on a device switch and ignores its late read', async () => {
@@ -197,9 +453,12 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(button('actions.addModel').disabled).toBe(false);
   });
 
-  it.each(['api', 'subscription'] as const)(
-    'confirms %s capsule deletion before removing only that provider’s models',
-    async kind => {
+  it.each([
+    ['api', 'capsule'], ['api', 'editor'],
+    ['subscription', 'capsule'], ['subscription', 'editor'],
+  ] as const)(
+    'confirms %s provider deletion from its %s before removing only that provider’s models',
+    async (kind, entryPoint) => {
       const providerModels: AIModelConfig[] = [model, { ...model, id: 'second-model', model_name: 'second-model' }]
         .map(entry => ({
           ...entry,
@@ -223,10 +482,20 @@ describe('ModelSettingsPage loading and provider actions', () => {
         reads.get('ai.agent_model_selections')!.resolve({});
       });
 
-      const deleteButton = [...container.querySelectorAll<HTMLButtonElement>('.openbitfun-model-settings__source-pill-delete')]
-        .find(element => element.getAttribute('aria-label')?.endsWith(`: ${model.name}`))!;
-      expect(deleteButton.getAttribute('aria-label')).toContain(model.name);
-      expect(deleteButton.parentElement?.closest('button')).toBeNull();
+      const providerButton = [...container.querySelectorAll<HTMLButtonElement>('.openbitfun-model-settings__source-pill')]
+        .find(element => element.textContent === model.name)!;
+      const capsule = providerButton.closest('[data-openbitfun-component="capsule"]')!;
+      expect(capsule.getAttribute('data-action-placement')).toBe('reserved');
+      expect(capsule.querySelectorAll('button')).toHaveLength(2);
+      expect(providerButton.querySelector('button')).toBeNull();
+      let deleteButton = capsule.querySelector<HTMLButtonElement>('.openbitfun-model-settings__source-pill-delete')!;
+      expect(deleteButton.getAttribute('aria-label')).toBe(`${copy('actions.deleteProvider')}: ${model.name}`);
+      if (entryPoint === 'editor') {
+        await act(async () => providerButton.click());
+        const editor = document.querySelector<HTMLElement>('.openbitfun-model-settings__editor-dialog')!;
+        deleteButton = [...editor.querySelectorAll<HTMLButtonElement>('button')]
+          .find(element => element.textContent === copy('actions.deleteProvider'))!;
+      }
       await act(async () => deleteButton.click());
 
       const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]')!;
@@ -234,7 +503,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
       expect(dialog.textContent).toContain(String(i18nService.getI18nInstance().t('providerDeleteConfirm.message', {
         ns: 'settings/models', name: model.name, modelCount: 2, referenceCount: 1,
       })));
-      expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(0);
+      expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(entryPoint === 'editor' ? 1 : 0);
       expect(updateConfig).not.toHaveBeenCalled();
 
       const cancel = dialog.querySelector<HTMLButtonElement>('button[data-openbitfun-variant="fill"]')!;

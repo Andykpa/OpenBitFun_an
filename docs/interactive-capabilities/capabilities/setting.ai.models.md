@@ -39,8 +39,8 @@ Add AI providers and models, choose defaults, and configure proxy, subscription,
   - Add custom headers, request-body fields, and SSL behavior per provider
 - **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 配置智能模式的 Router 服务、主力与经济模型
   - Configure smart routing with primary and economy models
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 保存前测试供应商或模型连接并刷新运行时客户端
-  - Test provider or model connectivity before saving and refresh the runtime client
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 测试模型连接或图像生成，并刷新运行时客户端
+  - Test model connections or image generation and refresh the runtime client
 - **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 管理模型池、路由策略与会话模型选择
   - Manage model pools, routing strategies, and session model selection
 

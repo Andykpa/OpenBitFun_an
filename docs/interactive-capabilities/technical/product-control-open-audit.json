@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "df8dc4bbb51a54b1d2a2ede3c9300a4b5d6c8c41cb7128128d4ec6b172f1ed54",
+  "catalogDigest": "f3ed78bf33c91477b0f9b3b99dd433f22caddf845a4b3ef9b0ba13ad7055196f",
   "count": 217,
   "reasonCounts": {
     "externalAuth": 4,
@@ -528,11 +528,11 @@
     {
       "capabilityId": "feature.projects",
       "itemId": "file-watch",
-      "titleZh": "监听项目文件变化并查看当前监听路径",
-      "titleEn": "Watch project file changes and inspect active watched paths",
+      "titleZh": "监听项目文件变化、检查监听状态并在失败后恢复",
+      "titleEn": "Watch project file changes, inspect watch status, and recover a stopped watcher",
       "reasonCode": "unstructuredInteraction",
-      "reasonZh": "“监听项目文件变化并查看当前监听路径”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-      "reasonEn": "“Watch project file changes and inspect active watched paths” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
+      "reasonZh": "“监听项目文件变化、检查监听状态并在失败后恢复”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
+      "reasonEn": "“Watch project file changes, inspect watch status, and recover a stopped watcher” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
       "presentationTarget": {
         "kind": "action",
         "actionId": "project.open"
@@ -540,7 +540,9 @@
       "evidence": [
         "command:start_file_watch",
         "command:stop_file_watch",
-        "command:get_watched_paths"
+        "command:get_watched_paths",
+        "command:get_file_watch_status",
+        "command:retry_file_watch"
       ]
     },
     {
@@ -2525,8 +2527,8 @@
     {
       "capabilityId": "feature.desktop-cards",
       "itemId": "drag-restore",
-      "titleZh": "拖动卡片到桌面任意位置；关闭 OpenBitFun 时卡片消失，重新打开后按原位置恢复",
-      "titleEn": "Drag cards anywhere on the desktop; they disappear when OpenBitFun closes and return to the same positions when it reopens",
+      "titleZh": "拖动卡片到桌面任意位置，拖动卡片边缘或四角调整大小；关闭 OpenBitFun 时卡片消失，重新打开后按原位置和大小恢复",
+      "titleEn": "Drag cards anywhere on the desktop and resize them from their edges or corners; they disappear when OpenBitFun closes and return with the same position and size when it reopens",
       "reasonCode": "visualSelection",
       "reasonZh": "卡片位置由用户在桌面上直接拖动决定，没有可以代替视觉摆放的结构化命令；智能体只说明操作方式，摆放保留给用户。",
       "reasonEn": "Card positions are chosen by dragging directly on the desktop, and no structured command can replace that visual placement; the Agent explains the interaction and leaves placement to the user.",
@@ -2879,11 +2881,11 @@
     {
       "capabilityId": "setting.ai.models",
       "itemId": "connection-test",
-      "titleZh": "保存前测试供应商或模型连接并刷新运行时客户端",
-      "titleEn": "Test provider or model connectivity before saving and refresh the runtime client",
+      "titleZh": "测试模型连接或图像生成，并刷新运行时客户端",
+      "titleEn": "Test model connections or image generation and refresh the runtime client",
       "reasonCode": "unstructuredInteraction",
-      "reasonZh": "“保存前测试供应商或模型连接并刷新运行时客户端”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-      "reasonEn": "“Test provider or model connectivity before saving and refresh the runtime client” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
+      "reasonZh": "“测试模型连接或图像生成，并刷新运行时客户端”需要用户在配置表单中选择服务并主动发起；图像服务测试会实际生成图片并可能消耗额度，智能体只能打开对应设置入口。",
+      "reasonEn": "“Test model connections or image generation and refresh the runtime client” requires the user to select a configuration and start the test from its form; image-service tests generate an actual image and may consume quota, so the Agent can only open the settings entry.",
       "presentationTarget": {
         "kind": "settings",
         "pageId": "ai.models"
@@ -2891,6 +2893,7 @@
       "evidence": [
         "command:test_ai_connection",
         "command:test_ai_config_connection",
+        "command:test_image_generation_service",
         "command:refresh_model_client"
       ]
     },

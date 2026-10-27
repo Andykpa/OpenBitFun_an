@@ -388,6 +388,7 @@ mod tests {
 
     fn screenshot() -> ComputerScreenshot {
         ComputerScreenshot {
+            capture_frame: None,
             screenshot_id: Some("test-shot".to_string()),
             bytes: vec![],
             mime_type: "image/jpeg".to_string(),
@@ -413,6 +414,7 @@ mod tests {
             }),
             ui_tree_text: None,
             implicit_confirmation_crop_applied: false,
+            auxiliary_windows: Vec::new(),
         }
     }
 

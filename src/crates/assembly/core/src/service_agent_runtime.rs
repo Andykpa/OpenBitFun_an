@@ -252,6 +252,7 @@ async fn configured_plugin_execution_root(
     request: &AgentSessionCreateRequest,
 ) -> PortResult<Option<std::path::PathBuf>> {
     let mut config = crate::agentic::core::SessionConfig {
+        tool_presentation_mode: Default::default(),
         workspace_id: request.workspace_id.clone(),
         workspace_path: request.workspace_path.clone(),
         project_workspace_path: request.project_workspace_path.clone(),
@@ -1899,6 +1900,7 @@ impl CoreServiceAgentRuntime {
                 return Err("Remote workspace connection identity is unavailable".to_string());
             }
             let config = crate::agentic::core::SessionConfig {
+                tool_presentation_mode: Default::default(),
                 workspace_path: Some(current.path),
                 remote_connection_id: current.remote_connection_id,
                 remote_ssh_host: current.remote_ssh_host,
@@ -1973,6 +1975,7 @@ impl CoreServiceAgentRuntime {
         }
         if let Some(workspace_id) = workspace_id {
             let config = crate::agentic::core::SessionConfig {
+                tool_presentation_mode: Default::default(),
                 workspace_id: Some(workspace_id.to_string()),
                 ..Default::default()
             };
@@ -2042,6 +2045,7 @@ impl CoreServiceAgentRuntime {
             }
         }
         let config = crate::agentic::core::SessionConfig {
+            tool_presentation_mode: Default::default(),
             workspace_path: Some(workspace_path.into()),
             remote_connection_id: remote_connection_id.map(str::to_string),
             ..Default::default()
@@ -4876,6 +4880,7 @@ mod tests {
                 first_chunk_ms: None,
                 first_visible_output_ms: None,
                 stream_duration_ms: None,
+                ttft_ms: None,
                 attempt_count: None,
                 attempt_diagnostics: vec![],
                 failure_category: None,
@@ -4904,6 +4909,7 @@ async fn resolve_history_workspace(
     ssh_host: Option<&str>,
 ) -> PortResult<WorkspaceBinding> {
     let mut config = crate::agentic::core::SessionConfig {
+        tool_presentation_mode: Default::default(),
         workspace_id: workspace_id.map(str::to_owned),
         workspace_path: Some(path.to_owned()),
         remote_connection_id: connection_id.map(str::to_owned),

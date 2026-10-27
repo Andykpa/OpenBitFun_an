@@ -5,6 +5,18 @@
   "origin": "https://playbook.openbitfun.com",
   "searchAcceptance": [
     {
+      "id": "native-image-generation",
+      "query": "generate_image",
+      "expectedFirstCapabilityId": "feature.ai-assistant",
+      "expectedCapabilityIds": [
+        "feature.ai-assistant"
+      ],
+      "expectedItem": {
+        "capabilityId": "feature.ai-assistant",
+        "itemId": "image-generation"
+      }
+    },
+    {
       "id": "companion-pet-mixed",
       "query": "宠物 pet mascot 桌面宠物",
       "expectedFirstCapabilityId": "setting.application.pet",
@@ -235,11 +247,13 @@
       "touch_session_activity"
     ],
     "hostBridges": [
+      "mark_miniapp_web_surface_ready",
       "mark_openbitfun_control_surface_ready",
       "mark_openbitfun_control_surface_unready",
       "miniapp_shell_call",
       "peer_host_invoke_complete",
       "product_control_invoke",
+      "report_miniapp_web_result",
       "report_openbitfun_control_result",
       "report_ide_control_result",
       "webdriver_bridge_result"
@@ -272,6 +286,14 @@
       "account_subscribe_session",
       "account_unsubscribe_session",
       "get_session_interaction_mailbox"
+    ],
+    "subscriptionAccountBackend": [
+      "get_subscription_account_quota",
+      "list_subscription_account_instances",
+      "logout_subscription_account_instance",
+      "refresh_subscription_account_instance",
+      "set_subscription_account_enabled",
+      "start_subscription_account_login"
     ]
   },
   "capabilities": [
@@ -406,6 +428,31 @@
             "command:confirm_frontend_update",
             "command:rollback_frontend_update",
             "command:frontend_update_candidate_failed"
+          ]
+        },
+        {
+          "id": "image-generation",
+          "titleZh": "通过已配置的默认图像模型生成图片",
+          "titleEn": "Generate images with the configured default image model",
+          "control": {
+            "kind": "delegate",
+            "tools": [
+              "generate_image"
+            ],
+            "workflowZh": [
+              "使用 generate_image 按用户描述生成图片，默认省略 service_id 以使用已配置的默认图像模型",
+              "按需指定数量和尺寸，通过返回的文件路径交付图片；远程工作区文件通过当前工作区数据面读写",
+              "缺少配置、认证失败或额度不足时明确报告，不自动切换到其他服务"
+            ],
+            "workflowEn": [
+              "Use generate_image to create images from the user's description; omit service_id to use the configured default image model",
+              "Specify count and size when needed and deliver the returned file paths; access remote workspace files through the active workspace data plane",
+              "Report missing configuration, authentication failures, or quota limits explicitly without automatically switching services"
+            ]
+          },
+          "evidence": [
+            "source:src/crates/assembly/core/src/agentic/tools/implementations/generate_image_tool.rs#generate_image",
+            "source:src/crates/assembly/core/builtin_skills/generate-image/SKILL.md#generate_image"
           ]
         },
         {
@@ -1170,18 +1217,20 @@
         },
         {
           "id": "file-watch",
-          "titleZh": "监听项目文件变化并查看当前监听路径",
-          "titleEn": "Watch project file changes and inspect active watched paths",
+          "titleZh": "监听项目文件变化、检查监听状态并在失败后恢复",
+          "titleEn": "Watch project file changes, inspect watch status, and recover a stopped watcher",
           "control": {
             "kind": "open",
             "reasonCode": "unstructuredInteraction",
-            "reasonZh": "“监听项目文件变化并查看当前监听路径”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-            "reasonEn": "“Watch project file changes and inspect active watched paths” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user."
+            "reasonZh": "“监听项目文件变化、检查监听状态并在失败后恢复”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
+            "reasonEn": "“Watch project file changes, inspect watch status, and recover a stopped watcher” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user."
           },
           "evidence": [
             "command:start_file_watch",
             "command:stop_file_watch",
-            "command:get_watched_paths"
+            "command:get_watched_paths",
+            "command:get_file_watch_status",
+            "command:retry_file_watch"
           ]
         },
         {
@@ -3265,6 +3314,29 @@
           ]
         },
         {
+          "id": "agent-operate-app",
+          "titleZh": "由智能体结合源码控制 Mini App",
+          "titleEn": "Let an agent control a Mini App using its source and live interface",
+          "control": {
+            "kind": "delegate",
+            "tools": [
+              "MiniAppBrowser"
+            ],
+            "workflowZh": [
+              "先用 OpenBitFunControl 的 get 查询 feature.miniapps，并按 schema 用 inspect-app 读取源码，理解业务函数、动作参数和状态；源码更新属于应用改造，不是日常操作的前置步骤",
+              "用 MiniAppBrowser 的 open 连接当前实例，优先 observe_bridge 读取业务状态、act_bridge 执行语义动作并核对结果，保留用户草稿，不改源码、不重载、不切换呈现。旧应用缺少接口时使用可用的 DOM/输入或说明限制；自动活动信息不能代替业务状态"
+            ],
+            "workflowEn": [
+              "Use OpenBitFunControl get for feature.miniapps, then inspect-app source to understand business functions, action parameters, and state. Source updates are app enhancements, not prerequisites for routine operation",
+              "Open the current instance with MiniAppBrowser; prefer observe_bridge for business state and act_bridge for semantic operations and result verification. Preserve drafts without editing source, reloading, or changing presentation. For legacy apps use available DOM/input controls or report the gap; activity is not business state"
+            ]
+          },
+          "evidence": [
+            "source:src/crates/assembly/core/src/agentic/tools/implementations/miniapp_browser/mod.rs#MiniAppBrowser",
+            "source:src/crates/contracts/product-domains/src/miniapp/web_surface.rs#MiniAppWebLocator"
+          ]
+        },
+        {
           "id": "publishing",
           "titleZh": "撤回和审查市场发布，并可渲染幻灯片页面",
           "titleEn": "Withdraw and review market releases, and render slide pages",
@@ -5306,13 +5378,14 @@
       "items": [
         {
           "id": "agent-cards",
-          "titleZh": "按需求或在任务过程中创建倒计时、清单、便签、进度、指标、定时任务和自定义卡片，可定时从 HTTP 接口或本机命令刷新数据",
-          "titleEn": "Create countdown, checklist, note, progress, metrics, scheduled-job, and custom cards on request or during a task, optionally refreshed from an HTTP endpoint or a local command",
+          "titleZh": "按需求或在任务过程中创建倒计时、清单、便签、进度、指标、图表、定时任务和自定义卡片，可定时从 HTTP 接口或本机命令刷新数据",
+          "titleEn": "Create countdown, checklist, note, progress, metrics, chart, scheduled-job, and custom cards on request or during a task, optionally refreshed from an HTTP endpoint or a local command",
           "control": {
             "kind": "delegate"
           },
           "evidence": [
-            "source:src/crates/assembly/core/src/agentic/tools/implementations/desktop_card_tool.rs#\"countdown-reminder\""
+            "source:src/crates/assembly/core/src/agentic/tools/implementations/desktop_card_tool.rs#\"countdown-reminder\"",
+            "source:src/crates/assembly/core/src/agentic/tools/implementations/desktop_card_tool.rs#\"usage-breakdown\""
           ]
         },
         {
@@ -5345,8 +5418,8 @@
         },
         {
           "id": "drag-restore",
-          "titleZh": "拖动卡片到桌面任意位置；关闭 OpenBitFun 时卡片消失，重新打开后按原位置恢复",
-          "titleEn": "Drag cards anywhere on the desktop; they disappear when OpenBitFun closes and return to the same positions when it reopens",
+          "titleZh": "拖动卡片到桌面任意位置，拖动卡片边缘或四角调整大小；关闭 OpenBitFun 时卡片消失，重新打开后按原位置和大小恢复",
+          "titleEn": "Drag cards anywhere on the desktop and resize them from their edges or corners; they disappear when OpenBitFun closes and return with the same position and size when it reopens",
           "control": {
             "kind": "open",
             "reasonCode": "visualSelection",
@@ -6940,17 +7013,18 @@
         },
         {
           "id": "connection-test",
-          "titleZh": "保存前测试供应商或模型连接并刷新运行时客户端",
-          "titleEn": "Test provider or model connectivity before saving and refresh the runtime client",
+          "titleZh": "测试模型连接或图像生成，并刷新运行时客户端",
+          "titleEn": "Test model connections or image generation and refresh the runtime client",
           "control": {
             "kind": "open",
             "reasonCode": "unstructuredInteraction",
-            "reasonZh": "“保存前测试供应商或模型连接并刷新运行时客户端”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-            "reasonEn": "“Test provider or model connectivity before saving and refresh the runtime client” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user."
+            "reasonZh": "“测试模型连接或图像生成，并刷新运行时客户端”需要用户在配置表单中选择服务并主动发起；图像服务测试会实际生成图片并可能消耗额度，智能体只能打开对应设置入口。",
+            "reasonEn": "“Test model connections or image generation and refresh the runtime client” requires the user to select a configuration and start the test from its form; image-service tests generate an actual image and may consume quota, so the Agent can only open the settings entry."
           },
           "evidence": [
             "command:test_ai_connection",
             "command:test_ai_config_connection",
+            "command:test_image_generation_service",
             "command:refresh_model_client"
           ]
         },
@@ -7751,13 +7825,15 @@
       "categoryId": "assistant",
       "titleZh": "执行与权限控制",
       "titleEn": "Execution & permissions",
-      "summaryZh": "管理智能体工具权限、并行度、超时、延迟加载、Computer Use 与浏览器控制。",
-      "summaryEn": "Manage agent tool permissions, concurrency, timeouts, deferred loading, Computer Use, and browser control.",
+      "summaryZh": "管理智能体工具权限、呈现模式、并行度、超时、延迟加载、Computer Use 与浏览器控制。",
+      "summaryEn": "Manage agent tool permissions, presentation mode, concurrency, timeouts, deferred loading, Computer Use, and browser control.",
       "keywordsZh": [
         "执行控制",
         "工具权限",
         "工具调用超时",
         "延迟加载工具",
+        "工具呈现模式",
+        "PTC",
         "审批",
         "并行",
         "超时",
@@ -7769,6 +7845,8 @@
         "execution control",
         "tool permissions",
         "deferred tool loading",
+        "tool presentation",
+        "PTC",
         "approval",
         "parallel",
         "timeout",
@@ -7892,6 +7970,28 @@
           },
           "evidence": [
             "source:src/web-ui/src/locales/zh-CN/settings/runtime.json#deferredToolLoading.sectionTitle"
+          ]
+        },
+        {
+          "id": "tool-presentation",
+          "titleZh": "选择模型使用原生模式还是 PTC TypeScript 模式",
+          "titleEn": "Choose native mode or PTC TypeScript mode for the model",
+          "destination": {
+            "kind": "settings",
+            "pageId": "tools.execution",
+            "viewId": "advanced"
+          },
+          "control": {
+            "kind": "direct",
+            "operations": [],
+            "options": [
+              {
+                "id": "tool-presentation-mode"
+              }
+            ]
+          },
+          "evidence": [
+            "source:src/web-ui/src/locales/zh-CN/settings/runtime.json#toolPresentation.mode"
           ]
         },
         {
@@ -8091,6 +8191,13 @@
           "titleEn": "Deferred tool loading",
           "descriptionZh": "按需加载大型工具定义，减少智能体初始上下文。",
           "descriptionEn": "Load large tool definitions on demand to reduce initial agent context."
+        },
+        {
+          "id": "tool-presentation-mode",
+          "titleZh": "工具呈现模式",
+          "titleEn": "Tool presentation mode",
+          "descriptionZh": "选择模型直接调用原生工具，或通过 PTC TypeScript 调用工具。",
+          "descriptionEn": "Choose whether the model calls native tools directly or uses PTC TypeScript."
         },
         {
           "id": "subagent-batch-policy",
@@ -9788,6 +9895,9 @@
       "capabilityId": "setting.application.general"
     },
     "miniapp_market": {
+      "capabilityId": "feature.miniapps"
+    },
+    "miniapp_web_host": {
       "capabilityId": "feature.miniapps"
     },
     "market_image": {

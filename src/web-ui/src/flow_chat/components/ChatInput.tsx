@@ -106,6 +106,7 @@ import {
 import { useThreadGoalController } from '../hooks/useThreadGoalController';
 import { useWorkspaceModeCatalog } from '../hooks/useWorkspaceModeCatalog';
 import { useSessionModeSelection } from '../hooks/useSessionModeSelection';
+import { useChatInputModeSync } from '../hooks/useChatInputModeSync';
 import { useComposerDefaultFocus } from '../hooks/useComposerDefaultFocus';
 import { ThreadGoalDialogs } from './thread-goal/ThreadGoalDialogs';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
@@ -134,7 +135,7 @@ import {
 } from '../utils/sessionWorkspace';
 import { sessionOwningWorkspaceId } from '../utils/sessionOrdering';
 import { findWorkspaceForSession } from '../utils/workspaceScope';
-import { isTauriRuntime, isWindowsDesktopRuntime } from '@/infrastructure/runtime';
+import { isLinuxDesktopRuntime, isTauriRuntime, isWindowsDesktopRuntime } from '@/infrastructure/runtime';
 import { subscribeOverlayInteraction, createOverlayPortal, OverflowText, Tooltip } from '@openbitfun/ui';
 import { useShortcut } from '@/infrastructure/hooks/useShortcut';
 import { confirmDanger, confirmWarning } from '@/infrastructure/confirm-dialog';
@@ -145,7 +146,6 @@ import { resolveSessionRelationship } from '../utils/sessionMetadata';
 import {
   canSwitchSessionMainAgent,
   isChatInputActionVisibleForTarget,
-  resolveAvailableChatInputMode,
   resolveChatInputCanUseSkills,
   resolveChatInputCanUseMcp,
   resolveChatInputMainAgentModes,
@@ -790,15 +790,17 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     () => (effectiveTargetSessionId ? getSessionHistory(effectiveTargetSessionId) : []),
     [effectiveTargetSessionId, getSessionHistory],
   );
+  const imageOnlyMessage = registration?.onSubmit && imageContexts.length > 0
+    ? t('input.imageOnlyPrompt') : '';
   const derivedState = useSessionDerivedState(
     effectiveTargetSessionId,
     inputState.value.trim() || (contexts.some(isConversationExcerpt)
-      ? t('selection.submitAnnotations') : '')
+      ? t('selection.submitAnnotations') : imageOnlyMessage)
   );
   const currentReviewActivity = useSessionReviewActivity(currentSessionId);
   const annotationOnlyMessage = contexts.some(context => isConversationExcerpt(context) && context.comment?.trim())
     ? t('selection.submitAnnotations') : '';
-  const hasSendableInput = Boolean(inputState.value.trim() || annotationOnlyMessage);
+  const hasSendableInput = Boolean(inputState.value.trim() || annotationOnlyMessage || imageOnlyMessage);
   const focusExcerptComposer = useCallback(() => richTextInputRef.current?.focus(), []);
   useExcerptComposerActions({ mainSessionId: currentSessionId, targetSessionId: effectiveTargetSessionId,
     active: isSceneActive && !registration, selectTargetSession, focus: focusExcerptComposer });
@@ -1360,8 +1362,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     () => resolveChatInputMainAgentModes(modeState.available),
     [modeState.available]
   );
-  const publishModeSelectionRef = useRef<((modeId: string) => void) | null>(null);
-  const suppressNextUserDefaultModeApplicationRef = useRef(false);
 
   const openScene = useSceneStore(s => s.openScene);
   const [subagentToolInfo, setSubagentToolInfo] = useState<SubagentInfo | null>(null);
@@ -3217,61 +3217,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     };
   }, []);
 
-  React.useEffect(() => {
-    const handleSessionSwitched = (event: Event) => {
-      const customEvent = event as CustomEvent<{ sessionId: string; mode: string }>;
-      const { sessionId, mode } = customEvent.detail || {};
-      
-      if (sessionId && mode && sessionId === effectiveTargetSessionIdRef.current) {
-        log.debug('Session switched, syncing mode', { sessionId, mode });
-        dispatchMode({ type: 'SET_CURRENT_MODE', payload: mode });
-      }
-    };
-
-    window.addEventListener('openbitfun:session-switched', handleSessionSwitched);
-    
-    return () => {
-      window.removeEventListener('openbitfun:session-switched', handleSessionSwitched);
-    };
-  }, []);
-
-  React.useEffect(() => {
-    const suppressedUserDefaultApplication = suppressNextUserDefaultModeApplicationRef.current;
-    const userDefaultModeForResolution = suppressedUserDefaultApplication
-      ? null
-      : userDefaultModeId;
-    const nextMode = activeSessionMode === 'OpenBitFun' ? 'OpenBitFun' : resolveAvailableChatInputMode({
-      currentMode,
-      isAssistantWorkspace,
-      sessionMode: activeSessionMode,
-      userDefaultModeId: userDefaultModeForResolution,
-      availableModeIds,
-    });
-    suppressNextUserDefaultModeApplicationRef.current = false;
-
-    if (nextMode && nextMode !== currentMode) {
-      log.debug('Syncing mode with workspace, session, and available modes', {
-        sessionId: effectiveTargetSessionId,
-        mode: nextMode,
-        sessionMode: activeSessionMode,
-        isAssistantWorkspace,
-        availableModeCount: availableModeIds.size,
-      });
-      const publishModeSelection = publishModeSelectionRef.current;
-      if (publishModeSelection) {
-        publishModeSelection(nextMode);
-      } else {
-        dispatchMode({ type: 'SET_CURRENT_MODE', payload: nextMode });
-      }
-    }
-  }, [
-    activeSessionMode,
-    availableModeIds,
+  useChatInputModeSync({
+    sessionId: effectiveTargetSessionId,
     currentMode,
-    effectiveTargetSessionId,
     isAssistantWorkspace,
     userDefaultModeId,
-  ]);
+    availableModeIds,
+    dispatchMode,
+  });
 
   React.useEffect(() => {
     const queuedInput = derivedState?.queuedInput;
@@ -4714,7 +4667,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   }, [t]);
   const {
     isModeChangePending,
-    publishModeSelection,
     requestModeChange: requestSessionModeChange,
   } = useSessionModeSelection(
     sessionModeSelectionTarget,
@@ -5057,6 +5009,25 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     t,
   ]);
 
+  /**
+   * Host-side clipboard file read for engines that deliver paste events with
+   * empty DataTransfer (WebKitGTK on Linux). A copied file or folder reaches
+   * the clipboard as a URI list and never as an image payload, so an
+   * image-only fallback silently dropped every file paste.
+   */
+  const readPastedClipboardFiles = useCallback(async (request: ExternalFileIntakeRequest) => {
+    try {
+      const { files } = await workspaceAPI.getClipboardFiles();
+      if (!isExternalFileIntakeRequestCurrent(request)) return false;
+      if (files.length === 0) return false;
+      await addExternalPaths(request, 'clipboard', files);
+      return true;
+    } catch (error) {
+      log.warn('Native clipboard file read failed', { error });
+      return false;
+    }
+  }, [addExternalPaths, isExternalFileIntakeRequestCurrent]);
+
   const intakeExternalPaths = useCallback((
     source: ExternalFileSource,
     paths: string[],
@@ -5180,16 +5151,29 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       );
     };
     const handlePasteFallback = (event: Event) => {
-      // WebKitGTK fires paste with zero DataTransfer types; the in-page file
-      // branch can never run there, so ask the host to read the clipboard.
+      // WebKitGTK does not deliver pasted OS clipboard content in-band: an
+      // image clipboard arrives with no DataTransfer types, and a copied file
+      // arrives as a `text/uri-list` target. Both need the host read.
       const clipboardData = (event as ClipboardEvent).clipboardData;
-      if (!clipboardData) return;
-      if (!shouldAttemptNativeClipboardImageRead(Array.from(clipboardData.types ?? []))) return;
+      const types = clipboardData ? Array.from(clipboardData.types ?? []) : [];
+      // An engine that delivered real File objects already ran the in-page file
+      // branch; reading the host clipboard again would attach twice.
+      if (types.includes('Files')) return;
       if (!externalFileAvailability.supported) return;
+      const emptyTyped = shouldAttemptNativeClipboardImageRead(types);
+      if (!emptyTyped && !isLinuxDesktopRuntime()) return;
       const request = captureExternalFileIntakeRequest();
       void enqueueExternalFileIntake(
         request,
-        () => readPastedClipboardImage(request),
+        async () => {
+          // A copied file or folder only exists as a clipboard URI list; when
+          // the host finds one it owns the paste.
+          if (await readPastedClipboardFiles(request)) return;
+          // An OS image clipboard is the only payload WebKitGTK starves of
+          // types; a typed paste keeps its in-page text path.
+          if (!emptyTyped) return;
+          await readPastedClipboardImage(request);
+        },
       );
     };
     inputElement.addEventListener('imagePaste', handleImagePaste);
@@ -5203,6 +5187,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     captureExternalFileIntakeRequest,
     enqueueExternalFileIntake,
     externalFileAvailability,
+    readPastedClipboardFiles,
     readPastedClipboardImage,
   ]);
 
@@ -5270,7 +5255,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     const submissionScope = getActiveSurfaceScope();
     
     const { sendButtonMode } = derivedState;
-    const draftTrimmed = (messageOverride ?? (inputState.value.trim() || annotationOnlyMessage)).trim();
+    const draftTrimmed = (messageOverride ?? (inputState.value.trim() || annotationOnlyMessage || imageOnlyMessage)).trim();
 
     // While generating, an empty control in `cancel` mode means stop. If the user has typed a follow-up,
     // never treat this path as cancel — that would call cancel_dialog_turn and abort the current round early.
@@ -5526,6 +5511,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     isInterruptedTurnRecoveryInFlight,
     inputState.value,
     annotationOnlyMessage,
+    imageOnlyMessage,
     derivedState,
     dispatchInput,
     handleCancelCurrentTask,
@@ -5562,8 +5548,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     canUseThreadGoal,
     composerMutationRevision,
   ]);
-  
-  publishModeSelectionRef.current = publishModeSelection;
 
   const selectSlashCommandAction = useCallback((actionId: SlashActionId) => {
     const raw = inputState.value || '';

@@ -249,7 +249,10 @@ fn computer_use_prompt_preserves_background_observation_and_input_contract() {
         "unless the user has explicitly authorized that exact action",
         "`start_control` with `mode: \"background\"`",
         "Keep the session active across observations",
-        "Do not activate the target",
+        "Unless the user required background-only/no-disruption",
+        "`activate-app-v1`",
+        "Do not use blind Alt-Tab",
+        "`INPUT_OUTCOME_UNKNOWN`",
         "`ocr_text`, `ocr_status` and any `ocr_error`",
         "`app_type_text` takes the exact Unicode `text`",
         "{\"kind\":\"node_idx\",\"idx\":3}",
@@ -257,17 +260,28 @@ fn computer_use_prompt_preserves_background_observation_and_input_contract() {
         "\"screenshot_id\":\"capture-1\"",
         "Do not replace failed GUI observations or input with ad hoc AppleScript",
         "an unchanged digest does not prove failure",
-        "choose its `app` selector yourself",
+        "choose its selector",
         "does not require a user-selected share",
         "do not add a second confirmation solely because you wrote the wording",
         "Settings > Browser Control",
         "Never enable permissions yourself",
         "Permission denial or user Disconnect is not a technical limitation to work around",
         "Use `app_batch` by default when several inputs are already decided",
-        "first app observation can start background control automatically",
+        "Begin a new user GUI task with `start_control` once",
         "`include_image: false`",
         "never replay completed steps or the whole batch",
-        "Do not insert routine settle delays",
+        "Do not add routine delays on top of settling",
+        "the receipt's `settle.status` says whether it did",
+        "The steps go in a top-level `steps` array",
+        "they return `FOREGROUND_REQUIRED` without acting",
+        "lists them in `auxiliary_windows`",
+        "pass `query` instead of the `app` filter",
+        "App input results report `opened_windows`",
+        "`activate_app` first restores it and reports `restored_window: true`",
+        "background control never restores or activates windows",
+        "returns that window's observation after waiting",
+        "On hosts advertising `app-zoom-v1`",
+        "It does not refresh the AX tree",
     ] {
         assert!(
             prompt.contains(required),
@@ -289,6 +303,8 @@ fn computer_use_prompt_preserves_background_observation_and_input_contract() {
         "Stop this attempt until the user completes that choice",
         "A system stop requires a new user-selected share",
         "ask the user to click **Enable default CDP**",
+        "Omit the `app` filter on discovery",
+        "An off-screen visibility fact does not identify",
     ] {
         assert!(
             !prompt.contains(obsolete),
@@ -372,9 +388,7 @@ fn computer_use_delegation_preserves_user_scope_in_parents_and_child() {
     assert!(prompt.contains("do not require the user to select or share an app"));
     assert!(prompt.contains("without an extra approval solely for your wording"));
     assert!(
-        prompt.contains(
-            "Confirmation of message content does not authorize a change of control mode"
-        ),
+        prompt.contains("unless the original user required background-only/no-disruption"),
         "general_purpose_agent"
     );
     let prompt = agent_prompt("computer_use_mode").unwrap();
