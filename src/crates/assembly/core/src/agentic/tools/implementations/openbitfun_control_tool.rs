@@ -310,7 +310,7 @@ impl Tool for OpenBitFunControlTool {
 
     async fn description(&self) -> OpenBitFunResult<String> {
         Ok(
-            "Control OpenBitFun itself through its internal ProductControl API, including MCP server configuration, lifecycle and status. Prefer this tool over ComputerUse for OpenBitFun settings and supported product operations. Use the two-step flow: first `list` or `search`, then `get` the matching capability and follow its returned schema and availability to `configure`, `execute`, or `open`. To show a capability's root surface, call `open` with only its capability_id. destination.actionId is presentation metadata, never an item_id or operation_id. The full catalog loads only on demand; never guess IDs or values."
+            "Control OpenBitFun features and settings, including MCP servers. Prefer this tool over ComputerUse. Use the two-step flow: `list` or `search`, then `get` the matching capability and follow its schema and availability to `configure`, `execute`, or `open`. Open a root with capability_id only. destination.actionId is presentation metadata, never an item_id or operation_id. The catalog loads on demand; never guess IDs or values."
                 .to_string(),
         )
     }
