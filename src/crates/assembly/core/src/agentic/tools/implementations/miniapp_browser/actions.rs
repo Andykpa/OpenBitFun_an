@@ -141,17 +141,21 @@ pub(super) fn action_from_input(input: &Value) -> Option<Action> {
         .and_then(Action::parse)
 }
 
-pub(super) async fn dispatch(action: Action, input: &Value) -> Vec<ToolResult> {
+pub(super) async fn dispatch(
+    action: Action,
+    input: &Value,
+    owner_id: Option<&str>,
+) -> Vec<ToolResult> {
     match action {
-        Action::Sessions => list_sessions().await,
+        Action::Sessions => list_sessions(owner_id).await,
         Action::Apps => installed_apps().await,
-        Action::Open => open(input).await,
-        Action::Close => match session_for(input).await {
-            Ok(session) => close(&session).await,
+        Action::Open => open(input, owner_id).await,
+        Action::Close => match session_for(input, owner_id).await {
+            Ok(session) => close(&session, owner_id).await,
             Err(response) => response,
         },
         action => {
-            let session = match session_for(input).await {
+            let session = match session_for(input, owner_id).await {
                 Ok(session) => session,
                 Err(response) => return response,
             };
@@ -179,21 +183,26 @@ pub(super) async fn dispatch(action: Action, input: &Value) -> Vec<ToolResult> {
     }
 }
 
-async fn session_for(input: &Value) -> Result<MiniAppWebSessionSnapshot, Vec<ToolResult>> {
+async fn session_for(
+    input: &Value,
+    owner_id: Option<&str>,
+) -> Result<MiniAppWebSessionSnapshot, Vec<ToolResult>> {
     let Some(session_id) = read_string(input, "sessionId") else {
         return Err(missing_param(
             input.get("action").and_then(Value::as_str).unwrap_or("?"),
             "sessionId",
         ));
     };
-    sessions_snapshot(&session_id).await.ok_or_else(|| {
-        err_response(
-            "session",
-            MiniAppWebErrorCode::UnknownSession,
-            format!("No MiniApp Web session '{session_id}'."),
-            &["Open the MiniApp first, then reuse the returned sessionId."],
-        )
-    })
+    sessions_snapshot(&session_id, owner_id)
+        .await
+        .ok_or_else(|| {
+            err_response(
+                "session",
+                MiniAppWebErrorCode::UnknownSession,
+                format!("No MiniApp Web session '{session_id}'."),
+                &["Open the MiniApp first, then reuse the returned sessionId."],
+            )
+        })
 }
 
 fn dom_gate(action: Action, session: &MiniAppWebSessionSnapshot) -> Option<Vec<ToolResult>> {
@@ -262,8 +271,8 @@ async fn node_key(
     Ok((target_id, node_key))
 }
 
-async fn list_sessions() -> Vec<ToolResult> {
-    let sessions = sessions_snapshot_all().await;
+async fn list_sessions(owner_id: Option<&str>) -> Vec<ToolResult> {
+    let sessions = sessions_snapshot_all(owner_id).await;
     let summary = if sessions.is_empty() {
         "No MiniApp Web sessions are open.".to_string()
     } else {
@@ -390,7 +399,7 @@ fn available_app_hints(apps: &[MiniAppWebAppSummary]) -> Vec<String> {
     vec![hint]
 }
 
-async fn open(input: &Value) -> Vec<ToolResult> {
+async fn open(input: &Value, owner_id: Option<&str>) -> Vec<ToolResult> {
     let action = Action::Open.as_str();
     let app_id = match resolve_app_reference(action, input).await {
         Ok(app_id) => app_id,
@@ -419,7 +428,7 @@ async fn open(input: &Value) -> Vec<ToolResult> {
             return err_response(action, code, error, &[]);
         }
     };
-    let session = open_session(surface).await;
+    let session = open_session(surface, owner_id).await;
 
     let mut summary = format!(
         "Opened MiniApp '{}' ({}). capabilities=[{}]",
@@ -484,9 +493,9 @@ fn open_next_step(session: &MiniAppWebSessionSnapshot) -> String {
     }
 }
 
-async fn close(session: &MiniAppWebSessionSnapshot) -> Vec<ToolResult> {
+async fn close(session: &MiniAppWebSessionSnapshot, owner_id: Option<&str>) -> Vec<ToolResult> {
     let action = Action::Close.as_str();
-    let released = close_session(&session.session_id).await;
+    let released = close_session(&session.session_id, owner_id).await;
     ok_response(
         action,
         json!({ "sessionId": session.session_id, "released": released }),

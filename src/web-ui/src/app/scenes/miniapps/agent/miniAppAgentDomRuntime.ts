@@ -278,10 +278,19 @@ function nodeName(element: Element): string | undefined {
 function nodeValue(element: Element): string | undefined {
   const tag = element.tagName.toLowerCase();
   if (tag === 'input' || tag === 'textarea' || tag === 'select') {
-    return boundText((element as HTMLInputElement).value, MINIAPP_AGENT_MAX_TEXT_CHARS);
+    if (tag === 'input' && (element.getAttribute('type') ?? 'text').toLowerCase() === 'password') {
+      return undefined;
+    }
+    const raw = (element as HTMLInputElement).value;
+    return raw.length > MINIAPP_AGENT_MAX_TEXT_CHARS
+      ? `${Array.from(raw).slice(0, MINIAPP_AGENT_MAX_TEXT_CHARS).join('')}…`
+      : raw;
   }
   if ((element as HTMLElement).isContentEditable) {
-    return boundText(element.textContent, MINIAPP_AGENT_MAX_TEXT_CHARS);
+    const raw = element.textContent ?? '';
+    return raw.length > MINIAPP_AGENT_MAX_TEXT_CHARS
+      ? `${Array.from(raw).slice(0, MINIAPP_AGENT_MAX_TEXT_CHARS).join('')}…`
+      : raw;
   }
   return undefined;
 }
@@ -495,11 +504,19 @@ export function readNode(
 }
 
 function assertActionable(element: Element, action: string): void {
+  if (!isElementVisible(element)) {
+    throw surfaceError('INVALID_PARAMS', `${action}: the target is no longer visible; inspect the current MiniApp before retrying.`);
+  }
   if (element.getAttribute('aria-disabled') === 'true' || (element as HTMLButtonElement).disabled === true) {
     throw surfaceError(
       'INVALID_PARAMS',
       `${action}: the target is disabled and cannot receive input.`,
     );
+  }
+  const tag = element.tagName.toLowerCase();
+  if (action === 'type' && (tag === 'input' || tag === 'textarea')
+    && ((element as HTMLInputElement).readOnly || element.getAttribute('aria-readonly') === 'true')) {
+    throw surfaceError('INVALID_PARAMS', `${action}: the target is read-only and cannot receive input.`);
   }
 }
 

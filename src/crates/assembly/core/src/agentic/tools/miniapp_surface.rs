@@ -146,6 +146,7 @@ fn sessions() -> &'static Mutex<SessionRegistry> {
 pub struct MiniAppWebSession {
     pub session_id: String,
     pub surface: MiniAppWebSurfaceInfo,
+    owner_id: Option<String>,
     targets: MiniAppWebTargetRegistry,
 }
 
@@ -272,13 +273,19 @@ impl SessionRegistry {
 
     /// Bind a new session to one app. Reopening the same app replaces the older
     /// session so the Agent never holds two handles to one surface.
-    pub fn open(&mut self, surface: MiniAppWebSurfaceInfo) -> &MiniAppWebSession {
-        self.sessions
-            .retain(|_, session| session.surface.app_id != surface.app_id);
+    pub fn open(
+        &mut self,
+        surface: MiniAppWebSurfaceInfo,
+        owner_id: Option<&str>,
+    ) -> &MiniAppWebSession {
+        self.sessions.retain(|_, session| {
+            !(session.surface.app_id == surface.app_id && session.owner_id.as_deref() == owner_id)
+        });
         let session_id = self.mint_session_id();
         let session = MiniAppWebSession {
             session_id: session_id.clone(),
             surface,
+            owner_id: owner_id.map(str::to_string),
             targets: MiniAppWebTargetRegistry::new(),
         };
         self.sessions.insert(session_id.clone(), session);
@@ -495,30 +502,45 @@ pub fn parse_find_payload(payload: &Value) -> Vec<MiniAppWebNode> {
 
 /// Bind a freshly opened surface to a new control session. Reopening the same
 /// app replaces the older session so one app never has two live handles.
-pub async fn open_session(surface: MiniAppWebSurfaceInfo) -> MiniAppWebSessionSnapshot {
-    sessions().lock().await.open(surface).snapshot()
+pub async fn open_session(
+    surface: MiniAppWebSurfaceInfo,
+    owner_id: Option<&str>,
+) -> MiniAppWebSessionSnapshot {
+    sessions().lock().await.open(surface, owner_id).snapshot()
 }
 
 /// Release a control session. The MiniApp stays open for the user; only the
 /// Agent's handles die.
-pub async fn close_session(session_id: &str) -> bool {
-    sessions().lock().await.close(session_id).is_some()
+pub async fn close_session(session_id: &str, owner_id: Option<&str>) -> bool {
+    let mut registry = sessions().lock().await;
+    if registry
+        .get(session_id)
+        .is_some_and(|session| session.owner_id.as_deref() == owner_id)
+    {
+        return registry.close(session_id).is_some();
+    }
+    false
 }
 
-pub async fn sessions_snapshot(session_id: &str) -> Option<MiniAppWebSessionSnapshot> {
+pub async fn sessions_snapshot(
+    session_id: &str,
+    owner_id: Option<&str>,
+) -> Option<MiniAppWebSessionSnapshot> {
     sessions()
         .lock()
         .await
         .get(session_id)
+        .filter(|session| session.owner_id.as_deref() == owner_id)
         .map(MiniAppWebSession::snapshot)
 }
 
-pub async fn sessions_snapshot_all() -> Vec<MiniAppWebSessionSnapshot> {
+pub async fn sessions_snapshot_all(owner_id: Option<&str>) -> Vec<MiniAppWebSessionSnapshot> {
     let mut snapshots = sessions()
         .lock()
         .await
         .list()
         .into_iter()
+        .filter(|session| session.owner_id.as_deref() == owner_id)
         .map(MiniAppWebSession::snapshot)
         .collect::<Vec<_>>();
     snapshots.sort_by(|a, b| a.session_id.cmp(&b.session_id));
@@ -601,8 +623,14 @@ mod tests {
     #[tokio::test]
     async fn reopening_an_app_replaces_the_previous_session() {
         let mut registry = SessionRegistry::default();
-        let first = registry.open(surface("demo")).session_id.clone();
-        let second = registry.open(surface("demo")).session_id.clone();
+        let first = registry
+            .open(surface("demo"), Some("owner-1"))
+            .session_id
+            .clone();
+        let second = registry
+            .open(surface("demo"), Some("owner-1"))
+            .session_id
+            .clone();
         assert_ne!(first, second);
         assert!(registry.get(&first).is_none());
         assert_eq!(registry.len(), 1);
@@ -610,9 +638,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn owners_keep_independent_sessions_for_the_same_app() {
+        let mut registry = SessionRegistry::default();
+        let first = registry
+            .open(surface("demo"), Some("owner-1"))
+            .session_id
+            .clone();
+        let second = registry
+            .open(surface("demo"), Some("owner-2"))
+            .session_id
+            .clone();
+        assert!(registry.get(&first).is_some());
+        assert!(registry.get(&second).is_some());
+        assert_eq!(registry.len(), 2);
+    }
+
+    #[tokio::test]
     async fn targets_resolve_only_inside_their_session_and_invalidate_on_reload() {
         let mut registry = SessionRegistry::default();
-        let session_id = registry.open(surface("demo")).session_id.clone();
+        let session_id = registry
+            .open(surface("demo"), Some("owner-1"))
+            .session_id
+            .clone();
         let target_id = registry.get_mut(&session_id).unwrap().targets.mint(
             "demo",
             "n1",

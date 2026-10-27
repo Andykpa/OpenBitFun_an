@@ -255,13 +255,11 @@ const chatLabels = await fetch('/chat-labels.json').then(response => response.js
   // page is the reconnect: `start` resolves the current host and registers again.
   function recoverFromHostRestart() {
     stopped = true;
-    const now = Date.now();
-    const last = Number(sessionStorage.getItem('miniapp-recover-at') || 0);
-    // A host that stays unreachable must not turn this into a reload loop, so the
-    // window shows the error and waits for the user.
-    if (now - last < 15000) return;
-    sessionStorage.setItem('miniapp-recover-at', String(now));
-    location.reload();
+    // Keep the current document alive while the host is unavailable. Reloading
+    // here destroys unsaved DOM/JS state; the user can explicitly press Retry
+    // once the host is back, which performs the normal bootstrap path.
+    chat.setConnected(false);
+    error('The MiniApp host is unavailable. The current document is preserved; retry when the host is ready.');
   }
   async function poll(generation) {
     let failures = 0;
@@ -270,8 +268,6 @@ const chatLabels = await fetch('/chat-labels.json').then(response => response.js
         const batch = await native('poll', { after: cursor, waitMs: 700 });
         if (generation !== pollGeneration) return;
         failures = 0;
-        // The connection is proven, so a later restart may recover again.
-        sessionStorage.removeItem('miniapp-recover-at');
         chat.setConnected(true);
         if (batch.released) { stopped = true; await native('close'); return; }
         if (transferring && !batch.pendingView) { transferring = false; titlebar?.setTransferring(false); error(bootstrap.ui.transferFailed); }

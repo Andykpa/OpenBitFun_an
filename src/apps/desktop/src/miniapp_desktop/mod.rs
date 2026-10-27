@@ -175,6 +175,20 @@ impl DesktopMiniApps {
         })
     }
 
+    /// A live independent window, including older shells that do not advertise
+    /// the Agent bridge. Callers must not silently replace such a window with a
+    /// tab because doing so can reopen the document and discard unsaved state.
+    pub(crate) fn window_presentation_exists(&self, app_id: &str) -> bool {
+        self.instances.snapshot().instances.iter().any(|instance| {
+            instance.app_id == app_id
+                && instance
+                    .primary_view
+                    .iter()
+                    .chain(instance.pending_view.iter())
+                    .any(|view| view.kind == MiniAppViewKind::Window)
+        })
+    }
+
     /// `true` when this app is already on screen in the product window, so an
     /// Agent `open` should keep that presentation instead of launching another.
     pub(crate) fn tab_presentation(&self, app_id: &str) -> Option<String> {
@@ -1251,10 +1265,10 @@ mod tests {
 
         // A prepared view is not the presentation yet: nothing is mounted there.
         assert!(host.agent_window("demo").is_none());
-
         host.instances
             .ready(&instance.instance_id, &view.view_id)
             .expect("view becomes primary");
+        assert!(host.window_presentation_exists("demo"));
         assert_eq!(
             host.agent_window("demo"),
             Some(AgentWindow {
@@ -1273,6 +1287,7 @@ mod tests {
             .expect("lease")
             .agent_bridge = false;
         assert!(host.agent_window("demo").is_none());
+        assert!(host.window_presentation_exists("demo"));
     }
 
     #[test]

@@ -13,6 +13,7 @@ export const MINIAPP_AGENT_SURFACE_REQUEST_EVENT = 'agentic://miniapp-web-reques
 
 export interface MiniAppAgentSurfaceRequest {
   requestId: string;
+  expiresAt?: number;
   action: 'open' | 'execute';
   appId?: string;
   name?: string;

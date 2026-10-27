@@ -287,7 +287,7 @@ This tool has no host-path access or arbitrary JavaScript `evaluate` action. Sou
                 ));
             }
         }
-        Ok(dispatch(action, input).await)
+        Ok(dispatch(action, input, context.session_id.as_deref()).await)
     }
 }
 

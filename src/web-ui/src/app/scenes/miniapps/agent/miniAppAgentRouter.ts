@@ -41,6 +41,7 @@ export const MINIAPP_AGENT_OPEN_TIMEOUT_MS = 60_000;
 
 export interface MiniAppAgentRequestPayload {
   requestId: string;
+  expiresAt?: number;
   action: string;
   appId?: string;
   name?: string;
@@ -113,6 +114,8 @@ function parseRequest(raw: unknown): MiniAppAgentRequestPayload {
   const action = readString(source, 'action', 32) ?? '';
   const payload: MiniAppAgentRequestPayload = {
     requestId,
+    expiresAt: typeof source.expiresAt === 'number' && Number.isFinite(source.expiresAt)
+      ? source.expiresAt : undefined,
     action,
     appId: readString(source, 'appId'),
     name: readString(source, 'name'),
@@ -170,6 +173,9 @@ async function openSurface(
   }
   const presented = await deps.presentApp(appId);
   const entry = await waitForMiniAppAgentSurface(appId, deps.openTimeoutMs ?? MINIAPP_AGENT_OPEN_TIMEOUT_MS, deps.signal);
+  if (payload.expiresAt !== undefined && Date.now() >= payload.expiresAt) {
+    throw surfaceError('TIMEOUT', 'The MiniApp surface request expired while opening the surface.');
+  }
   if (presented.instanceId) {
     updateMiniAppAgentSurfaceStatus(appId, { instanceId: presented.instanceId });
   }
@@ -201,6 +207,9 @@ async function executeSurface(
   const command = payload.command;
   if (!command) {
     throw surfaceError('INVALID_PARAMS', 'execute requires a command.');
+  }
+  if (payload.expiresAt !== undefined && Date.now() >= payload.expiresAt) {
+    throw surfaceError('TIMEOUT', 'The MiniApp surface request expired before execution.');
   }
   const entry = requireSurface(command.appId, command.instanceId);
   const params = command.params ?? {};
@@ -272,6 +281,9 @@ export async function handleMiniAppAgentRequest(
     throw surfaceError('SURFACE_UNAVAILABLE', 'The MiniApp device surface is no longer active.');
   }
   const payload = parseRequest(raw);
+  if (payload.expiresAt !== undefined && Date.now() >= payload.expiresAt) {
+    throw surfaceError('TIMEOUT', 'The MiniApp surface request expired before handling.');
+  }
   switch (payload.action) {
     case MINIAPP_AGENT_SURFACE_REQUEST_ACTION.open:
       return openSurface(payload, deps) as unknown as Record<string, unknown>;

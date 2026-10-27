@@ -287,6 +287,16 @@ describe('MiniApp agent router', () => {
     await expect(handleMiniAppAgentRequest(execute('inspect'), harness.deps)).resolves.toHaveProperty('tree');
   });
 
+  it('refuses an expired request before dispatching a live mutation', async () => {
+    const harness = createHarness();
+    await handleMiniAppAgentRequest({ requestId: 'req-open', action: 'open', appId: 'demo' }, harness.deps);
+    const error = await errorOf(handleMiniAppAgentRequest({
+      ...execute('click'),
+      expiresAt: Date.now() - 1,
+    }, harness.deps));
+    expect(error.code).toBe('TIMEOUT');
+  });
+
   it('times out when the presented app never becomes controllable', async () => {
     const harness = createHarness({ ready: false });
     const error = await errorOf(handleMiniAppAgentRequest(

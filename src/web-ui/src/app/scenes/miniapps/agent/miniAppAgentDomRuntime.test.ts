@@ -76,6 +76,33 @@ describe('MiniApp agent DOM runtime', () => {
 
   afterEach(() => document.body.replaceChildren());
 
+  it('preserves form whitespace and never exposes password values', () => {
+    const surface = createSurface('<textarea></textarea><input type="password" aria-label="Secret" />');
+    const text = '  first\n\tsecond  ';
+    const textarea = surface.iframe.contentDocument!.querySelector('textarea') as HTMLTextAreaElement;
+    textarea.value = text;
+    const password = surface.iframe.contentDocument!.querySelector('input') as HTMLInputElement;
+    password.value = 'hidden-secret';
+    const textNode = findNodes(surface, { selector: 'textarea' })[0];
+    const passwordNode = findNodes(surface, { selector: 'input' })[0];
+    expect(readNode(surface, textNode.nodeKey!).value).toBe(text);
+    expect(readNode(surface, passwordNode.nodeKey!).value).toBeUndefined();
+    expect(JSON.stringify(inspectDocument(surface))).not.toContain('hidden-secret');
+  });
+
+  it('rejects readonly and hidden targets before dispatching input', () => {
+    const surface = createSurface('<input readonly value="locked" /><button>Delete</button>');
+    const input = findNodes(surface, { selector: 'input' })[0];
+    expect(() => typeIntoNode(surface, input.nodeKey!, 'changed')).toThrow('read-only');
+    const button = surface.iframe.contentDocument!.querySelector('button')!;
+    const clicked = vi.fn();
+    button.addEventListener('click', clicked);
+    const buttonNode = findNodes(surface, { selector: 'button' })[0];
+    button.hidden = true;
+    expect(() => clickNode(surface, buttonNode.nodeKey!)).toThrow('no longer visible');
+    expect(clicked).not.toHaveBeenCalled();
+  });
+
   it('uses the native setter for each editable field type', () => {
     const iframe = document.createElement('iframe');
     document.body.append(iframe);
@@ -114,7 +141,7 @@ describe('MiniApp agent DOM runtime', () => {
     expect(nodes.some((node) => node.role === 'heading' && node.name === 'Pomodoro')).toBe(true);
     // Hidden containers, scripts, and bare structural wrappers stay out.
     expect(nodes.some((node) => node.name === 'Hidden')).toBe(false);
-    expect(JSON.stringify(result.tree)).not.toContain('node-0');
+    expect(nodes.every((node) => typeof (node as { nodeKey?: string }).nodeKey === 'string')).toBe(true);
   });
 
   it('reuses node handles across observations and finds by priority axes', () => {

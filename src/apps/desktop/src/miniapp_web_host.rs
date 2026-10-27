@@ -90,6 +90,11 @@ async fn dispatch_surface_request(
         std::process::id(),
         NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed)
     );
+    let expires_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(u64::MAX)
+        .saturating_add(timeout.as_millis() as u64);
     let (sender, receiver) = oneshot::channel();
     lock_pending_responses().insert(request_id.clone(), sender);
 
@@ -105,6 +110,7 @@ async fn dispatch_surface_request(
     };
     payload.insert("requestId".to_string(), Value::String(request_id.clone()));
     payload.insert("action".to_string(), Value::String(action.to_string()));
+    payload.insert("expiresAt".to_string(), json!(expires_at));
 
     if let Err(error) = emit_global_event(BackendEvent::Custom {
         event_name: MINIAPP_WEB_REQUEST_EVENT.to_string(),
@@ -333,6 +339,17 @@ impl DesktopMiniAppWebHost {
         // moving the app somewhere else.
         if let Some(window) = self.miniapps().and_then(|host| host.agent_window(app_id)) {
             return Ok(Presentation::Window(window));
+        }
+
+        if self
+            .miniapps()
+            .is_some_and(|host| host.window_presentation_exists(app_id))
+        {
+            return Err(format!(
+                "{}: MiniApp {} is already open in an independent window, but that Shell does not advertise the Agent bridge; refusing to move it to a tab because unsaved state may be lost. Upgrade/reopen the Shell or use the window's supported controls.",
+                MiniAppWebErrorCode::CapabilityMissing.as_str(),
+                app_id
+            ));
         }
 
         // A tab is part of the product window, so the app is on screen already.
