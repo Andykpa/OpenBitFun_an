@@ -3,7 +3,6 @@
 use serde_json::{json, Map, Value};
 
 use super::{ConfigLocation, MCPServerStatus, MCPService};
-use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MCPControlOperation {
@@ -33,21 +32,30 @@ impl MCPService {
         &self,
         json_config: &str,
         expected_fingerprint: &str,
-    ) -> OpenBitFunResult<()> {
+    ) -> Result<(), String> {
         let _mutation = self.configuration_mutation.lock().await;
-        let previous = self.config_service.load_all_configs().await?;
+        let previous = self
+            .config_service
+            .load_all_configs()
+            .await
+            .map_err(|error| error.to_string())?;
         self.config_service
             .save_mcp_json_config(json_config, expected_fingerprint)
-            .await?;
-        let current = self.config_service.load_all_configs().await?;
+            .await
+            .map_err(|error| error.to_string())?;
+        // Keep the existing post-persistence acknowledgement intact on the
+        // wire: older clients use it to retain the saved state without retrying.
+        let saved_error =
+            |error| format!("MCP config was saved, but runtime reconciliation failed: {error}");
+        let current = self
+            .config_service
+            .load_all_configs()
+            .await
+            .map_err(saved_error)?;
         self.server_manager
             .reconcile_persisted_configs(previous, current)
             .await
-            .map_err(|error| {
-                OpenBitFunError::config(format!(
-                    "MCP config was saved, but runtime reconciliation failed: {error}"
-                ))
-            })
+            .map_err(saved_error)
     }
 
     pub async fn inspect_user_servers(&self) -> Result<Value, String> {
@@ -288,6 +296,21 @@ mod tests {
             .as_array()
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn mcp_control_gui_preserves_saved_but_runtime_failed_acknowledgement() {
+        let (root, _config, service) = fixture().await;
+        let initial = service.inspect_user_servers().await.unwrap();
+        let error = service.save_json_config_and_reconcile(
+            &json!({"mcpServers":{"broken":{"command":root.path().join("missing-command"), "autoStart":true}}}).to_string(),
+            initial["fingerprint"].as_str().unwrap(),
+        ).await.unwrap_err();
+        assert!(error.starts_with("MCP config was saved, but runtime reconciliation failed:"));
+        assert_eq!(
+            service.inspect_user_servers().await.unwrap()["servers"][0]["serverId"],
+            "broken"
+        );
     }
 
     #[tokio::test]

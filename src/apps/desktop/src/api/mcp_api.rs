@@ -517,7 +517,6 @@ pub async fn save_mcp_json_config(
     mcp_service
         .save_json_config_and_reconcile(&json_config, &expected_fingerprint)
         .await
-        .map_err(|e| e.to_string())
 }
 
 /// Content Security Policy configuration for MCP App UI (aligned with VSCode/MCP Apps spec).
