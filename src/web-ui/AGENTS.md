@@ -265,5 +265,6 @@ pnpm --dir src/web-ui run test:run src/infrastructure/markdown/MarkdownRenderer.
 ```
 
 These DOM and handshake fixtures cover local, legacy Desktop, CLI and unknown peers,
-device changes, overview/tool-card gates, restored panels, and the controller-owned URL opener. They do not establish live
-macOS-to-Linux Peer Device or native browser behavior.
+device changes, per-device remote preferences and legacy local migration, stale
+review launches, overview/tool-card gates, restored panels, and the controller-owned
+URL opener. They do not establish live macOS-to-Linux Peer Device or native browser behavior.

@@ -562,6 +562,15 @@ For host-owned user queue admission, cancellation, steering receipts and client 
 cargo test --locked -p openbitfun-core --no-default-features --features remote-connect,git --lib host_queue_
 ```
 
+For background-result delivery through the persisted logical session route:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib background_result_
+```
+
+The inline lifecycle fixture uses the existing dedicated test stack to retain its
+task-local model configuration when CI exercises the full product assembly.
+
 For Computer Use control host admission, cancellation leases, control entrypoints,
 permission projection and provider-neutral tool contracts:
 
