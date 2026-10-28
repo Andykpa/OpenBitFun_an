@@ -268,3 +268,7 @@ listener alone recovers an interaction emitted before attachment.
     panel. This only opens the clicked URL: it never queries controller-local
     repositories or credentials on behalf of a peer. Preserve URL fragments
     and queries, and re-evaluate support after capability or surface changes.
+    The session overview and tool-card panel action use the same gate; a
+    restored unsupported panel keeps its URL available in the system browser
+    without querying the host. Overview requests and panel state belong to
+    the surface activation even when two devices share a workspace ID/path.

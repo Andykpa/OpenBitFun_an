@@ -5,9 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReviewPlatformPullRequest, ReviewPlatformPullRequestDetailPage, ReviewPlatformWorkspaceSnapshot, ReviewRepositoryLocator } from '@/infrastructure/api/service-api/ReviewPlatformAPI';
 import { ReviewPlatformPanel } from './ReviewPlatformPanel';
 import { activateSurface } from '@/infrastructure/peer-device/deviceSurface';
+import type { PeerHostCapabilities } from '@/infrastructure/peer-device/PeerConnectionManager';
 
-const mocks = vi.hoisted(() => ({ snapshot: vi.fn(), detail: vi.fn(), openExternal: vi.fn(), t: (key: string) => key }));
-vi.mock('@/infrastructure/api', () => ({ reviewPlatformAPI: { getWorkspaceSnapshot: mocks.snapshot, getPullRequestDetailPage: mocks.detail }, systemAPI: { openExternal: mocks.openExternal } }));
+const mocks = vi.hoisted(() => ({ snapshot: vi.fn(), context: vi.fn(), detail: vi.fn(), openExternal: vi.fn(), t: (key: string) => key }));
+const peer = vi.hoisted(() => ({ active: false, capabilities: null as Partial<PeerHostCapabilities> | null }));
+vi.mock('@/infrastructure/peer-device/peerDeviceContextState', () => ({
+  usePeerDeviceModeOptional: () => peer.active
+    ? { peerMode: { active: true }, currentPeerCapabilities: peer.capabilities }
+    : null,
+}));
+vi.mock('@/infrastructure/api', () => ({ reviewPlatformAPI: { getWorkspaceSnapshot: mocks.snapshot, getWorkspaceContext: mocks.context, getPullRequestDetailPage: mocks.detail }, systemAPI: { openExternal: mocks.openExternal } }));
 vi.mock('@/infrastructure/markdown', () => ({ MarkdownRenderer: () => null }));
 vi.mock('@/shared/notification-system', () => ({ notificationService: {} }));
 vi.mock('@/infrastructure/i18n', () => ({ useI18n: () => ({ t: mocks.t }), i18nService: { t: mocks.t, formatDate: () => '' } }));
@@ -86,14 +93,64 @@ function statisticText(owner: Element, id: string): string | null | undefined {
 describe('Gitee panel state and asynchronous request ordering', () => {
   beforeEach(() => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+    activateSurface('local');
+    peer.active = false;
+    peer.capabilities = null;
     host = document.createElement('div');
     document.body.append(host);
     root = createRoot(host);
     mocks.snapshot.mockReset().mockImplementation(snapshotFor());
+    mocks.context.mockReset();
     mocks.detail.mockReset().mockImplementation(() => new Promise(() => {}));
     mocks.openExternal.mockReset().mockResolvedValue(undefined);
   });
-  afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
+  afterEach(async () => { await act(async () => root.unmount()); host.remove(); activateSurface('local'); });
+
+  it.each([null, { hostKind: 'cli' }, { hostKind: 'desktop', reviewPlatformV1: false }] as const)(
+    'keeps unsupported restored panels out of the peer transport: %j', async capabilities => {
+      peer.active = true;
+      peer.capabilities = capabilities;
+      const url = 'https://github.com/GCWing/OpenBitFun/pull/3573/files#diff-example';
+      await act(async () => root.render(
+        <ReviewPlatformPanel workspaceId="workspace-1" workspacePath="/workspace" initialPullRequestUrl={url} detailOnly />,
+      ));
+      expect(host.textContent).toContain('common:reviewPlatform.errors.hostUnsupported');
+      expect(mocks.snapshot).not.toHaveBeenCalled();
+      expect(mocks.context).not.toHaveBeenCalled();
+      expect(mocks.detail).not.toHaveBeenCalled();
+      await act(async () => host.querySelector<HTMLButtonElement>('button')?.click());
+      expect(mocks.openExternal).toHaveBeenCalledExactlyOnceWith(url);
+    },
+  );
+
+  it('replaces a mounted panel on a device switch even when workspace identities match', async () => {
+    const old = deferred<ReviewPlatformWorkspaceSnapshot>();
+    mocks.snapshot.mockImplementationOnce(() => old.promise);
+    const path = await mount();
+    const selected = snapshot(path);
+    selected.pullRequests[0].title = 'Selected peer result';
+    mocks.snapshot.mockResolvedValueOnce(selected);
+    await act(async () => { activateSurface('other-peer'); });
+    const departed = snapshot(path);
+    departed.pullRequests[0].title = 'Departed peer result';
+    await act(async () => old.resolve(departed));
+    expect(mocks.snapshot).toHaveBeenCalledTimes(2);
+    expect(host.textContent).toContain('Selected peer result');
+    expect(host.textContent).not.toContain('Departed peer result');
+  });
+
+  it('keeps a browser action when a supported peer cannot load the PR context', async () => {
+    const url = 'https://github.com/GCWing/OpenBitFun/pull/3573';
+    mocks.context.mockRejectedValueOnce(new Error('Provider unavailable'));
+    await act(async () => root.render(
+      <ReviewPlatformPanel workspaceId="failed-context" workspacePath="/workspace" initialPullRequestUrl={url} detailOnly />,
+    ));
+    const browser = [...host.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent === 'common:file.openInSystemBrowser');
+    expect(browser).toBeDefined();
+    await act(async () => browser?.click());
+    expect(mocks.openExternal).toHaveBeenCalledExactlyOnceWith(url);
+  });
 
   it('never serves one device\'s pull requests to another device with the same workspace ID', async () => {
     // Same-path local workspaces hash to one workspace ID on every device.
@@ -107,17 +164,17 @@ describe('Gitee panel state and asynchronous request ordering', () => {
       const late = deferred<ReviewPlatformWorkspaceSnapshot>();
       mocks.snapshot.mockImplementationOnce(() => late.promise);
       await remount();
-      activateSurface('peer-b');
+      await act(async () => { activateSurface('peer-b'); });
       await act(async () => late.resolve(snapshot(path)));
       await remount();
       expect(mocks.snapshot).toHaveBeenCalledTimes(2);
       await remount();
       expect(mocks.snapshot).toHaveBeenCalledTimes(2);
-      activateSurface('local');
+      await act(async () => { activateSurface('local'); });
       await remount();
       expect(mocks.snapshot).toHaveBeenCalledTimes(3);
     } finally {
-      activateSurface('local');
+      await act(async () => { activateSurface('local'); });
     }
   });
 

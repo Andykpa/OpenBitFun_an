@@ -1,7 +1,6 @@
 import { useCallback } from 'react';
 import { systemAPI } from '@/infrastructure/api/service-api/SystemAPI';
-import { usePeerDeviceModeOptional } from '@/infrastructure/peer-device/peerDeviceContextState';
-import { canViewPullRequestsOnSurface } from '@/infrastructure/peer-device/peerCapabilityResolution';
+import { useReviewPlatformSupport } from '@/infrastructure/peer-device/useReviewPlatformSupport';
 import { createLogger } from '@/shared/utils/logger';
 import { parsePullRequestUrl } from '@/shared/utils/pullRequestLinks';
 import { createReviewPlatformPullRequestDetailTab } from '@/shared/utils/tabUtils';
@@ -9,11 +8,7 @@ import { createReviewPlatformPullRequestDetailTab } from '@/shared/utils/tabUtil
 const log = createLogger('FlowChatHttpLink');
 
 export function useFlowChatHttpLinkClick(workspaceId?: string, workspacePath?: string) {
-  const peer = usePeerDeviceModeOptional();
-  const canViewPullRequests = canViewPullRequestsOnSurface(
-    peer?.peerMode.active ?? false,
-    peer?.currentPeerCapabilities ?? null,
-  );
+  const canViewPullRequests = useReviewPlatformSupport();
 
   return useCallback((url: string, event: React.MouseEvent<HTMLAnchorElement>): boolean => {
     const target = parsePullRequestUrl(url);

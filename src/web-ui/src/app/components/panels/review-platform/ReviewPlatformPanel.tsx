@@ -41,7 +41,7 @@ import {
   DialogHeading,
   DialogTitle,
 } from '@openbitfun/ui';
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { GitPullRequest, GitPullRequestClosed, KeyRound, MessageSquareText, MoreHorizontal } from 'lucide-react';
 import { MarkdownRenderer } from '@/infrastructure/markdown';
 import { reviewPlatformAPI, systemAPI, type ReviewPlatformAccount, type ReviewPlatformAuthChallenge, type ReviewPlatformCiItem, type ReviewPlatformCiLog, type ReviewPlatformCommit, type ReviewPlatformDetailSection, type ReviewPlatformFile, type ReviewPlatformPagination, type ReviewPlatformPullRequest, type ReviewPlatformPullRequestDetail, type ReviewPlatformPullRequestDetailPage, type ReviewPlatformRemote, type ReviewPlatformRepositoryRef, type ReviewPlatformThread, type ReviewPlatformWorkspaceSnapshot } from '@/infrastructure/api';
@@ -66,7 +66,8 @@ import {
   withGitRepositoryTrustRecovery,
 } from '@/shared/services/gitTrustService';
 import type { PullRequestContext } from '@/shared/types/context';
-import { getActiveSurfaceId, onSurfaceActivated, surfaceScopedKey } from '@/infrastructure/peer-device/deviceSurface';
+import { getActiveSurfaceId, getActiveSurfaceScope, onSurfaceActivated, surfaceScopedKey } from '@/infrastructure/peer-device/deviceSurface';
+import { useReviewPlatformSupport } from '@/infrastructure/peer-device/useReviewPlatformSupport';
 import {
   currentPullRequestReviewStatusText,
   effectivePullRequestReviewFreshness,
@@ -712,14 +713,47 @@ function canExpandCiItem(remote: ReviewPlatformRemote | null, item: ReviewPlatfo
   return canLoadCiLog(remote, item) || Boolean(item.log || item.detail || item.stage || item.webUrl || item.startedAt || item.finishedAt);
 }
 
-export const ReviewPlatformPanel: React.FC<ReviewPlatformPanelProps> = ({
+export const ReviewPlatformPanel: React.FC<ReviewPlatformPanelProps> = (props) => {
+  const supported = useReviewPlatformSupport();
+  const surface = useSyncExternalStore(onSurfaceActivated, getActiveSurfaceScope, getActiveSurfaceScope);
+  const { t } = useI18n('panels/git');
+
+  if (!supported) {
+    const url = props.initialPullRequestUrl;
+    return (
+      <div className="review-platform" data-openbitfun-product-component="review-platform" data-openbitfun-product-part="root" data-openbitfun-layout={props.detailOnly ? 'detail' : 'full'} data-openbitfun-view={props.detailOnly ? 'detail' : 'list'}>
+        <Empty
+          className="review-platform__detail-empty"
+          icon={<GitPullRequest />}
+          description={t('common:reviewPlatform.errors.hostUnsupported')}
+          data-testid="review-platform-unsupported"
+          data-openbitfun-product-component="review-platform"
+          data-openbitfun-product-part="emptyState"
+          actions={url && parsePullRequestUrl(url) ? (
+            <Button size="sm" variant="outline" onClick={() => {
+              void systemAPI.openExternal(url).catch(error => log.error('Failed to open pull request URL', { url, error }));
+            }}>
+              {t('common:file.openInSystemBrowser')}
+            </Button>
+          ) : undefined}
+        />
+      </div>
+    );
+  }
+
+  // The same workspace ID/path can exist on two hosts. Recreate state and
+  // invalidate in-flight effects even if the panel itself survives the switch.
+  return <ReviewPlatformContent key={surface.key(surface.epoch, props.workspaceId)} {...props} />;
+};
+
+function ReviewPlatformContent({
   workspacePath,
   workspaceId,
   initialRemoteId,
   initialPullRequestId,
   initialPullRequestUrl,
   detailOnly = false,
-}) => {
+}: ReviewPlatformPanelProps) {
   const { t } = useI18n('panels/git');
   const { t: tReview } = useI18n('flow-chat');
   const authFormId = useId();
@@ -2193,6 +2227,11 @@ export const ReviewPlatformPanel: React.FC<ReviewPlatformPanelProps> = ({
                 <Button size="sm" variant="outline" onClick={handleRetryDetail}>
                   Retry
                 </Button>
+                {initialPullRequestTarget && (
+                  <Button size="sm" variant="outline" onClick={handleOpenExternal}>
+                    {t('common:file.openInSystemBrowser')}
+                  </Button>
+                )}
                 {selectedRemote && selectedRemote.platform !== 'unknown' && (
                   <Button size="sm" variant="outline" onClick={handleOpenAuthModal} disabled={authSaving} leadingIcon={<KeyRound size={13} />}>
 
@@ -2665,6 +2704,6 @@ export const ReviewPlatformPanel: React.FC<ReviewPlatformPanelProps> = ({
       {deepReviewConsentDialog}
     </div>
   );
-};
+}
 
 export default ReviewPlatformPanel;
