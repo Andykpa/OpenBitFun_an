@@ -68,7 +68,7 @@ describe('ReviewPlatform tool card entry points', () => {
     render();
     expect(button('toolCards.builtin.links.openReviewPanel')?.disabled).toBe(true);
     act(() => host.querySelector<HTMLElement>('[data-openbitfun-part="surface"]')?.click());
-    expect(host.textContent).toContain('common:reviewPlatform.errors.hostUnsupported');
+    expect(host.textContent).toContain('common:reviewPlatform.messages.hostUnsupported');
     await act(async () => button('toolCards.builtin.links.openReview')?.click());
     expect(state.openExternal).toHaveBeenCalledExactlyOnceWith(url);
     expect(state.openPanel).not.toHaveBeenCalled();

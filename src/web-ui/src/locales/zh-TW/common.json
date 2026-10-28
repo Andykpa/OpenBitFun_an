@@ -2056,7 +2056,6 @@
       "repositoryUntrusted": "Git 尚未信任此儲存庫，請確認儲存庫擁有權後重試。",
       "remoteNotFound": "所選遠端儲存庫已不存在，請重新整理並重新選取。",
       "unsupportedPlatform": "不支援此儲存庫提供者。",
-      "hostUnsupported": "目前裝置不支援內建 PR 檢視，請使用系統瀏覽器開啟 PR 連結。",
       "providerFailed": "儲存庫提供者無法完成請求，請重試或檢查提供者服務。",
       "authenticationRequired": "需要驗證，請登入或更新權杖後重試。",
       "permissionDenied": "存取遭拒，請檢查帳號與權杖權限。",
@@ -2068,6 +2067,7 @@
       "targetIsPullRequest": "此項目是提取請求，請以提取請求開啟，而非以問題開啟。"
     },
     "messages": {
+      "hostUnsupported": "目前裝置不支援內建 PR 檢視，請使用系統瀏覽器開啟 PR 連結。",
       "noWorkspace": "沒有可用的作用中工作區。",
       "unsupportedLink": "此連結不是支援的提取請求連結。",
       "detailsFailed": "載入提取請求詳細資料失敗。",

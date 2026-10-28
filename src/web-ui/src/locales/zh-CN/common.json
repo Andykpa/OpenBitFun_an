@@ -2056,7 +2056,6 @@
       "repositoryUntrusted": "Git 尚未信任此仓库，请确认仓库所有权后重试。",
       "remoteNotFound": "所选远程仓库已不存在，请刷新并重新选择。",
       "unsupportedPlatform": "不支持此仓库提供方。",
-      "hostUnsupported": "当前设备不支持内置 PR 查看，请使用系统浏览器打开 PR 链接。",
       "providerFailed": "仓库提供方无法完成请求，请重试或检查提供方服务。",
       "authenticationRequired": "需要认证，请登录或更新令牌后重试。",
       "permissionDenied": "访问被拒绝，请检查账号和令牌权限。",
@@ -2068,6 +2067,7 @@
       "targetIsPullRequest": "此条目是拉取请求，请按拉取请求打开，而不是按问题打开。"
     },
     "messages": {
+      "hostUnsupported": "当前设备不支持内置 PR 查看，请使用系统浏览器打开 PR 链接。",
       "noWorkspace": "没有可用的活动工作区。",
       "unsupportedLink": "此链接不是受支持的拉取请求链接。",
       "detailsFailed": "加载拉取请求详情失败。",

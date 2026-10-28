@@ -576,7 +576,7 @@ export const FlowChatHeader: React.FC<FlowChatHeaderProps> = ({
   let pullRequestOverviewSummary: string;
   switch (pullRequestOverview.status) {
     case 'unsupported':
-      pullRequestOverviewSummary = t('common:reviewPlatform.errors.hostUnsupported');
+      pullRequestOverviewSummary = t('common:reviewPlatform.messages.hostUnsupported');
       break;
     case 'loading':
       pullRequestOverviewSummary = t('flowChatHeader.pullRequestLoading');

@@ -2,27 +2,33 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ReviewPlatformPullRequest, ReviewPlatformPullRequestDetailPage, ReviewPlatformWorkspaceSnapshot, ReviewRepositoryLocator } from '@/infrastructure/api/service-api/ReviewPlatformAPI';
+import type { ReviewPlatformPullRequest, ReviewPlatformPullRequestDetailPage, ReviewPlatformPullRequestReviewTarget, ReviewPlatformWorkspaceSnapshot, ReviewRepositoryLocator } from '@/infrastructure/api/service-api/ReviewPlatformAPI';
+import type { Session } from '@/flow_chat/types/flow-chat';
 import { ReviewPlatformPanel } from './ReviewPlatformPanel';
 import { activateSurface } from '@/infrastructure/peer-device/deviceSurface';
 import type { PeerHostCapabilities } from '@/infrastructure/peer-device/PeerConnectionManager';
 
-const mocks = vi.hoisted(() => ({ snapshot: vi.fn(), context: vi.fn(), detail: vi.fn(), openExternal: vi.fn(), t: (key: string) => key }));
+const mocks = vi.hoisted(() => ({
+  snapshot: vi.fn(), context: vi.fn(), detail: vi.fn(), openExternal: vi.fn(), reviewTarget: vi.fn(),
+  prepareReview: vi.fn(),
+  state: { sessions: new Map<string, Session>(), activeSessionId: null as string | null },
+  t: (key: string) => key,
+}));
 const peer = vi.hoisted(() => ({ active: false, capabilities: null as Partial<PeerHostCapabilities> | null }));
 vi.mock('@/infrastructure/peer-device/peerDeviceContextState', () => ({
   usePeerDeviceModeOptional: () => peer.active
     ? { peerMode: { active: true }, currentPeerCapabilities: peer.capabilities }
     : null,
 }));
-vi.mock('@/infrastructure/api', () => ({ reviewPlatformAPI: { getWorkspaceSnapshot: mocks.snapshot, getWorkspaceContext: mocks.context, getPullRequestDetailPage: mocks.detail }, systemAPI: { openExternal: mocks.openExternal } }));
+vi.mock('@/infrastructure/api', () => ({ reviewPlatformAPI: { getWorkspaceSnapshot: mocks.snapshot, getWorkspaceContext: mocks.context, getPullRequestDetailPage: mocks.detail, getPullRequestReviewTarget: mocks.reviewTarget }, systemAPI: { openExternal: mocks.openExternal } }));
 vi.mock('@/infrastructure/markdown', () => ({ MarkdownRenderer: () => null }));
 vi.mock('@/shared/notification-system', () => ({ notificationService: {} }));
 vi.mock('@/infrastructure/i18n', () => ({ useI18n: () => ({ t: mocks.t }), i18nService: { t: mocks.t, formatDate: () => '' } }));
 vi.mock('@/flow_chat/services/sessionActivation', () => ({ openMainSession: vi.fn() }));
 vi.mock('@/flow_chat/services/btwSessionPane', () => ({ openBtwSessionInAuxPane: vi.fn() }));
-vi.mock('@/flow_chat/services/ReviewService', () => ({ launchPreparedReviewSession: vi.fn(), prepareReviewLaunchFromPullRequest: vi.fn() }));
+vi.mock('@/flow_chat/services/ReviewService', () => ({ launchPreparedReviewSession: vi.fn(), prepareReviewLaunchFromPullRequest: mocks.prepareReview }));
 vi.mock('@/flow_chat/components/DeepReviewConsentDialog', () => ({ useDeepReviewConsent: () => ({ confirmDeepReviewLaunch: vi.fn(), deepReviewConsentDialog: null }) }));
-vi.mock('@/flow_chat/store/FlowChatStore', () => ({ flowChatStore: { getState: () => ({ sessions: new Map(), activeSessionId: null }), subscribe: () => () => {} } }));
+vi.mock('@/flow_chat/store/FlowChatStore', () => ({ flowChatStore: { getState: () => mocks.state, subscribe: () => () => {} } }));
 vi.mock('@/shared/stores/contextStore', () => ({ useContextStore: {} }));
 vi.mock('@/shared/services/ide-control', () => ({ quickActions: {} }));
 
@@ -103,6 +109,10 @@ describe('Gitee panel state and asynchronous request ordering', () => {
     mocks.context.mockReset();
     mocks.detail.mockReset().mockImplementation(() => new Promise(() => {}));
     mocks.openExternal.mockReset().mockResolvedValue(undefined);
+    mocks.reviewTarget.mockReset();
+    mocks.prepareReview.mockReset();
+    mocks.state.sessions.clear();
+    mocks.state.activeSessionId = null;
   });
   afterEach(async () => { await act(async () => root.unmount()); host.remove(); activateSurface('local'); });
 
@@ -114,7 +124,7 @@ describe('Gitee panel state and asynchronous request ordering', () => {
       await act(async () => root.render(
         <ReviewPlatformPanel workspaceId="workspace-1" workspacePath="/workspace" initialPullRequestUrl={url} detailOnly />,
       ));
-      expect(host.textContent).toContain('common:reviewPlatform.errors.hostUnsupported');
+      expect(host.textContent).toContain('common:reviewPlatform.messages.hostUnsupported');
       expect(mocks.snapshot).not.toHaveBeenCalled();
       expect(mocks.context).not.toHaveBeenCalled();
       expect(mocks.detail).not.toHaveBeenCalled();
@@ -137,6 +147,87 @@ describe('Gitee panel state and asynchronous request ordering', () => {
     expect(mocks.snapshot).toHaveBeenCalledTimes(2);
     expect(host.textContent).toContain('Selected peer result');
     expect(host.textContent).not.toContain('Departed peer result');
+  });
+
+  it('isolates remembered remotes by device and preserves legacy local preferences', async () => {
+    const path = `/remote-preferences-${++testNumber}`;
+    const workspaceId = workspaceIdFor(path);
+    const legacyKey = `openbitfun:review-platform:last-remote:id:${workspaceId}`;
+    window.localStorage.setItem(legacyKey, 'local-origin');
+    mocks.context.mockImplementation(({ repositoryPath }, remoteId) => {
+      const result = snapshot(repositoryPath);
+      result.selectedRemoteId = remoteId ?? 'peer-origin';
+      return Promise.resolve(result);
+    });
+    await act(async () => {
+      activateSurface('preference-peer-a');
+      root.render(<ReviewPlatformPanel workspaceId={workspaceId} workspacePath={path} detailOnly />);
+    });
+    expect(mocks.context).toHaveBeenLastCalledWith(locator(path), null);
+    await act(async () => { activateSurface('preference-peer-b'); });
+    expect(mocks.context).toHaveBeenLastCalledWith(locator(path), null);
+    await act(async () => { activateSurface('local'); });
+    expect(mocks.context).toHaveBeenLastCalledWith(locator(path), 'local-origin');
+    expect(window.localStorage.getItem(legacyKey)).toBe('local-origin');
+  });
+
+  it('migrates a legacy path preference only on the local device', async () => {
+    const path = `/legacy-remote-preference-${++testNumber}`;
+    const legacyKey = `openbitfun:review-platform:last-remote:${path}`;
+    window.localStorage.setItem(legacyKey, 'old-origin');
+    mocks.context.mockImplementation(() => new Promise(() => {}));
+    await act(async () => {
+      activateSurface('legacy-preference-peer');
+      root.render(<ReviewPlatformPanel workspaceId={workspaceIdFor(path)} workspacePath={path} detailOnly />);
+    });
+    expect(mocks.context).toHaveBeenLastCalledWith(locator(path), null);
+    expect(window.localStorage.getItem(legacyKey)).toBe('old-origin');
+    await act(async () => { activateSurface('local'); });
+    expect(mocks.context).toHaveBeenLastCalledWith(locator(path), 'old-origin');
+    expect(window.localStorage.getItem(`openbitfun:review-platform:last-remote:id:${workspaceIdFor(path)}`)).toBe('old-origin');
+    expect(window.localStorage.getItem(legacyKey)).toBeNull();
+  });
+
+  it('discards a departed device response before it writes preferences or cache aliases', async () => {
+    const path = `/late-remote-preference-${++testNumber}`;
+    const old = deferred<ReviewPlatformWorkspaceSnapshot>();
+    mocks.context.mockImplementationOnce(() => old.promise);
+    const selected = snapshot(path);
+    selected.selectedRemoteId = 'selected-origin';
+    mocks.context.mockResolvedValue(selected);
+    await act(async () => {
+      activateSurface('late-preference-peer-a');
+      root.render(<ReviewPlatformPanel workspaceId={workspaceIdFor(path)} workspacePath={path} detailOnly />);
+    });
+    await act(async () => { activateSurface('late-preference-peer-b'); });
+    const preferenceAfterSwitch = { ...window.localStorage };
+    const departed = snapshot(path);
+    departed.selectedRemoteId = 'departed-origin';
+    await act(async () => old.resolve(departed));
+    expect({ ...window.localStorage }).toEqual(preferenceAfterSwitch);
+    // The discarded response must not become a cache hit on a later activation.
+    await act(async () => { activateSurface('late-preference-peer-a'); });
+    expect(mocks.context).toHaveBeenCalledTimes(3);
+    expect(mocks.context).toHaveBeenLastCalledWith(locator(path), null);
+  });
+
+  it('does not prepare a review on a new device when the old target response arrives', async () => {
+    const path = `/review-launch-switch-${++testNumber}`;
+    mocks.state.sessions.set('chat', {
+      sessionId: 'chat', sessionKind: 'normal', workspaceId: workspaceIdFor(path), dialogTurns: [],
+    } as Session);
+    mocks.state.activeSessionId = 'chat';
+    mocks.detail.mockImplementation(({ pullRequestId, section }) => Promise.resolve(detail(Number(pullRequestId), section)));
+    const target = deferred<ReviewPlatformPullRequestReviewTarget>();
+    mocks.reviewTarget.mockReturnValue(target.promise);
+    await act(async () => root.render(<ReviewPlatformPanel workspaceId={workspaceIdFor(path)} workspacePath={path} />));
+    const review = [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Review');
+    expect(review?.disabled).toBe(false);
+    await act(async () => review!.click());
+    expect(mocks.reviewTarget).toHaveBeenCalledOnce();
+    await act(async () => { activateSurface('review-launch-new-peer'); });
+    await act(async () => target.resolve({ pullRequest: pull(10, 'open'), files: [], omittedFileCount: 0, limitations: [] }));
+    expect(mocks.prepareReview).not.toHaveBeenCalled();
   });
 
   it('keeps a browser action when a supported peer cannot load the PR context', async () => {

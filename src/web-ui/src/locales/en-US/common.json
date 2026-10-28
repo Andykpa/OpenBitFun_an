@@ -2056,7 +2056,6 @@
       "repositoryUntrusted": "Git does not trust this repository. Confirm its ownership before retrying.",
       "remoteNotFound": "The selected remote no longer exists. Refresh and select a remote.",
       "unsupportedPlatform": "This repository provider is not supported.",
-      "hostUnsupported": "The pull request viewer is unavailable on this device. Open pull request links in the system browser.",
       "providerFailed": "The repository provider could not complete the request. Retry or check the provider service.",
       "authenticationRequired": "Authentication is required. Sign in or update the token and retry.",
       "permissionDenied": "Access was denied. Check the account and token permissions.",
@@ -2068,6 +2067,7 @@
       "targetIsPullRequest": "This item is a pull request. Open it as a pull request instead of an issue."
     },
     "messages": {
+      "hostUnsupported": "The pull request viewer is unavailable on this device. Open pull request links in the system browser.",
       "noWorkspace": "No active workspace is available.",
       "unsupportedLink": "This link is not a supported pull request URL.",
       "detailsFailed": "Failed to load pull request details.",

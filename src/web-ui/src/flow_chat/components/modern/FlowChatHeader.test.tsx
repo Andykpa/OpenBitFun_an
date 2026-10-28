@@ -658,7 +658,7 @@ describe('FlowChatHeader', () => {
       )?.click());
 
       const section = document.querySelector('[data-testid="flowchat-header-pull-requests"]');
-      expect(section?.textContent).toContain('common:reviewPlatform.errors.hostUnsupported');
+      expect(section?.textContent).toContain('common:reviewPlatform.messages.hostUnsupported');
       expect(section?.querySelector<HTMLButtonElement>('button')?.disabled).toBe(true);
       expect(isGitRepositoryMock).not.toHaveBeenCalled();
       expect(getWorkspaceSnapshotMock).not.toHaveBeenCalled();
@@ -682,7 +682,7 @@ describe('FlowChatHeader', () => {
     });
     expect(getWorkspaceSnapshotMock).not.toHaveBeenCalled();
     expect(document.querySelector('[data-testid="flowchat-header-pull-requests"]')?.textContent)
-      .toContain('common:reviewPlatform.errors.hostUnsupported');
+      .toContain('common:reviewPlatform.messages.hostUnsupported');
   });
 
   it('reloads the same workspace ID on a device switch and ignores the previous device response', async () => {
