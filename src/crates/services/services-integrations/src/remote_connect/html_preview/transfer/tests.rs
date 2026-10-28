@@ -98,7 +98,7 @@ async fn load(
     bypass: bool,
 ) -> Result<Vec<u8>, HtmlPreviewError> {
     transfer
-        .open(request(path), bypass)
+        .open(request(path), bypass, None)
         .await?
         .body
         .try_fold(Vec::new(), |mut all, bytes| async move {
@@ -230,7 +230,7 @@ async fn refresh_and_fixed_expiry_force_content_reads_and_head_never_reads_conte
     );
     let mut head = request("app.js");
     head.metadata_only = true;
-    let response = transfer.open(head, false).await.unwrap();
+    let response = transfer.open(head, false, None).await.unwrap();
     assert_eq!(response.metadata.size, 17);
     assert_eq!(response.body.count().await, 0);
     assert!(
@@ -247,7 +247,10 @@ async fn refresh_and_fixed_expiry_force_content_reads_and_head_never_reads_conte
 #[tokio::test(start_paused = true)]
 async fn slow_consumers_and_dropped_bodies_do_not_leave_prefetch_running() {
     let (transfer, reader, _close) = fixture(PREVIEW_CHUNK_BYTES * 20);
-    let mut response = transfer.open(request("large.js"), false).await.unwrap();
+    let mut response = transfer
+        .open(request("large.js"), false, None)
+        .await
+        .unwrap();
     response.body.next().await.unwrap().unwrap();
     // Poll once to launch exactly one window, then stop consuming.
     assert!(response.body.next().now_or_never().is_none());
@@ -264,7 +267,10 @@ async fn slow_consumers_and_dropped_bodies_do_not_leave_prefetch_running() {
 #[tokio::test(start_paused = true)]
 async fn closing_preview_cancels_waiters_and_active_reads() {
     let (transfer, reader, close) = fixture(PREVIEW_CHUNK_BYTES * 20);
-    let mut response = transfer.open(request("large.js"), false).await.unwrap();
+    let mut response = transfer
+        .open(request("large.js"), false, None)
+        .await
+        .unwrap();
     response.body.next().await.unwrap().unwrap();
     assert!(response.body.next().now_or_never().is_none());
     close.send(true).unwrap();
@@ -281,13 +287,13 @@ async fn closing_preview_releases_queued_resource_admission() {
     for index in 0..ACTIVE_RESOURCES {
         responses.push(
             transfer
-                .open(request(&index.to_string()), false)
+                .open(request(&index.to_string()), false, None)
                 .await
                 .unwrap(),
         );
     }
     assert_eq!(transfer.resources.available_permits(), 0);
-    let mut waiting = Box::pin(transfer.open(request("queued.js"), false));
+    let mut waiting = Box::pin(transfer.open(request("queued.js"), false, None));
     assert!(waiting.as_mut().now_or_never().is_none());
     assert_eq!(reader.requests.lock().unwrap().len(), ACTIVE_RESOURCES);
     close.send(true).unwrap();
@@ -312,7 +318,7 @@ async fn account_change_during_cache_revalidation_rejects_late_bytes() {
 #[tokio::test(start_paused = true)]
 async fn partial_or_changed_transfers_never_enter_cache() {
     let (transfer, reader, _close) = fixture(PREVIEW_CHUNK_BYTES * 3);
-    let mut response = transfer.open(request("app.js"), false).await.unwrap();
+    let mut response = transfer.open(request("app.js"), false, None).await.unwrap();
     response.body.next().await.unwrap().unwrap();
     reader.version.store(1, Ordering::SeqCst);
     assert!(response.body.next().await.unwrap().is_err());
@@ -409,7 +415,7 @@ pub(crate) async fn benchmark_loading(
                         request.resource_path = Some(path.clone());
                         async move {
                             let bytes = transfer
-                                .open(request, false)
+                                .open(request, false, None)
                                 .await
                                 .unwrap()
                                 .body

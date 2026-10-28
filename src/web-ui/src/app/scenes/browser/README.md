@@ -137,7 +137,9 @@ Each preview retains at most 64 complete resources / 16 MiB in memory, with a
 4 MiB per-resource limit. Cache hits first revalidate the selected owner's
 source, resolved path, size, revision and MIME type; missing, forbidden or offline
 resources return errors instead of cached content. Cache entries expire five
-seconds after insertion even if revalidated, limiting stale reuse on filesystems
+seconds after insertion even if revalidated. Keys include URL queries so version
+parameters bust the cache without becoming part of the remote filesystem path.
+The fixed lifetime limits stale reuse on filesystems
 with coarse timestamps. Explicit browser reload directives (`no-cache`,
 `no-store`, `max-age=0`) force new content reads. The HTTP response remains
 `no-store`: no persistent browser cache or cross-preview content store is added.

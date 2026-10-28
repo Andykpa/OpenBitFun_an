@@ -545,3 +545,29 @@ fn reload_directives_handle_repeated_headers_and_case() {
     headers.insert(header::CACHE_CONTROL, "max-age=60".parse().unwrap());
     assert!(!force_resource_reload(&headers));
 }
+
+#[tokio::test]
+async fn http_cache_busting_queries_have_distinct_entries_without_changing_file_paths() {
+    let (preview, reader, client) = fixture(vec![31; PREVIEW_CHUNK_BYTES + 7]).await;
+    let (cookie, entry) = bootstrap(&client, &preview).await;
+    for (query, content_reads) in [("v=1", 2), ("v=1", 1), ("v=2", 2), ("v=2", 1), ("v=1", 1)] {
+        let before = reader.requests.lock().unwrap().len();
+        let response = client
+            .get(format!("{entry}?{query}"))
+            .header(header::COOKIE, &cookie)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.bytes().await.unwrap().len(),
+            PREVIEW_CHUNK_BYTES + 7
+        );
+        let requests = reader.requests.lock().unwrap();
+        assert_eq!(requests.len() - before, content_reads, "{query}");
+        assert!(requests[before..]
+            .iter()
+            .all(|request| request.resource_path.as_deref() == Some("site/dist/index #1.html")));
+    }
+    release(preview).await;
+}

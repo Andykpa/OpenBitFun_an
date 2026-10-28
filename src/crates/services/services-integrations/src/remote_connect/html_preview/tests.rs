@@ -365,7 +365,7 @@ async fn cached_remote_assets_recheck_path_policy_and_owner_availability() {
     let transfer = Arc::new(HtmlPreviewTransfer::new(Arc::new(source), closed));
     let input = request(Some("assets/app.js"));
     transfer
-        .open(input.clone(), false)
+        .open(input.clone(), false, None)
         .await
         .unwrap()
         .body
@@ -381,7 +381,7 @@ async fn cached_remote_assets_recheck_path_policy_and_owner_availability() {
         .metadata
         .kind = WorkspacePathKind::Symlink;
     assert!(matches!(
-        transfer.open(input.clone(), false).await,
+        transfer.open(input.clone(), false, None).await,
         Err(HtmlPreviewError {
             code: Code::Forbidden,
             ..
@@ -400,7 +400,7 @@ async fn cached_remote_assets_recheck_path_policy_and_owner_availability() {
         .metadata
         .kind = WorkspacePathKind::Directory;
     transfer
-        .open(input.clone(), false)
+        .open(input.clone(), false, None)
         .await
         .unwrap()
         .body
@@ -413,7 +413,7 @@ async fn cached_remote_assets_recheck_path_policy_and_owner_availability() {
         .remove("/repo/site/dist/assets/app.js");
     // The root has another app.js. It is a different resolved path/revision,
     // so the former site's cached bytes cannot be reused for that fallback.
-    let response = transfer.open(input.clone(), false).await.unwrap();
+    let response = transfer.open(input.clone(), false, None).await.unwrap();
     let body = response
         .body
         .try_fold(Vec::new(), |mut all, bytes| async move {
@@ -425,7 +425,7 @@ async fn cached_remote_assets_recheck_path_policy_and_owner_availability() {
     assert_eq!(body, b"wrong-project");
     fs.offline.store(true, Ordering::SeqCst);
     assert!(matches!(
-        transfer.open(input, false).await,
+        transfer.open(input, false, None).await,
         Err(HtmlPreviewError {
             code: Code::Unavailable,
             ..

@@ -248,7 +248,7 @@ async fn start_preview(
     let (shutdown, closed) = watch::channel(false);
     let transfer = Arc::new(HtmlPreviewTransfer::new(reader, closed.clone()));
     let entry = transfer
-        .open(request.clone(), false)
+        .open(request.clone(), false, None)
         .await
         .map_err(|error| error.message)?
         .metadata;
@@ -363,7 +363,15 @@ async fn preview_handler(
     request.resource_path = Some(relative);
     request.metadata_only = method == Method::HEAD;
     let bypass_cache = force_resource_reload(&headers);
-    let resource = match state.transfer.open(request, bypass_cache).await {
+    let resource = match state
+        .transfer
+        .open(
+            request,
+            bypass_cache,
+            uri.path_and_query().map(|path| path.as_str().to_string()),
+        )
+        .await
+    {
         Ok(resource) => resource,
         Err(error) => return preview_error_response(error),
     };

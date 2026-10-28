@@ -588,49 +588,49 @@ async fn peer_preview_fixture(benchmark: bool) {
             let serving_client = serving_client.clone();
             let serving_requests = serving_requests.clone();
             handlers.spawn(async move {
-            let plaintext = target
-                .decrypt_from_peer(&relay_url, &source_device_id, &encrypted_data, &nonce)
-                .await
-                .unwrap();
-            let RemoteCommand::HostInvoke { command, args } =
-                serde_json::from_str(&plaintext).unwrap()
-            else {
-                panic!("unexpected command")
-            };
-            let value = match command.as_str() {
-                "peer_mode_ping" => {
-                    serde_json::json!({"host_type":"cli", "capabilities":{"workspace_html_preview_v1":true}})
-                }
-                "html_preview_read_resource" => {
-                    let request: HtmlPreviewResourceRequest =
-                        serde_json::from_value(args["request"].clone()).unwrap();
-                    assert_eq!(request.workspace_id, "fixture-workspace");
-                    if benchmark { tokio::time::sleep(std::time::Duration::from_millis(40)).await; }
-                    serving_requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    serde_json::to_value(HtmlPreviewResourceReply::from(
-                        source.read(&request).await,
-                    ))
-                    .unwrap()
-                }
-                _ => panic!("unexpected host invoke {command}"),
-            };
-            let response = RemoteResponse::HostInvokeResult {
-                ok: true,
-                value: Some(value),
-                error: None,
-            };
-            let (data, nonce) = target
-                .encrypt_for_peer(
-                    &relay_url,
-                    &source_device_id,
-                    &serde_json::to_string(&response).unwrap(),
-                )
-                .await
-                .unwrap();
-            serving_client
-                .send_device_message(&source_device_id, &correlation_id, &data, &nonce)
-                .await
-                .unwrap();
+                let plaintext = target
+                    .decrypt_from_peer(&relay_url, &source_device_id, &encrypted_data, &nonce)
+                    .await
+                    .unwrap();
+                let RemoteCommand::HostInvoke { command, args } =
+                    serde_json::from_str(&plaintext).unwrap()
+                else {
+                    panic!("unexpected command")
+                };
+                let value = match command.as_str() {
+                    "peer_mode_ping" => {
+                        serde_json::json!({"host_type":"cli", "capabilities":{"workspace_html_preview_v1":true}})
+                    }
+                    "html_preview_read_resource" => {
+                        let request: HtmlPreviewResourceRequest =
+                            serde_json::from_value(args["request"].clone()).unwrap();
+                        assert_eq!(request.workspace_id, "fixture-workspace");
+                        if benchmark { tokio::time::sleep(std::time::Duration::from_millis(40)).await; }
+                        serving_requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        serde_json::to_value(HtmlPreviewResourceReply::from(
+                            source.read(&request).await,
+                        ))
+                        .unwrap()
+                    }
+                    _ => panic!("unexpected host invoke {command}"),
+                };
+                let response = RemoteResponse::HostInvokeResult {
+                    ok: true,
+                    value: Some(value),
+                    error: None,
+                };
+                let (data, nonce) = target
+                    .encrypt_for_peer(
+                        &relay_url,
+                        &source_device_id,
+                        &serde_json::to_string(&response).unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                serving_client
+                    .send_device_message(&source_device_id, &correlation_id, &data, &nonce)
+                    .await
+                    .unwrap();
             });
         }
     });

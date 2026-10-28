@@ -184,6 +184,8 @@ impl HtmlPreviewTransfer {
         self: &Arc<Self>,
         mut request: HtmlPreviewResourceRequest,
         bypass_cache: bool,
+        // HTTP adapters include the query here, never in the filesystem path.
+        cache_key: Option<String>,
     ) -> Result<PreviewResource, HtmlPreviewError> {
         let permit = self.acquire(&self.resources).await?;
         // Preview HTTP responses always start at offset zero; never reinterpret
@@ -200,7 +202,7 @@ impl HtmlPreviewTransfer {
                 body: stream::empty().boxed(),
             });
         }
-        let key = request.resource_path.clone().unwrap_or_default();
+        let key = cache_key.unwrap_or_else(|| request.resource_path.clone().unwrap_or_default());
         let lock = {
             let mut loads = self.loads.lock().unwrap();
             loads.retain(|_, lock| lock.strong_count() > 0);
