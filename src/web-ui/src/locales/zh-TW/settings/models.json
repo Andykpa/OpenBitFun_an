@@ -845,6 +845,15 @@
       "failed": "連線失敗",
       "unconfigured": "尚未設定可用模型"
     },
+    "connectionFailures": {
+      "protocol": "請選擇支援 OpenAI Chat Completions 且回傳 token IDs 和 logprobs 的分類服務",
+      "authentication": "Router 驗證失敗，請檢查 API Key 和服務存取權限",
+      "addressOrModel": "請檢查 Router 服務位址和模型名稱，介面或模型可能不存在",
+      "rateLimited": "Router 請求受到速率限制，請稍後重試",
+      "serviceUnavailable": "Router 服務暫時無法使用，請稍後重試",
+      "http": "Router 回傳非成功的 HTTP 回應，請檢查服務設定後重試",
+      "network": "無法連線至 Router 或請求逾時，請檢查服務、網路和逾時設定"
+    },
     "notReady": "路由未就緒",
     "unsupported": "目前執行端不支援智慧路由",
     "tokenBudgetUnsupported": "目前執行主機仍需要分詞表檔案，請升級後再設定智慧路由",
