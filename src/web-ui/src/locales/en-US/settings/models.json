@@ -845,6 +845,15 @@
       "failed": "Connection failed",
       "unconfigured": "No available model configured"
     },
+    "connectionFailures": {
+      "protocol": "Choose an OpenAI Chat Completions classifier service that returns token IDs and logprobs",
+      "authentication": "Router authentication failed; check the API key and service permissions",
+      "addressOrModel": "Check the Router service address and model name; the endpoint or model may not exist",
+      "rateLimited": "Router requests are rate limited; wait and retry",
+      "serviceUnavailable": "The Router service is temporarily unavailable; wait and retry",
+      "http": "The Router returned an unsuccessful HTTP response; check service settings and retry",
+      "network": "The Router could not be reached or timed out; check the service, network, and timeout settings"
+    },
     "notReady": "Router not ready",
     "unsupported": "This execution host does not support smart routing",
     "tokenBudgetUnsupported": "This execution host still requires a tokenizer file; upgrade it before configuring smart routing",
