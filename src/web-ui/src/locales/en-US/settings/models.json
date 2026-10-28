@@ -70,6 +70,8 @@
     "userCodeHint": "Enter this code in the browser: {{code}}",
     "openUrlManually": "Could not open the browser automatically. Open this URL manually: {{url}}",
     "expiresAt": "Authorization valid until {{time}}",
+    "expiresIn": "Authorization expires in {{time}}",
+    "authorizationExpired": "Authorization expired",
     "tokenValid": "Connected",
     "notSignedIn": "Not signed in",
     "label": "Authentication",

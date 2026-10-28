@@ -70,6 +70,8 @@
     "userCodeHint": "请在浏览器中输入验证码：{{code}}",
     "openUrlManually": "无法自动打开浏览器，请手动访问：{{url}}",
     "expiresAt": "授权有效期至 {{time}}",
+    "expiresIn": "授权有效期：{{time}}",
+    "authorizationExpired": "授权已过期",
     "tokenValid": "已连接",
     "notSignedIn": "未登录",
     "label": "认证方式",

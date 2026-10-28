@@ -167,14 +167,16 @@ test("end actions are rendered beside tabs instead of nesting interactive contro
   assert.equal((markup.match(/type="button"/g) ?? []).length, 3);
 });
 
-test("end actions reserve a fixed slot and move content without resizing hit areas", async () => {
+test("end actions grow the capsule outside the centered content before appearing", async () => {
   const styles = await readFile(new URL("../src/components/TabGroup/TabGroup.module.css", import.meta.url), "utf8");
-  assert.match(styles, /\.item\[data-has-end-action="true"\] > \.tab\s*\{\s*padding-inline-end:/);
+  assert.match(styles, /\.item\s*\{[^}]*box-sizing:\s*content-box;/s);
+  assert.match(styles, /\.tab\s*\{[^}]*padding-inline:\s*var\(--_tab-group-item-padding-inline\);/s);
+  assert.match(styles, /\.tab::before\s*\{[^}]*inset:\s*0;/s);
+  assert.match(styles, /\.item\[data-has-end-action="true"\]\s*\{\s*padding-inline-end:\s*0;/);
+  assert.match(styles, /transition:\s*padding-inline-end\s+var\(--openbitfun-motion-duration-fast\)/);
+  assert.match(styles, /\.item:hover > \.endAction,[^{]*\{[^}]*visibility:\s*visible;[^}]*transition-delay:\s*var\(--openbitfun-motion-duration-fast\);/s);
   assert.doesNotMatch(styles, /clip-path|mask-image/);
-  const hoverRules = [...styles.matchAll(/([^{}]*:hover[^{}]*)\{([^{}]*)\}/g)];
-  for (const [, , declarations] of hoverRules) {
-    assert.doesNotMatch(declarations, /(?:padding|margin|(?:inline|block)-size|width|height)[\w-]*\s*:/);
-  }
+  assert.doesNotMatch(styles, /translateX/);
 });
 
 test("TabGroup styling uses its geometry contract and Button semantic colors", async () => {
