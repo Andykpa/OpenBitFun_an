@@ -6,6 +6,7 @@ import { ModelPoolCardActions } from './ModelPoolCardActions';
 import { ZcodeSubscriptionGroup } from './ZcodeSubscriptionGroup';
 import { OpenCodeModelQuota } from './OpenCodeModelQuota';
 import { SubscriptionQuotaPanel } from './SubscriptionQuotaPanel';
+import { SubscriptionAuthorizationExpiry } from './SubscriptionAuthorizationExpiry';
 import { SubscriptionAccountList, SubscriptionServiceGroup } from './SubscriptionServiceGroup';
 import { managedSubscriptionAccounts, modelsUsingSubscriptionAccount, groupSubscriptionServices, isRetiredSubscriptionProvider, isZcodeProvider, preferredZcodeProvider, subscriptionManagerAccounts } from './subscriptionServices';
 import { aiApi, systemAPI } from '@/infrastructure/api';
@@ -4082,21 +4083,16 @@ const ModelSettingsPage: React.FC = () => {
     };
     const renderAccount = (account: SubscriptionAccount, groupedRegion = false, slot: string = account.provider, enabled = true) => {
       const retiredAccount = isRetiredSubscriptionProvider(account.provider);
-      const descriptionParts: string[] = [slot === account.provider ? t('subscriptionAuth.pool.defaultAccount') : t('subscriptionAuth.accountMarker', { marker: slot.slice(-8) })];
+      const showQuota = account.connected && enabled && !account.vault_unavailable && !retiredAccount;
+      const authorizationExpiry = !retiredAccount && account.connected && account.expires_at
+        ? account.expires_at
+        : null;
+      const descriptionParts: string[] = slot === account.provider ? [] : [t('subscriptionAuth.accountMarker', { marker: slot.slice(-8) })];
       if (!enabled) descriptionParts.push(t('subscriptionAuth.pool.disabled'));
       if (retiredAccount) {
         descriptionParts.push(t('subscriptionAuth.retiredProvider'));
-      } else if (account.connected && account.expires_at) {
-        descriptionParts.push(
-          t('subscriptionAuth.expiresAt', {
-            time: i18nService.formatDate(new Date(account.expires_at * 1000), {
-              dateStyle: 'medium',
-              timeStyle: 'short',
-            }),
-          }),
-        );
       } else if (account.connected) {
-        descriptionParts.push(t('subscriptionAuth.tokenValid'));
+        if (!authorizationExpiry) descriptionParts.push(t('subscriptionAuth.tokenValid'));
       } else if (account.vault_unavailable) {
         descriptionParts.push(t('subscriptionAuth.vaultUnavailable'));
       } else if (account.reauthentication_required) {
@@ -4114,18 +4110,23 @@ const ModelSettingsPage: React.FC = () => {
         ? Math.max(0, Math.ceil((loginPanel.deadlineMs - subscriptionLoginClock) / 1000))
         : 0;
       const countdown = `${Math.floor(remainingSeconds / 60)}:${String(remainingSeconds % 60).padStart(2, '0')}`;
-      return (
+      const renderRow = (plan: React.ReactNode = null, quota: React.ReactNode = null, quotaLoading = false) => (
         <React.Fragment key={slot}>
           <ConfigPageRow
-            label={`${groupedRegion ? `${subscriptionRegionName(account.provider)} · ` : ''}${account.account || t(loginPanel ? 'subscriptionAuth.newAccount' : 'subscriptionAuth.accountIdentityUnavailable')}`}
-            description={descriptionParts.map((part) => (
-              <span
-                key={part}
-                className="openbitfun-model-settings__cli-description-line"
-              >
-                {part}
-              </span>
-            ))}
+            label={<span className="openbitfun-model-settings__cli-account-heading">
+              <span>{`${groupedRegion ? `${subscriptionRegionName(account.provider)} · ` : ''}${account.account || t(loginPanel ? 'subscriptionAuth.newAccount' : 'subscriptionAuth.accountIdentityUnavailable')}`}</span>
+              {plan}
+            </span>}
+            description={<>
+              {(showQuota || authorizationExpiry) && (
+                <div className="openbitfun-model-settings__cli-account-summary">
+                  {quota}
+                  {authorizationExpiry && <SubscriptionAuthorizationExpiry expiresAt={authorizationExpiry}
+                    active={showSubscriptionManager || !!managingSubscriptionProvider} />}
+                </div>
+              )}
+              {descriptionParts.length > 0 && <span className="openbitfun-model-settings__cli-description-line">{descriptionParts.join(' · ')}</span>}
+            </>}
             className="openbitfun-model-settings__cli-account"
             align="center"
           >
@@ -4136,8 +4137,8 @@ const ModelSettingsPage: React.FC = () => {
                     <Button
                       size="sm"
                       variant="outline"
-                      loading={isRefreshing}
-                      disabled={anyLoginInProgress || isRefreshing}
+                      loading={isRefreshing || quotaLoading}
+                      disabled={anyLoginInProgress || isRefreshing || quotaLoading}
                       onClick={() => void handleSubscriptionRefresh(account.provider, slot)}
                     >
                       {t('subscriptionAuth.refresh')}
@@ -4198,16 +4199,6 @@ const ModelSettingsPage: React.FC = () => {
             </div>
           </ConfigPageRow>
 
-          {account.connected && enabled && !account.vault_unavailable && !retiredAccount && (
-            <SubscriptionQuotaPanel
-              key={`${modelDiscoverySurface}:${slot}:quota`}
-              provider={account.provider} accountId={slot}
-              identity={`${account.account || ''}:${account.expires_at || ''}`}
-              active={showSubscriptionManager || !!managingSubscriptionProvider}
-              supported={canQuerySubscriptionQuota && (account.provider !== 'grok' || canQueryGrokQuotaOnSurface(Boolean(peerDevice?.peerMode.active), peerDevice?.currentPeerCapabilities ?? null))}
-              refreshVersion={quotaRefreshVersions[account.provider]}
-            />
-          )}
           {loginPanel && (
             <div
               className={`openbitfun-model-settings__subscription-login-panel openbitfun-model-settings__subscription-login-panel--${loginPanel.status}`}
@@ -4273,6 +4264,16 @@ const ModelSettingsPage: React.FC = () => {
           )}
         </React.Fragment>
       );
+      return showQuota ? <SubscriptionQuotaPanel
+        key={`${modelDiscoverySurface}:${slot}:quota`}
+        provider={account.provider} accountId={slot}
+        identity={`${account.account || ''}:${account.expires_at || ''}`}
+        active={showSubscriptionManager || !!managingSubscriptionProvider}
+        supported={canQuerySubscriptionQuota && (account.provider !== 'grok' || canQueryGrokQuotaOnSurface(Boolean(peerDevice?.peerMode.active), peerDevice?.currentPeerCapabilities ?? null))}
+        refreshVersion={quotaRefreshVersions[account.provider]}
+        inline
+        renderInline={({ plan, quota, loading }) => renderRow(plan, quota, loading)}
+      /> : renderRow();
     };
     return (
       <div className="openbitfun-model-settings__subscription-content">

@@ -2455,10 +2455,6 @@
     min-inline-size: 0;
   }
 
-  &__cli-discovery [data-openbitfun-part='subscriptionQuota'] {
-    margin-inline: var(--openbitfun-layout-card-padding-md);
-  }
-
   &__cli-empty {
     padding: var(--openbitfun-space-4);
 
@@ -2473,11 +2469,63 @@
   &__cli-account.openbitfun-config-page-row {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: var(--openbitfun-space-4);
+    row-gap: var(--openbitfun-space-2);
     padding: var(--openbitfun-layout-card-padding-md);
+
+    > .openbitfun-config-page-row__meta { display: contents; }
+    .openbitfun-config-page-row__label { grid-column: 1; grid-row: 1; }
+    .openbitfun-config-page-row__control { grid-column: 2; grid-row: 1; }
+    .openbitfun-config-page-row__description {
+      grid-column: 1 / -1;
+      grid-row: 2;
+      display: grid;
+      gap: var(--openbitfun-space-1);
+      max-inline-size: none;
+      margin: 0;
+    }
+
+    &:hover {
+      background: transparent;
+    }
   }
 
   &__cli-description-line {
     display: block;
+  }
+
+  &__cli-account-heading {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--openbitfun-space-2);
+  }
+
+  &__cli-account-summary {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--openbitfun-space-2) var(--openbitfun-space-4);
+    min-inline-size: 0;
+
+    > [data-openbitfun-part='subscriptionQuota'] {
+      flex: 1 1 240px;
+      min-inline-size: 0;
+    }
+  }
+
+  &__cli-authorization-expiry {
+    margin-inline-start: auto;
+    color: var(--openbitfun-color-content-muted);
+    font-size: var(--openbitfun-type-meta-font-size);
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+
+    &[data-expired='true'] { color: var(--openbitfun-color-status-danger-content); }
+    &:focus-visible {
+      outline: var(--openbitfun-focus-width) solid var(--openbitfun-color-focus-ring);
+      outline-offset: var(--openbitfun-focus-offset);
+      border-radius: var(--openbitfun-radius-sm);
+    }
   }
 
   &__cli-actions {
@@ -2610,6 +2658,8 @@
       gap: var(--openbitfun-space-2);
 
       .openbitfun-config-page-row__control {
+        grid-column: 1;
+        grid-row: 3;
         justify-content: flex-start;
       }
     }

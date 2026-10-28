@@ -394,14 +394,16 @@ continues to own selection, keyboard navigation, label overflow, and end-action
 anatomy. Product wrappers own document states and layout, without replacing the
 tab's control styles or creating another tablist.
 
-`TabGroupItem.endAction` reserves space inside the tab surface. On pointer devices,
-the icon, label, and non-interactive suffix are centered together at rest, then
-shift toward the leading edge as the action fades in on hover. The tab and action
-hit areas keep fixed positions and widths. Keyboard focus reveals the action and
-moves the content immediately; touch keeps the action visible and the content
-clear of it. Reduced motion disables both transitions. Tabs without an end action
-keep their ordinary centered layout. Label overflow and rolling-text replacement
-remain inside the label slot, independent of this movement.
+`TabGroupItem.endAction` keeps the resting pointer-device capsule compact, with
+symmetrical padding around its centered content. Hover grows the capsule at its
+inline end, then fades in the action after expansion finishes. The icon, label
+slot, and non-interactive suffix retain their positions and widths; following
+tabs make room for the growing capsule. Keyboard focus expands and reveals the
+action immediately; touch keeps it visible. Reduced motion makes both steps
+immediate. Constrain the item's content width rather than a product wrapper's
+outer width so the action can grow beyond a capped label. Tabs without an end
+action keep their ordinary centered layout. Label overflow and rolling-text
+replacement remain inside the label slot, independent of action visibility.
 
 ## Mobile controls
 

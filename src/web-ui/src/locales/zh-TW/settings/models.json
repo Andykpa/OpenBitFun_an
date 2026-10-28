@@ -70,6 +70,8 @@
     "userCodeHint": "請在瀏覽器中輸入驗證碼：{{code}}",
     "openUrlManually": "無法自動開啟瀏覽器，請手動造訪：{{url}}",
     "expiresAt": "授權有效期至 {{time}}",
+    "expiresIn": "授權有效期：{{time}}",
+    "authorizationExpired": "授權已過期",
     "tokenValid": "已連接",
     "notSignedIn": "未登入",
     "label": "認證方式",

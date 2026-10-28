@@ -94,6 +94,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
   it.each([false, true])('shows host accounts on the page without importing a model (account slots: %s)', async slotsSupported => {
     const account = {
       provider: 'codex' as const, connected: true, account: 'shared@example.invalid',
+      expires_at: 1800000000,
       display_label: 'Codex', suggested_format: 'openai',
       suggested_base_url: 'https://example.test/v1', suggested_model: 'fixture-model', api_offerings: [],
     };
@@ -102,6 +103,14 @@ describe('ModelSettingsPage loading and provider actions', () => {
       { account_id: 'codex', is_default: true, account, enabled: true },
       { account_id: 'codex:second-slot', is_default: false, account, enabled: false },
     ] : []);
+    const quotaResponse = {
+      provider: 'codex' as const, account_id: 'codex', state: 'known' as const, plan: 'Pro', valid_until: Date.now() / 1000 + 60,
+      windows: [{ id: 'weekly', duration_seconds: 604800, used_percent: 25 }],
+    };
+    const pendingQuota = deferred();
+    const quotaRead = vi.spyOn(aiApi, 'getSubscriptionAccountQuota')
+      .mockImplementationOnce(() => pendingQuota.promise as never).mockResolvedValue(quotaResponse);
+    const refreshAccount = vi.spyOn(aiApi, 'refreshSubscriptionAccount').mockResolvedValue(account);
     const update = vi.spyOn(configManager, 'updateConfig');
     await act(async () => root.render(<ModelSettingsPage />));
     const summary = container.querySelector('[data-testid="settings-subscription-services"]')!;
@@ -113,7 +122,43 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(update).not.toHaveBeenCalled();
     await act(async () => summary.querySelector<HTMLButtonElement>('button')!.click());
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('shared@example.invalid');
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain('shared@example.invalid');
+    const quota = dialog.querySelector('[data-account-id="codex"] [data-openbitfun-part="subscriptionQuota"]')!;
+    expect(quota.closest('.openbitfun-config-page-row__description')).not.toBeNull();
+    expect(quota.querySelector('[data-openbitfun-component="card"]')).toBeNull();
+    expect(quota.querySelector('[data-testid="subscription-quota-skeleton"]')).not.toBeNull();
+    expect(quota.querySelector('[role="status"]')?.classList.contains('sr-only')).toBe(true);
+    const heading = dialog.querySelector('[data-account-id="codex"] .openbitfun-config-page-row__label')!;
+    expect(heading.querySelector('[aria-hidden="true"]')).not.toBeNull();
+    expect(quotaRead).toHaveBeenCalledTimes(1);
+    expect(dialog.textContent).not.toContain(copy('subscriptionAuth.pool.defaultAccount'));
+    const expiry = dialog.querySelector('[data-account-id="codex"] .openbitfun-model-settings__cli-authorization-expiry')!;
+    expect(expiry.parentElement).toBe(quota.parentElement);
+    expect(expiry.getAttribute('datetime')).toBe(new Date(account.expires_at * 1000).toISOString());
+    expect(expiry.textContent).not.toContain(i18nService.formatDate(new Date(account.expires_at * 1000), { dateStyle: 'medium', timeStyle: 'short' }));
+    expect(quota.querySelector(`button[aria-label="${copy('quota.refresh')}"]`)).toBeNull();
+    const refresh = [...quota.closest('.openbitfun-model-settings__cli-account')!.querySelectorAll<HTMLButtonElement>('button')]
+      .find(element => element.textContent === copy('subscriptionAuth.refresh'))!;
+    expect(refresh.disabled).toBe(true);
+    await act(async () => pendingQuota.resolve(quotaResponse));
+    expect(quota.querySelector('[data-testid="subscription-quota-skeleton"]')).toBeNull();
+    expect(quota.querySelectorAll('[data-filled="true"]')).toHaveLength(18);
+    expect(heading.querySelector('[data-openbitfun-component="status-pill"]')?.textContent).toBe('Pro');
+    expect(quota.querySelector('[data-openbitfun-component="status-pill"]')).toBeNull();
+    expect(expiry.parentElement).toBe(quota.parentElement);
+    expect(refresh.disabled).toBe(false);
+    const refreshedQuota = deferred();
+    quotaRead.mockImplementationOnce(() => refreshedQuota.promise as never);
+    await act(async () => refresh.click());
+    expect(refreshAccount).toHaveBeenCalledExactlyOnceWith('codex');
+    expect(quotaRead).toHaveBeenLastCalledWith('codex', 'codex', true);
+    expect(refresh.disabled).toBe(true);
+    await act(async () => refreshedQuota.resolve({ ...quotaResponse,
+      windows: [{ id: 'weekly', duration_seconds: 604800, used_percent: 50 }],
+    }));
+    expect(quota.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('50');
+    expect(refresh.disabled).toBe(false);
     expect(update).not.toHaveBeenCalled();
   });
 
