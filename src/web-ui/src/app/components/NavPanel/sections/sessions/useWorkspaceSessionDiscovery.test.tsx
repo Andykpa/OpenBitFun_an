@@ -172,4 +172,21 @@ describe('workspace discovery observation', () => {
     expect(current.failed).toBe(false);
     expect(current.pending).toBe(false);
   });
+
+  it('exposes distinct structured diagnostics and deduplicates repeated codes', async () => {
+    await render();
+    await act(async () => current.observe('workspace', {
+      ...page(false),
+      discoveryDiagnostics: [
+        { ecosystemId: 'cursor', code: 'workspace_unresolved' },
+        { ecosystemId: 'cursor', code: 'workspace_unresolved' },
+        { ecosystemId: 'cursor', code: 'source_unreadable' },
+      ],
+    }));
+
+    expect(current.diagnostics).toEqual([
+      { ecosystemId: 'cursor', code: 'source_unreadable' },
+      { ecosystemId: 'cursor', code: 'workspace_unresolved' },
+    ]);
+  });
 });

@@ -493,6 +493,9 @@
       "allSourceAgents": "All agents",
       "sourceAgentLabel": "Imported from {{name}}",
       "discoveryPartial": "Some external sessions could not be discovered. Existing sessions remain available.",
+      "discoveryWarningTitle": "External session discovery",
+      "discoveryReadFailed": "Some {{source}} session records could not be read. Existing sessions remain available.",
+      "discoveryWorkspaceUnresolved": "Some {{source}} sessions could not be matched to a workspace. Existing sessions remain available.",
       "discoveringExternal": "Discovering external sessions…"
     },
     "scheduledJobs": {

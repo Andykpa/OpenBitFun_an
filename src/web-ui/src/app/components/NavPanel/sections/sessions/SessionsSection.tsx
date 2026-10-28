@@ -12,7 +12,7 @@ import { canCopySessionsOnSurface } from '@/infrastructure/peer-device/peerCapab
  */
 
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { subscribeOverlayInteraction, createOverlayPortal, Alert, Button, Icon, IconButton, Input, Menu, MenuItem, OverflowText, StatusPill, Tooltip } from '@openbitfun/ui';
+import { subscribeOverlayInteraction, createOverlayPortal, Button, Icon, IconButton, Input, Menu, MenuItem, OverflowText, StatusPill, Tooltip } from '@openbitfun/ui';
 import { Loader2, Archive, FolderGit2, FolderOpen, ListChecks } from 'lucide-react';
 import { RetainedMountBoundary } from '@/shared/presence';
 import { useI18n } from '@/infrastructure/i18n';
@@ -59,6 +59,7 @@ import { useSessionTitleNumbers } from '@/flow_chat/hooks/useSessionTitleNumbers
 import { SessionTitleNumber } from '@/flow_chat/components/SessionTitleNumber';
 import { useSessionComposerStore } from '@/flow_chat/store/sessionComposerStore';
 import { getActiveSurfaceId, getActiveSurfaceScope, isSurfaceChangedError, surfaceScopedKey } from '@/infrastructure/peer-device/deviceSurface';
+import { EXTERNAL_SESSION_NAMES, isExternalSessionEcosystem } from '@/shared/types/external-session';
 import { getWorkspaceSessionHierarchy } from './sessionNavHierarchy';
 import { useWorkspaceSessionCatalog } from './useWorkspaceSessionCatalog';
 import { captureWorkspaceSessionCatalogQuery, countPersistedWorkspaceCatalogSessions, workspaceSessionCatalogQuery, workspaceSessionCatalogTotal } from './workspaceSessionCatalogQuery';
@@ -118,6 +119,7 @@ import { createSessionsNavSelector } from './sessionsNavSelector';
 import './SessionsSection.scss';
 
 const log = createLogger('SessionsSection');
+const reportedDiscoveryNotificationKeys = new Set<string>();
 const ScheduledJobsModal = lazyWithRecovery(() => import('@/app/components/scheduled-jobs/ScheduledJobsModal'));
 const WorkspaceSessionBatchModal = lazyWithRecovery(() => import('../workspaces/WorkspaceSessionBatchModal'));
 
@@ -298,6 +300,61 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
     onDiscoveryCompleted,
   );
   const observeDiscovery = discovery.observe;
+  useEffect(() => {
+    // The same host scan is observed by the active workspace row and, in some
+    // layouts, by an aggregate or assistant-history row. Show one toast per
+    // diagnostic set instead of reserving space in every session list.
+    if (!isVisible || !isActiveWorkspace || !workspaceId || discovery.pending) return;
+
+    const sources = new Set(discovery.diagnostics.map(diagnostic => diagnostic.ecosystemId));
+    const messages = new Map<string, string>();
+    for (const diagnostic of discovery.diagnostics) {
+      const source = isExternalSessionEcosystem(diagnostic.ecosystemId)
+        ? EXTERNAL_SESSION_NAMES[diagnostic.ecosystemId]
+        : diagnostic.ecosystemId;
+      const kind = diagnostic.code === 'workspace_unresolved' ? 'workspace' : 'read';
+      const key = `diagnostic:${diagnostic.ecosystemId}:${kind}`;
+      messages.set(
+        key,
+        t(
+          kind === 'workspace'
+            ? 'nav.sessions.discoveryWorkspaceUnresolved'
+            : 'nav.sessions.discoveryReadFailed',
+          { source },
+        ),
+      );
+    }
+
+    // Keep warnings from older hosts and non-catalog failures visible. Newer
+    // hosts also send structured diagnostics, so suppress only the legacy
+    // catalog summaries that those diagnostics replace.
+    for (const warning of discovery.warnings) {
+      const derived = [...sources].some(source => (
+        warning === `Some ${source} source records could not be read`
+        || warning === `Some ${source} sessions could not be matched to a workspace`
+      ));
+      if (!derived) messages.set(`warning:${warning}`, warning);
+    }
+
+    const notificationScope = `${getActiveSurfaceId()}:${workspaceId}`;
+    const notificationKeys = new Set(
+      [...messages.keys()].map(key => `${notificationScope}:${key}`),
+    );
+    for (const key of reportedDiscoveryNotificationKeys) {
+      if (key.startsWith(`${notificationScope}:`) && !notificationKeys.has(key)) {
+        reportedDiscoveryNotificationKeys.delete(key);
+      }
+    }
+    for (const [key, message] of messages) {
+      const notificationKey = `${notificationScope}:${key}`;
+      if (reportedDiscoveryNotificationKeys.has(notificationKey)) continue;
+      reportedDiscoveryNotificationKeys.add(notificationKey);
+      notificationService.warning(message, {
+        title: t('nav.sessions.discoveryWarningTitle'),
+        duration: 7000,
+      });
+    }
+  }, [discovery.diagnostics, discovery.pending, discovery.warnings, isActiveWorkspace, isVisible, t, workspaceId]);
   const [openMenuSessionId, setOpenMenuSessionId] = useState<string | null>(null);
   /** Second level of the session menu: pick what a Markdown export includes. */
   const [isExportScopeMenu, setIsExportScopeMenu] = useState(false);
@@ -1280,9 +1337,6 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
       {t('nav.sessions.partialLoadFailedRetry')}
     </Button>
   ) : null;
-  const discoveryNotice = discovery.warnings.length > 0 ? (
-    <Alert tone="warning" role="status" title={discovery.warnings.join('\n')} message={t('nav.sessions.discoveryPartial')} />
-  ) : null;
   const aggregateLoadStatus = showAllWithoutLimit
     ? aggregateLoadState.isLoading
       ? (
@@ -1316,7 +1370,7 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
     : null;
 
   if (allTopLevelSessions.length === 0) {
-    if (sourceFilterStatus) return <div className={sessionListClassName}>{sourceFilterStatus}{discoveryNotice}</div>;
+    if (sourceFilterStatus) return <div className={sessionListClassName}>{sourceFilterStatus}</div>;
     if (aggregateLoadStatus) {
       return (
         <div data-openbitfun-component="sessions-section" data-openbitfun-part="root" className={sessionListClassName}>
@@ -1352,7 +1406,6 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
     }
     return (
       <div className={sessionListClassName}>
-        {discoveryNotice}
         {presentation?.kind === 'assistant' ? (
           <div className="openbitfun-nav-panel__inline-empty is-assistant" aria-disabled="true">
             <AssistantAvatar
@@ -1377,7 +1430,7 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
   }
 
   if (topLevelSessions.length === 0) {
-    if (sourceFilterStatus) return <div className={sessionListClassName}>{sourceFilterStatus}{discoveryNotice}</div>;
+    if (sourceFilterStatus) return <div className={sessionListClassName}>{sourceFilterStatus}</div>;
     if (aggregateLoadState.isLoading && aggregateLoadStatus) {
       return (
         <div className={sessionListClassName}>
@@ -1387,7 +1440,6 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
     }
     return (
       <div className={sessionListClassName}>
-        {discoveryNotice}
         <div className="openbitfun-nav-panel__inline-empty" aria-disabled="true">
           {t('nav.sessions.viewMenu.noMatches')}
         </div>
@@ -1399,7 +1451,6 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
   return (
     <div className={sessionListClassName} ref={sessionListRef}>
       {sourceFilterStatus}
-      {discoveryNotice}
       {visibleItems.map(({ session, level }) => {
           const isEditing = editingSessionId === session.sessionId;
           const relationship = resolveSessionRelationship(session);

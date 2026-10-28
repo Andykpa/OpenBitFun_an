@@ -471,7 +471,8 @@
               "advanced-request": "為供應商添加自定義 Header、請求體字段與 SSL 行為",
               "smart-routing": "查看智慧模式可用狀態（暫未開放）",
               "connection-test": "測試模型連線或圖像生成，並重新整理執行階段用戶端",
-              "model-pools": "管理模型池、路由策略與工作階段模型選擇"
+              "model-pools": "管理模型池、路由策略與工作階段模型選擇",
+              "smart-routing": "查看智能模式可用狀態（尚未開放）"
             }
           },
           "memory": {

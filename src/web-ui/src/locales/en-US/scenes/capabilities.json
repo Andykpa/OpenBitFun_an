@@ -471,7 +471,8 @@
               "advanced-request": "Add custom headers, request-body fields, and SSL behavior per provider",
               "smart-routing": "View smart-mode availability (not available yet)",
               "connection-test": "Test model connections or image generation and refresh the runtime client",
-              "model-pools": "Manage model pools, routing strategies, and session model selection"
+              "model-pools": "Manage model pools, routing strategies, and session model selection",
+              "smart-routing": "View smart-mode availability (not released)"
             }
           },
           "memory": {
