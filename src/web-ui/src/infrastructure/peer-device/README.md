@@ -259,3 +259,12 @@ listener alone recovers an interaction emitted before attachment.
     replaces the capability, including when a host restarts on an older build.
     Once a copy is acknowledged, a metadata-read failure reports the created
     copy and asks for a list refresh; it must not replay the copy mutation.
+
+20. **Chat PR/MR links require a supported peer review platform.**
+    `review_platform_v1` advertises the workspace-backed PR viewer. Older
+    Desktop hosts already implement it; CLI and unknown/unprobed hosts use
+    the controller's system URL opener. Consume that click so the ordinary
+    Markdown path cannot create an integrated browser or an unsupported PR
+    panel. This only opens the clicked URL: it never queries controller-local
+    repositories or credentials on behalf of a peer. Preserve URL fragments
+    and queries, and re-evaluate support after capability or surface changes.
