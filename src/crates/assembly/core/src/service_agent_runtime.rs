@@ -4412,7 +4412,7 @@ mod tests {
     }
 
     #[test]
-    fn remote_model_strategy_guard_distinguishes_legacy_children_from_smart_main_sessions() {
+    fn remote_model_strategy_guard_preserves_legacy_smart_selection_and_rejects_children() {
         use crate::agentic::core::SessionConfig;
 
         let mut session = Session::new(
@@ -4426,9 +4426,12 @@ mod tests {
         );
         assert!(ensure_remote_model_strategy_editable(&session).is_ok());
         session.config.model_routing = Some("smart".into());
-        assert!(ensure_remote_model_strategy_editable(&session)
-            .unwrap_err()
-            .contains("Smart routing is active"));
+        // Smart mode is unavailable in this release. A persisted smart choice
+        // must still allow manual model edits without rewriting the old config.
+        assert!(!crate::agentic::execution::round_model_routing::configuration::available());
+        let before = serde_json::to_value(&session.config).unwrap();
+        assert!(ensure_remote_model_strategy_editable(&session).is_ok());
+        assert_eq!(serde_json::to_value(&session.config).unwrap(), before);
 
         session.kind = SessionKind::Subagent;
         session.config.delegation_model_routing = Some("smart".into());
