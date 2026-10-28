@@ -72,17 +72,17 @@ cargo run -p openbitfun-miniapp-market-server
 
 ## 环境变量
 
-生产示例见 `../../../deploy/miniapp-market/market.env.example`。实际生产值只
-存在服务器的 `/etc/openbitfun-miniapp-market/market.env`。
+示例环境变量见 `../../../deploy/miniapp-market/market.env.example`。实际值只
+应存在服务器的 `/etc/openbitfun-miniapp-market/market.env`。
 
 | 变量 | 作用 |
 | --- | --- |
 | `MARKET_BIND` | 服务监听地址；生产容器内为 `0.0.0.0:9710` |
-| `MARKET_PUBLIC_BASE_URL` | 公开 base；生产为 `https://market.openbitfun.com/miniapp` |
+| `MARKET_PUBLIC_BASE_URL` | 公开 base；例如 `https://market.example.com/miniapp` |
 | `MARKET_DATABASE_PATH` | SQLite 文件 |
 | `MARKET_ARTIFACT_DIR` | 内容寻址包和截图目录 |
 | `MARKET_WEB_DIR` | 构建后的网页目录 |
-| `MARKET_GITHUB_CALLBACK_URL` | 可选 OAuth 回调地址；未设置时保留旧 public base 派生地址，官方 Compose 使用统一 auth 地址 |
+| `MARKET_GITHUB_CALLBACK_URL` | 可选 OAuth 回调地址；未设置时由 `MARKET_PUBLIC_BASE_URL` 派生，统一登录部署在 `market.env` 中设置为 auth 地址 |
 | `MARKET_GITHUB_CLIENT_ID` | GitHub OAuth App client ID |
 | `MARKET_GITHUB_CLIENT_SECRET` | GitHub OAuth App secret |
 | `MARKET_SESSION_SECRET` | 会话签名 secret，生产至少 24 字符并应使用强随机值 |
@@ -96,9 +96,8 @@ cargo run -p openbitfun-miniapp-market-server
 `GET /miniapp/api/v1/config` 核对实际的 `webSubmissionsEnabled`，不能只根据
 env 文件内容判断已经生效。
 
-固定生产 OAuth callback 是：
-
-`https://auth.openbitfun.com/api/v1/auth/github/callback`
+统一登录部署时，在 `market.env` 中设置 OAuth callback，例如
+`MARKET_GITHUB_CALLBACK_URL=https://auth.example.com/api/v1/auth/github/callback`。
 
 ## 修改后的最小验证
 

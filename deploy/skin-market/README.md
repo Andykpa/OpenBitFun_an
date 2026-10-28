@@ -229,15 +229,15 @@ systemctl enable --now openbitfun-skin-market-backup.timer'
 ## Nginx route
 
 The shared market vhost is owned in
-`deploy/miniapp-market/nginx-market.openbitfun.com.conf` (template file name).
+`deploy/miniapp-market/nginx-market.conf` (template file name).
 It keeps MiniApp at 25 MiB and grants only `/skin/` the 100 MiB transport
 ceiling. Skin application validation remains 96 MiB. Install this file only
 when its diff is part of the target commit:
 
-The trusted WAF CIDRs in `nginx-skin-market-http.conf` are an explicit trust
+The trusted proxy ranges in `nginx-skin-market-http.conf` are an explicit trust
 boundary, not a generic proxy list. Before each deployment, compare them with
-your WAF provider's current `ShowSourceIp` response (or the console's copied source-IP
-list) and the origin firewall allowlist. Stop if any of the three sets differ.
+your reverse proxy or WAF provider's current egress source-IP list and the
+origin firewall allowlist. Stop if any of the sets differ.
 
 ```bash
 ssh "$DEPLOY_HOST" 'set -eu
@@ -245,7 +245,7 @@ install -m 0644 \
   /srv/openbitfun-skin-market/app/deploy/skin-market/nginx-skin-market-http.conf \
   /etc/nginx/conf.d/skin-market.conf
 install -m 0644 \
-  /srv/openbitfun-skin-market/app/deploy/miniapp-market/nginx-market.openbitfun.com.conf \
+  /srv/openbitfun-skin-market/app/deploy/miniapp-market/nginx-market.conf \
   /etc/nginx/sites-available/market.example.com.conf
 nginx -t
 systemctl reload nginx

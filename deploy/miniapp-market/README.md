@@ -314,7 +314,7 @@ ssh "$DEPLOY_HOST" 'docker logs --since 10m --tail 200 openbitfun-miniapp-market
 
 - `deploy/miniapp-market/nginx-default-server.conf`
 - `deploy/miniapp-market/nginx-log-format.conf`
-- `deploy/miniapp-market/nginx-market.openbitfun.com.conf`（模板文件名，安装时改成你的域名）
+- `deploy/miniapp-market/nginx-market.conf`（模板文件名，安装时改成你的域名）
 
 确有修改时才安装市场专用文件：
 
@@ -330,7 +330,7 @@ install -m 0644 \
   /srv/openbitfun-miniapp-market/app/deploy/miniapp-market/nginx-log-format.conf \
   /etc/nginx/conf.d/miniapp-market-log-format.conf
 install -m 0644 \
-  /srv/openbitfun-miniapp-market/app/deploy/miniapp-market/nginx-market.openbitfun.com.conf \
+  /srv/openbitfun-miniapp-market/app/deploy/miniapp-market/nginx-market.conf \
   /etc/nginx/sites-available/market.example.com.conf
 nginx -t
 systemctl reload nginx'
@@ -424,6 +424,12 @@ GitHub OAuth App callback 必须精确为：
 
 `https://auth.example.com/api/v1/auth/github/callback`
 
+统一登录部署需在 `market.env` 中设置同一地址：
+
+```bash
+MARKET_GITHUB_CALLBACK_URL=https://auth.example.com/api/v1/auth/github/callback
+```
+
 创建或复用 OAuth App 时的实操要点：
 
 - OAuth App 在 GitHub → Settings → Developer settings → OAuth Apps 下创建，
@@ -481,7 +487,7 @@ backup root；不要放宽该保护。
 
 `https://auth.example.com` 是市场与远控共用的登录入口，桌面授权完成页为
 `/complete`，身份 API 为 `/api/v1`。它复用本服务和数据库；不新增账号库。
-安装同目录 `nginx-auth.openbitfun.com.conf`（模板文件名，安装时改成你的域名）前，
+安装同目录 `nginx-auth.conf`（模板文件名，安装时改成你的域名）前，
 先确认该域名的 DNS、TLS/WAF 已覆盖，并配置你自己的可信 WAF 源网段。该配置只开放
 登录、身份、token 生命周期和页面静态资源，不代理市场写接口。
 
