@@ -7,12 +7,12 @@
 > [`src/crates/services/miniapp-market-service/`](../../crates/services/miniapp-market-service/README.md)，稳定领域类型在
 > `src/crates/contracts/product-domains/src/miniapp/market.rs`。修改后端并
 > 提交明确 Git commit 后，按照
-> [生产部署手册](../../../deploy/miniapp-market/README.md)重建同一个容器。
+> [部署手册](../../../deploy/miniapp-market/README.md)重建同一个容器。
 
 ## 给 AI Agent 的执行约束
 
 1. 先阅读仓库根目录 `AGENTS.md`、本文件和
-   [生产部署手册](../../../deploy/miniapp-market/README.md)。
+   [部署手册](../../../deploy/miniapp-market/README.md)。
 2. 遵守分层边界：入口只装配服务；SQLite、文件、OAuth 和 HTTP 实现在
    Services；纯 DTO、状态机和策略放在 product-domains。
 3. REST 前缀固定为 `/miniapp/api/v1`。列表和错误 envelope 是公开契约，
@@ -39,7 +39,7 @@
 | `../../crates/services/miniapp-market-service/src/retention.rs` | 草稿、驳回和撤回文件保留策略 |
 | `../../crates/services/miniapp-market-service/migrations/` | 编号 SQLite migration |
 | `../../crates/contracts/product-domains/src/miniapp/market.rs` | DTO、投稿状态机和市场领域事实 |
-| `../../../deploy/miniapp-market/` | Compose、Nginx、备份和生产 Runbook |
+| `../../../deploy/miniapp-market/` | Compose、Nginx、备份和部署 Runbook |
 
 ## 本地运行
 
@@ -145,4 +145,4 @@ MARKET_GIT_COMMIT=local-verification \
 生产 Docker 镜像包含这个 Rust binary 和
 `src/miniapp-market-web/dist/`。前端、后端或两者更新都使用同一条精确 commit
 发布链路。详见
-[生产部署手册](../../../deploy/miniapp-market/README.md)。
+[部署手册](../../../deploy/miniapp-market/README.md)。
