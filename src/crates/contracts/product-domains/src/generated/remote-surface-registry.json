@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "digest": "fnv1a64:e0ac67cc604f9730",
+  "digest": "fnv1a64:99d567cb0f1aa0ad",
   "retiredCommandPrefixes": [
     {
       "prefix": "lsp_",
@@ -39,8 +39,10 @@
       "product_control_presentation_v1",
       "cancel_tool",
       "tool_catalog",
+      "review_platform_v1",
       "chat_mcp_catalog_v1",
       "workspace_id_references_v1",
+      "workspace_html_preview_v1",
       "whole_session_copy_v1",
       "user_question_response",
       "user_question_interaction_v1"
@@ -76,8 +78,10 @@
       "product_control_presentation_v1",
       "cancel_tool",
       "tool_catalog",
+      "review_platform_v1",
       "chat_mcp_catalog_v1",
       "workspace_id_references_v1",
+      "workspace_html_preview_v1",
       "whole_session_copy_v1",
       "user_question_response",
       "user_question_interaction_v1"
@@ -99,6 +103,7 @@
       "tool_catalog",
       "chat_mcp_catalog_v1",
       "workspace_id_references_v1",
+      "workspace_html_preview_v1",
       "user_question_response",
       "user_question_interaction_v1"
     ]
@@ -2238,8 +2243,7 @@
         "kind": "proxied"
       },
       "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the CLI peer host does not expose the remote-workspace UI surface"
+        "kind": "handled"
       }
     },
     {
@@ -2250,8 +2254,7 @@
         "kind": "proxied"
       },
       "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the CLI peer host does not expose the remote-workspace UI surface"
+        "kind": "handled"
       }
     },
     {
@@ -2262,8 +2265,7 @@
         "kind": "proxied"
       },
       "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the CLI peer host does not expose the remote-workspace UI surface"
+        "kind": "handled"
       }
     },
     {
@@ -2800,8 +2802,7 @@
         "kind": "proxied"
       },
       "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the CLI peer host has no handler for this command"
+        "kind": "handled"
       }
     },
     {
@@ -3971,6 +3972,17 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
+      }
+    },
+    {
+      "id": "html_preview_read_resource",
+      "surface": "tauri_command",
+      "remoteWorkspace": "RemoteRouted",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "handled"
       }
     },
     {

@@ -257,3 +257,14 @@ pnpm --dir src/web-ui run test:run src/infrastructure/markdown/MermaidBlock.test
 ```
 
 The service tests use the real Mermaid parser; native SVG rendering still needs UI verification.
+
+For chat PR/MR link routing, peer capability negotiation, and controller browser fallback:
+
+```bash
+pnpm --dir src/web-ui run test:run src/infrastructure/markdown/MarkdownRenderer.test.tsx src/infrastructure/peer-device/PeerConnectionManager.test.ts src/infrastructure/peer-device/peerCapabilityResolution.test.ts src/infrastructure/api/service-api/SystemAPI.test.ts src/flow_chat/components/modern/FlowChatHeader.test.tsx src/flow_chat/tool-cards/BuiltinToolCard.test.tsx src/app/components/panels/review-platform/ReviewPlatformPanel.test.tsx
+```
+
+These DOM and handshake fixtures cover local, legacy Desktop, CLI and unknown peers,
+device changes, per-device remote preferences and legacy local migration, stale
+review launches, overview/tool-card gates, restored panels, and the controller-owned
+URL opener. They do not establish live macOS-to-Linux Peer Device or native browser behavior.
