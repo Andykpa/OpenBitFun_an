@@ -3907,55 +3907,51 @@ mod tests {
         assert_eq!(scheduler.queue_depth(session_id), 0);
     }
 
-    #[test]
-    fn idle_background_result_uses_the_session_logical_agent_route() {
-        // Inline admission retains the task-local model fixture and needs the
-        // same debug stack as the host-queue lifecycle tests with product-full.
-        run_host_queue_lifecycle_test(|| async {
-            let (scheduler, session_manager, _, root) = test_scheduler();
-            let session_id = "external-parent-session";
-            let workspace = fixture_workspace_dir(root.path().join("workspace"));
-            session_manager
-                .create_session_with_id(
-                    Some(session_id.to_string()),
-                    "External parent".to_string(),
-                    "Standard".to_string(),
-                    SessionConfig {
-                        tool_presentation_mode: Default::default(),
-                        workspace_path: Some(workspace.to_string_lossy().into_owned()),
-                        model_id: Some("model-original".to_string()),
-                        ..Default::default()
-                    },
-                )
-                .await
-                .expect("create parent session");
+    #[tokio::test]
+    async fn idle_background_result_uses_the_session_logical_agent_route() {
+        let (scheduler, session_manager, _, root) = test_scheduler();
+        let session_id = "external-parent-session";
+        let workspace = fixture_workspace_dir(root.path().join("workspace"));
+        session_manager
+            .create_session_with_id(
+                Some(session_id.to_string()),
+                "External parent".to_string(),
+                "Standard".to_string(),
+                SessionConfig {
+                    tool_presentation_mode: Default::default(),
+                    workspace_path: Some(workspace.to_string_lossy().into_owned()),
+                    model_id: Some("model-original".to_string()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("create parent session");
 
-            TEST_MODEL_RESOLUTION_AI_CONFIG
-                .scope(
-                    AIConfig {
-                        models: vec![AIModelConfig {
-                            id: "model-original".to_string(),
-                            name: "model-original".to_string(),
-                            model_name: "model-original".to_string(),
-                            enabled: true,
-                            ..Default::default()
-                        }],
+        TEST_MODEL_RESOLUTION_AI_CONFIG
+            .scope(
+                AIConfig {
+                    models: vec![AIModelConfig {
+                        id: "model-original".to_string(),
+                        name: "model-original".to_string(),
+                        model_name: "model-original".to_string(),
+                        enabled: true,
                         ..Default::default()
-                    },
-                    scheduler.deliver_background_result(
-                        session_id.to_string(),
-                        "external::opencode::agentic::generation-v1".to_string(),
-                        None,
-                        None,
-                        None,
-                        "Background Bash command completed".to_string(),
-                        None,
-                        None,
-                    ),
-                )
-                .await
-                .expect("lifecycle delivery must follow the persisted logical session route");
-        });
+                    }],
+                    ..Default::default()
+                },
+                scheduler.deliver_background_result(
+                    session_id.to_string(),
+                    "external::opencode::agentic::generation-v1".to_string(),
+                    None,
+                    None,
+                    None,
+                    "Background Bash command completed".to_string(),
+                    None,
+                    None,
+                ),
+            )
+            .await
+            .expect("lifecycle delivery must follow the persisted logical session route");
     }
 
     #[tokio::test]
