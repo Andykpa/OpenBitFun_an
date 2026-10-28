@@ -430,6 +430,10 @@ GitHub OAuth App callback 必须精确为：
 MARKET_GITHUB_CALLBACK_URL=https://auth.example.com/api/v1/auth/github/callback
 ```
 
+桌面登录页和完成页会使用该回调 URL 的 origin；未设置时使用
+`MARKET_PUBLIC_BASE_URL` 的 origin。GitHub OAuth App 的 callback 必须与
+`MARKET_GITHUB_CALLBACK_URL` 完全一致。
+
 创建或复用 OAuth App 时的实操要点：
 
 - OAuth App 在 GitHub → Settings → Developer settings → OAuth Apps 下创建，

@@ -82,11 +82,11 @@ cargo run -p openbitfun-miniapp-market-server
 | `MARKET_DATABASE_PATH` | SQLite 文件 |
 | `MARKET_ARTIFACT_DIR` | 内容寻址包和截图目录 |
 | `MARKET_WEB_DIR` | 构建后的网页目录 |
-| `MARKET_GITHUB_CALLBACK_URL` | 可选 OAuth 回调地址；未设置时由 `MARKET_PUBLIC_BASE_URL` 派生，统一登录部署在 `market.env` 中设置为 auth 地址 |
+| `MARKET_GITHUB_CALLBACK_URL` | 可选 OAuth 回调地址；未设置时由 `MARKET_PUBLIC_BASE_URL` 派生，桌面登录页和完成页使用该 URL 的 origin |
 | `MARKET_GITHUB_CLIENT_ID` | GitHub OAuth App client ID |
 | `MARKET_GITHUB_CLIENT_SECRET` | GitHub OAuth App secret |
 | `MARKET_SESSION_SECRET` | 会话签名 secret，生产至少 24 字符并应使用强随机值 |
-| `MARKET_ADMIN_GITHUB_IDS` | 逗号分隔的 GitHub 数字 ID |
+| `MARKET_ADMIN_GITHUB_IDS` | 逗号分隔的 GitHub 数字 ID；留空表示没有管理员 |
 | `MARKET_PUBLIC_BROWSE` | 是否向匿名用户开放目录 |
 | `MARKET_WEB_SUBMISSIONS_ENABLED` | 是否允许 Web Cookie 会话投稿；默认及生产为 `false`，Desktop Bearer 投稿不受影响 |
 | `RUST_LOG` | 英文 JSON 日志过滤器 |
@@ -98,6 +98,8 @@ env 文件内容判断已经生效。
 
 统一登录部署时，在 `market.env` 中设置 OAuth callback，例如
 `MARKET_GITHUB_CALLBACK_URL=https://auth.example.com/api/v1/auth/github/callback`。
+桌面登录页和完成页会使用该 URL 的 origin；未设置时使用
+`MARKET_PUBLIC_BASE_URL` 的 origin。
 
 ## 修改后的最小验证
 
