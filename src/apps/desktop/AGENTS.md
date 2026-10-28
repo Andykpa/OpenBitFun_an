@@ -348,3 +348,14 @@ The host resolves the saved model, rejects non-API authentication and custom aut
 and rechecks its authorization binding before publishing the result. Model-scoped
 requests require the separately advertised `subscription_model_quota_v1` capability;
 legacy requests retain the exact account-slot path. These tests do not contact billing.
+
+For workspace HTML gateway authentication, chunking, cancellation and peer
+capability negotiation and encrypted loopback Relay transfer, run:
+
+```bash
+cargo test --locked -p openbitfun-desktop --lib html_preview
+```
+
+Use `node tests/e2e/scripts/run-html-preview.mjs` after building Desktop and Web UI
+to verify CSS, JavaScript modules, images and concurrent preview cookies in native
+browser child views. The fixture uses isolated storage; see `tests/e2e/AGENTS.md`.

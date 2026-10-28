@@ -272,3 +272,18 @@ listener alone recovers an interaction emitted before attachment.
     restored unsupported panel keeps its URL available in the system browser
     without querying the host. Overview requests and panel state belong to
     the surface activation even when two devices share a workspace ID/path.
+
+### Workspace HTML resources
+
+The controller keeps HTML preview HTTP listeners and native browser views local.
+The selected peer supplies workspace resources over the existing encrypted
+HostInvoke channel, negotiated with `workspace_html_preview_v1` on Desktop and
+CLI. Requests carry the peer's workspace ID, entry path, source binding, revision
+and chunk offset; controller paths are never reused on the peer. Releasing a
+preview cancels in-flight HTTP reads. Device activation changes release old
+listeners and ignore late creates. Older peers must be upgraded to supply these
+resources; there is no local filesystem fallback.
+
+CLI file browsing handles both current `explorer_get_*` commands and the legacy
+`get_directory_children*` / `get_file_tree` names through the same workspace-aware
+filesystem service. Registry closure tests keep the advertised handlers in sync.

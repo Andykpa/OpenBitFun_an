@@ -594,3 +594,9 @@ Assistant naming, concurrent host allocation, and user-title protection:
 cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib service::workspace::service::tests::assistant_
 cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib title_
 ```
+
+For HTML preview workspace identity and shared resource-service wiring:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features remote-connect --lib service::filesystem::html_preview::tests
+```

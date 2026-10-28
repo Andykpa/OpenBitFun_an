@@ -205,3 +205,16 @@ For models.dev snapshot reuse, last-valid recovery, and background refresh:
 ```bash
 cargo test --locked -p openbitfun-services-integrations --no-default-features --features models-dev --lib models_dev::tests
 ```
+
+For workspace-confined HTML resources and revision-checked chunk reads, run:
+
+```bash
+cargo test --locked -p openbitfun-services-integrations --no-default-features --features remote-connect --lib remote_connect::html_preview::tests
+```
+
+To use a real OpenSSH SFTP executable over loopback SSH, set
+`OPENBITFUN_TEST_SFTP_SERVER` and run the same package with
+`--features remote-connect,remote-ssh-concrete --lib openssh_html_preview_reads_nested_site_resources -- --ignored`.
+This checks the production remote filesystem provider, root-relative assets,
+parent-relative resources and workspace boundaries; it does not establish
+multi-device relay or physical-host coverage.
