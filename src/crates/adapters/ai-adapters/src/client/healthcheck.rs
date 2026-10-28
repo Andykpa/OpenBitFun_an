@@ -589,7 +589,9 @@ mod tests {
         assert_eq!(server.state.requests.lock().unwrap().len(), 2);
     }
 
-    #[tokio::test(start_paused = true)]
+    // This fixture uses real TCP IO. A paused clock can advance request
+    // timeouts before the OS delivers the response and hide a retry attempt.
+    #[tokio::test]
     async fn transient_errors_keep_the_shared_retry_policy_and_attempt_budget() {
         let server = ProbeServer::spawn(
             Some((StatusCode::SERVICE_UNAVAILABLE, "Service unavailable")),

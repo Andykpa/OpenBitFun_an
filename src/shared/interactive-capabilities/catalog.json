@@ -290,6 +290,7 @@
     ],
     "htmlPreview": [
       "html_preview_create",
+      "html_preview_read_resource",
       "html_preview_release"
     ],
     "githubDeviceRouting": [

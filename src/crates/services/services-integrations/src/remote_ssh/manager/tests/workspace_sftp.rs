@@ -765,6 +765,118 @@ async fn openssh_real_files_over_loopback_ssh() {
     assert_eq!(f.state.channels.load(Ordering::SeqCst), 2);
 }
 
+#[cfg(feature = "remote-connect")]
+#[tokio::test]
+#[ignore = "Set OPENBITFUN_TEST_SFTP_SERVER to the OpenSSH sftp-server executable"]
+async fn openssh_html_preview_reads_nested_site_resources() {
+    use crate::remote_connect::{
+        file_projection::SessionFileTarget, html_preview::HtmlPreviewSource,
+    };
+    use crate::remote_ssh::workspace_services::RemoteWorkspaceFs;
+    use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+    use openbitfun_product_domains::html_preview::{
+        HtmlPreviewErrorCode, HtmlPreviewResourceRequest, PREVIEW_CHUNK_BYTES,
+    };
+    let executable = std::env::var("OPENBITFUN_TEST_SFTP_SERVER").unwrap();
+    let f = Fixture::with_openssh(Some(executable)).await;
+    let root = f._dir.path().canonicalize().unwrap();
+    std::fs::create_dir_all(root.join("website/dist/assets")).unwrap();
+    std::fs::write(
+        root.join("website/dist/index.html"),
+        b"<script src='/assets/app.js'></script>",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("website/dist/assets/app.js"),
+        b"window.sshLoaded=true",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("website/dist/assets/app.css"),
+        b"body{color:green}",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("website/dist/assets/image.png"),
+        [137, 80, 78, 71, 0, 255],
+    )
+    .unwrap();
+    std::fs::write(root.join("website/shared.css"), b"parent-style").unwrap();
+    let large = vec![53; PREVIEW_CHUNK_BYTES + 17];
+    std::fs::write(root.join("website/dist/assets/large.js"), &large).unwrap();
+    let service = crate::remote_ssh::RemoteFileService::new(Arc::new(tokio::sync::RwLock::new(
+        Some(f.manager.as_ref().clone()),
+    )));
+    let entry = root
+        .join("website/dist/index.html")
+        .to_string_lossy()
+        .into_owned();
+    let source = HtmlPreviewSource::new(
+        SessionFileTarget {
+            fs: Arc::new(RemoteWorkspaceFs::new("sftp-test".into(), service)),
+            root: root.to_string_lossy().into_owned(),
+            path: entry.clone(),
+            remote: true,
+        },
+        "ssh-workspace",
+    )
+    .await
+    .unwrap();
+    for (path, expected) in [
+        ("assets/app.js", b"window.sshLoaded=true".as_slice()),
+        (
+            "website/dist/assets/app.css",
+            b"body{color:green}".as_slice(),
+        ),
+        ("assets/image.png", [137, 80, 78, 71, 0, 255].as_slice()),
+        ("website/shared.css", b"parent-style".as_slice()),
+    ] {
+        let file = source
+            .read(&HtmlPreviewResourceRequest {
+                workspace_id: "ssh-workspace".into(),
+                file_path: entry.clone(),
+                resource_path: Some(path.into()),
+                metadata_only: false,
+                offset: 0,
+                expected_source: None,
+                expected_revision: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(BASE64.decode(file.content_base64).unwrap(), expected);
+    }
+    let mut chunk_request = HtmlPreviewResourceRequest {
+        workspace_id: "ssh-workspace".into(),
+        file_path: entry,
+        resource_path: Some("assets/large.js".into()),
+        metadata_only: false,
+        offset: 0,
+        expected_source: None,
+        expected_revision: None,
+    };
+    let first = source.read(&chunk_request).await.unwrap();
+    let mut content = BASE64.decode(first.content_base64).unwrap();
+    assert_eq!(content.len(), PREVIEW_CHUNK_BYTES);
+    chunk_request.offset = content.len() as u64;
+    chunk_request.expected_source = Some(first.source);
+    chunk_request.expected_revision = Some(first.revision);
+    content.extend(
+        BASE64
+            .decode(source.read(&chunk_request).await.unwrap().content_base64)
+            .unwrap(),
+    );
+    assert_eq!(content, large);
+    chunk_request.resource_path = Some("../private-file".into());
+    assert_eq!(
+        source.read(&chunk_request).await.unwrap_err().code,
+        HtmlPreviewErrorCode::InvalidPath
+    );
+    assert!(
+        f.state.channels.load(Ordering::SeqCst) > 0,
+        "Reads must traverse a real SSH/SFTP channel"
+    );
+}
+
 #[cfg(unix)]
 #[tokio::test]
 #[ignore = "Set OPENBITFUN_TEST_SFTP_SERVER to the OpenSSH sftp-server executable"]

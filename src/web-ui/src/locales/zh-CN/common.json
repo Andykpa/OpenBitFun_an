@@ -2067,6 +2067,7 @@
       "targetIsPullRequest": "此条目是拉取请求，请按拉取请求打开，而不是按问题打开。"
     },
     "messages": {
+      "hostUnsupported": "当前设备不支持内置 PR 查看，请使用系统浏览器打开 PR 链接。",
       "noWorkspace": "没有可用的活动工作区。",
       "unsupportedLink": "此链接不是受支持的拉取请求链接。",
       "detailsFailed": "加载拉取请求详情失败。",
