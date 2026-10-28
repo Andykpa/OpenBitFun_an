@@ -1631,8 +1631,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       }
       return false;
     }
-  }, [closePanel, currentModelMode, currentNativeModelId, deviceSurfaceScope, handleSelectModel,
-    modelSelectionScopeKey, poolId, routing, t]);
+  }, [closePanel, currentModelMode, currentNativeModelId, deviceSurfaceScope, handleSelectModel, modelSelectionScopeKey, poolId, routing, t]);
 
   const handleSelectModelFromMenu = useCallback(async (modelId: string) => {
     if (isNativeModelSelection && routing.mode === 'smart' && !await handleRoutingMode('manual')) return false;
