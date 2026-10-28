@@ -227,7 +227,9 @@ impl HtmlPreviewTransfer {
             // error and must never serve stale bytes from the controller cache.
             let current = self.read(&probe).await;
             if let Ok((metadata, _)) = &current {
-                if same_resource(metadata, &cached.metadata) {
+                if cached.created.elapsed() < CACHE_LIFETIME
+                    && same_resource(metadata, &cached.metadata)
+                {
                     let transfer = self.clone();
                     let metadata = metadata.clone();
                     let body =

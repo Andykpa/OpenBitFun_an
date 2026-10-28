@@ -245,6 +245,22 @@ async fn refresh_and_fixed_expiry_force_content_reads_and_head_never_reads_conte
 }
 
 #[tokio::test(start_paused = true)]
+async fn cache_expiry_during_slow_revalidation_forces_a_fresh_body() {
+    let (transfer, reader, _close) = fixture(17);
+    load(&transfer, "app.js", false).await.unwrap();
+    tokio::time::advance(CACHE_LIFETIME - Duration::from_millis(25)).await;
+    load(&transfer, "app.js", false).await.unwrap();
+    let requests = reader.requests.lock().unwrap();
+    assert_eq!(
+        requests.len(),
+        3,
+        "Initial body, delayed metadata, then a fresh body"
+    );
+    assert!(requests[1].metadata_only);
+    assert!(!requests[2].metadata_only);
+}
+
+#[tokio::test(start_paused = true)]
 async fn slow_consumers_and_dropped_bodies_do_not_leave_prefetch_running() {
     let (transfer, reader, _close) = fixture(PREVIEW_CHUNK_BYTES * 20);
     let mut response = transfer
