@@ -128,6 +128,19 @@ the selected HTML, then under the workspace root. This supports a nested `dist`
 without breaking workspace-prefixed links. Resources stay inside the workspace;
 remote symlinks are rejected. The service streams files up to 64 MiB in 256 KiB
 chunks and checks workspace identity and file revision throughout a transfer.
+The controller prefetches up to four chunks per resource, preserves byte order,
+and limits each preview to eight active resources and eight remote reads. Dropped
+responses cancel their pending prefetches. SSH and peer resources use the same
+transfer service without changing the `workspace_html_preview_v1` wire contract.
+
+Each preview retains at most 64 complete resources / 16 MiB in memory, with a
+4 MiB per-resource limit. Cache hits first revalidate the selected owner's
+source, resolved path, size, revision and MIME type; missing, forbidden or offline
+resources return errors instead of cached content. Cache entries expire five
+seconds after insertion even if revalidated, limiting stale reuse on filesystems
+with coarse timestamps. Explicit browser reload directives (`no-cache`,
+`no-store`, `max-age=0`) force new content reads. The HTTP response remains
+`no-store`: no persistent browser cache or cross-preview content store is added.
 Each preview has a distinct authorization cookie and is released when its panel
 closes or its device activation changes. A disconnect returns a resource error;
 reloading after reconnect retries the same workspace.

@@ -1,4 +1,6 @@
 use super::*;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use openbitfun_product_domains::html_preview::PREVIEW_CHUNK_BYTES;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Mutex,
@@ -391,4 +393,155 @@ pub(crate) async fn verify_encrypted_peer_gateway(
     );
     assert_eq!(reply.bytes().await.unwrap().as_ref(), expected);
     release(preview).await;
+}
+
+pub(crate) async fn benchmark_encrypted_peer_gateway(
+    device_id: &str,
+    mut input: HtmlPreviewResourceRequest,
+    files: Vec<(String, Vec<u8>)>,
+) {
+    use futures::{stream, StreamExt};
+    let reader = Arc::new(PeerPreviewReader {
+        device_id: device_id.into(),
+        account_generation: account_context_generation(),
+    });
+    reader.ensure_supported().await.unwrap();
+    input.expected_source = Some(reader.read(&input).await.unwrap().source);
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+    let mut serial = Vec::new();
+    let mut cold = Vec::new();
+    let mut warm = Vec::new();
+    for _ in 0..3 {
+        let start = std::time::Instant::now();
+        for group in [&files[..1], &files[1..]] {
+            stream::iter(group.iter())
+                .map(|(path, expected)| {
+                    let reader = reader.clone();
+                    let mut request = input.clone();
+                    request.metadata_only = false;
+                    request.resource_path = Some(path.clone());
+                    async move {
+                        let mut bytes = Vec::new();
+                        loop {
+                            let file = reader.read(&request).await.unwrap();
+                            bytes.extend(BASE64.decode(file.content_base64).unwrap());
+                            request.expected_revision = Some(file.revision);
+                            request.offset = bytes.len() as u64;
+                            if request.offset == file.size {
+                                break;
+                            }
+                        }
+                        assert_eq!(&bytes, expected);
+                    }
+                })
+                .buffer_unordered(6)
+                .collect::<Vec<_>>()
+                .await;
+        }
+        serial.push(start.elapsed().as_millis());
+        let preview = start_preview(reader.clone(), input.clone()).await.unwrap();
+        let bootstrap = client.get(&preview.url).send().await.unwrap();
+        let cookie = bootstrap.headers()[header::SET_COOKIE]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap();
+        let origin = reqwest::Url::parse(&preview.url).unwrap();
+        for times in [&mut cold, &mut warm] {
+            let start = std::time::Instant::now();
+            for group in [&files[..1], &files[1..]] {
+                stream::iter(group.iter())
+                    .map(|(path, expected)| {
+                        let client = client.clone();
+                        let url = origin.join(&format!("/{path}")).unwrap();
+                        async move {
+                            let response = client
+                                .get(url)
+                                .header(header::COOKIE, cookie)
+                                .send()
+                                .await
+                                .unwrap();
+                            assert_eq!(response.status(), StatusCode::OK);
+                            assert_eq!(response.bytes().await.unwrap().as_ref(), expected);
+                        }
+                    })
+                    .buffer_unordered(6)
+                    .collect::<Vec<_>>()
+                    .await;
+            }
+            times.push(start.elapsed().as_millis());
+        }
+        release(preview).await;
+    }
+    println!("HTML_PREVIEW_BENCH transport=encrypted-peer-40ms bytes={} serial_ms={serial:?} cold_ms={cold:?} warm_ms={warm:?}", files.iter().map(|(_, bytes)| bytes.len()).sum::<usize>());
+}
+
+#[tokio::test]
+async fn http_cache_revalidates_and_explicit_reload_bypasses_content_cache() {
+    let (preview, reader, client) = fixture(vec![21; PREVIEW_CHUNK_BYTES + 3]).await;
+    let (cookie, entry) = bootstrap(&client, &preview).await;
+    for control in [
+        None,
+        None,
+        Some("max-age=0"),
+        Some("no-cache"),
+        Some("no-store"),
+    ] {
+        let before = reader.requests.lock().unwrap().len();
+        let mut request = client.get(&entry).header(header::COOKIE, &cookie);
+        if let Some(control) = control {
+            request = request.header(header::CACHE_CONTROL, control);
+        }
+        assert_eq!(
+            request.send().await.unwrap().bytes().await.unwrap().len(),
+            PREVIEW_CHUNK_BYTES + 3
+        );
+        let requests = reader.requests.lock().unwrap();
+        if before > 1 && control.is_none() {
+            assert_eq!(requests.len() - before, 1);
+            assert!(requests.last().unwrap().metadata_only);
+        } else {
+            assert_eq!(requests.len() - before, 2);
+            assert!(!requests.last().unwrap().metadata_only);
+        }
+    }
+    reader.unavailable.store(true, Ordering::SeqCst);
+    assert_eq!(
+        client
+            .get(&entry)
+            .header(header::COOKIE, &cookie)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_GATEWAY
+    );
+    assert_eq!(
+        client.get(&entry).send().await.unwrap().status(),
+        StatusCode::NOT_FOUND
+    );
+    release(preview).await;
+}
+
+#[test]
+fn reload_directives_handle_repeated_headers_and_case() {
+    for (name, value) in [
+        (header::CACHE_CONTROL, "No-Cache"),
+        (header::CACHE_CONTROL, "max-age = \"0\""),
+        (header::CACHE_CONTROL, "private, NO-STORE"),
+        (header::PRAGMA, "no-cache"),
+    ] {
+        let mut headers = HeaderMap::new();
+        headers.append(header::CACHE_CONTROL, "max-age=60".parse().unwrap());
+        headers.append(name, value.parse().unwrap());
+        assert!(force_resource_reload(&headers));
+    }
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CACHE_CONTROL, "max-age=60".parse().unwrap());
+    assert!(!force_resource_reload(&headers));
 }
