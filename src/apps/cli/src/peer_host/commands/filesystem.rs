@@ -15,13 +15,18 @@ pub(crate) async fn html_preview_read_resource(args: &Value) -> Result<Value, St
     serde_json::to_value(reply).map_err(|error| error.to_string())
 }
 
-async fn file_connection(state: &PeerHostState, request: &Value) -> Result<Option<String>, String> {
-    directory_connection(&state.workspace_service, request).await
+async fn file_connection(
+    state: &PeerHostState,
+    request: &Value,
+    path: &str,
+) -> Result<Option<String>, String> {
+    directory_connection(&state.workspace_service, request, path).await
 }
 
 async fn directory_connection(
     workspaces: &WorkspaceService,
     request: &Value,
+    path: &str,
 ) -> Result<Option<String>, String> {
     if let Some(id) =
         optional_string(request, "workspaceId").or_else(|| optional_string(request, "workspace_id"))
@@ -36,7 +41,7 @@ async fn directory_connection(
     }
     workspaces
         .upgrade_legacy_file_connection(
-            &get_string(request, "path")?,
+            path,
             optional_string(request, "workspacePath").as_deref(),
             optional_string(request, "remoteConnectionId").as_deref(),
         )
@@ -69,7 +74,7 @@ pub(crate) async fn get_directory_children(
 ) -> Result<Value, String> {
     let request = request_value(args);
     let path = get_string(request, "path")?;
-    let preferred = directory_connection(workspaces, request).await?;
+    let preferred = directory_connection(workspaces, request, &path).await?;
     let nodes = files
         .get_directory_contents_on_connection(&path, preferred.as_deref())
         .await
@@ -84,7 +89,7 @@ pub(crate) async fn get_directory_children_paginated(
 ) -> Result<Value, String> {
     let request = request_value(args);
     let path = get_string(request, "path")?;
-    let preferred = directory_connection(workspaces, request).await?;
+    let preferred = directory_connection(workspaces, request, &path).await?;
     let offset = request.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
     let limit = request.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as usize;
 
@@ -117,7 +122,7 @@ pub(crate) async fn get_file_tree(
 ) -> Result<Value, String> {
     let request = request_value(args);
     let path = get_string(request, "path")?;
-    let preferred = directory_connection(workspaces, request).await?;
+    let preferred = directory_connection(workspaces, request, &path).await?;
     let nodes = files
         .build_file_tree_on_connection(&path, preferred.as_deref())
         .await
@@ -134,6 +139,7 @@ pub(crate) async fn get_file_tree(
         path.trim_end_matches('/')
             .rsplit('/')
             .next()
+            .filter(|name| !name.is_empty())
             .unwrap_or(&path)
     } else {
         std::path::Path::new(&path)
@@ -154,7 +160,7 @@ pub(crate) async fn check_path_exists(
 ) -> Result<Value, String> {
     let request = request_value(args);
     let path = get_string(request, "path")?;
-    let hint = file_connection(state, request).await?;
+    let hint = file_connection(state, request, &path).await?;
     openbitfun_core::service::filesystem::path_operations::exists(
         &state.filesystem_service,
         &path,
@@ -167,7 +173,7 @@ pub(crate) async fn check_path_exists(
 pub(crate) async fn create_directory(state: &PeerHostState, args: &Value) -> Result<Value, String> {
     let request = request_value(args);
     let path = get_string(request, "path")?;
-    let hint = file_connection(state, request).await?;
+    let hint = file_connection(state, request, &path).await?;
     openbitfun_core::service::filesystem::path_operations::create_directory(
         &state.filesystem_service,
         &path,
@@ -183,7 +189,7 @@ pub(crate) async fn read_file_content(
 ) -> Result<Value, String> {
     let request = request_value(args);
     let path = get_string(request, "filePath")?;
-    let hint = file_connection(state, request).await?;
+    let hint = file_connection(state, request, &path).await?;
     if let Some(encoding) = optional_string(request, "encoding") {
         if !encoding.eq_ignore_ascii_case("utf-8") && !encoding.eq_ignore_ascii_case("utf8") {
             return Err(format!("Unsupported text encoding: {encoding}"));
@@ -205,7 +211,7 @@ pub(crate) async fn write_file_content(
     let request = request_value(args);
     let path = get_string(request, "filePath")?;
     let content = get_string(request, "content")?;
-    let hint = file_connection(state, request).await?;
+    let hint = file_connection(state, request, &path).await?;
     openbitfun_core::service::filesystem::path_operations::write_text_checked(
         &state.filesystem_service,
         &path,
@@ -224,7 +230,7 @@ pub(crate) async fn rename_file(state: &PeerHostState, args: &Value) -> Result<V
     let request = request_value(args);
     let from = get_string(request, "oldPath")?;
     let to = get_string(request, "newPath")?;
-    let hint = file_connection(state, request).await?;
+    let hint = file_connection(state, request, &from).await?;
     openbitfun_core::service::filesystem::path_operations::rename(
         &state.filesystem_service,
         &from,
@@ -242,7 +248,7 @@ pub(crate) async fn delete_path(
 ) -> Result<Value, String> {
     let request = request_value(args);
     let path = get_string(request, "path")?;
-    let hint = file_connection(state, request).await?;
+    let hint = file_connection(state, request, &path).await?;
     let recursive = request
         .get("recursive")
         .and_then(Value::as_bool)
@@ -264,7 +270,7 @@ pub(crate) async fn list_directory_files(
 ) -> Result<Value, String> {
     let request = request_value(args);
     let path = get_string(request, "path")?;
-    let hint = file_connection(state, request).await?;
+    let hint = file_connection(state, request, &path).await?;
     let extensions = request.get("extensions").and_then(Value::as_array);
     let nodes = state
         .filesystem_service
@@ -363,6 +369,16 @@ mod tests {
             .find(|node| node["name"] == "nested")
             .unwrap();
         assert_eq!(nested["children"][0]["name"], "child.js");
+        // Legacy file operations name their path differently from directory reads.
+        // Their selected host-local provider must not require a second `path` field.
+        for field in ["filePath", "oldPath"] {
+            let legacy = json!({field: root.join("alpha.txt"), "remoteConnectionId": ""});
+            let selected =
+                directory_connection(&workspaces, &legacy, legacy[field].as_str().unwrap())
+                    .await
+                    .unwrap();
+            assert!(selected.is_none());
+        }
         let mut invalid = args;
         invalid["request"]["workspaceId"] = json!("missing-workspace");
         assert!(get_directory_children(&files, &workspaces, &invalid)
