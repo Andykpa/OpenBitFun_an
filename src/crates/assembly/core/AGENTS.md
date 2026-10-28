@@ -274,6 +274,16 @@ them under `product-full`. `PathManager::with_user_root_for_tests` derives produ
 home from the user root's parent, so a fixture that relocates managed paths must
 place its user root below the directory it means to exercise.
 
+For cold dialog startup and the production-feature scheduler stack regression:
+
+```bash
+cargo test --locked -p openbitfun-core --features product-full --lib agentic::coordination::scheduler::tests::idle_background_result_uses_the_session_logical_agent_route -- --exact
+```
+
+Run this filter alone with `RUST_MIN_STACK` unset so prior skill discovery cannot
+warm the cold-start path. The shared coordinator keeps startup state behind one
+allocation boundary for every admission surface.
+
 For direct user follow-ups to reusable subagent sessions, legacy route defaults,
 source binding, and FreshOnly admission:
 
