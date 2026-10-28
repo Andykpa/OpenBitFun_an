@@ -199,11 +199,21 @@ async fn nested_site_serves_absolute_relative_css_imports_and_binary_assets() {
 }
 
 #[tokio::test]
-async fn remote_preview_never_reads_same_named_controller_files_or_falls_back_offline() {
+async fn remote_preview_uses_its_provider_and_never_falls_back_offline() {
     let directory = tempfile::tempdir().unwrap();
-    let root = directory.path().to_string_lossy().into_owned();
+    std::fs::write(
+        directory.path().join("index.html"),
+        b"private-controller-content",
+    )
+    .unwrap();
+    // Unix can collide on the exact absolute path. Windows controller paths
+    // are a different namespace; the remote fixture must still remain POSIX.
+    let root = if cfg!(unix) {
+        directory.path().to_string_lossy().into_owned()
+    } else {
+        "/remote/preview".to_string()
+    };
     let path = format!("{root}/index.html");
-    std::fs::write(&path, b"private-controller-content").unwrap();
     let fs = Arc::new(RemoteFs::default());
     fs.file(&path, b"remote-page");
     let source = HtmlPreviewSource::new(
