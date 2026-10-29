@@ -1,7 +1,19 @@
 # Fork 规范：OpenBitFun 安卓控制器
 
 本文是**本 fork 自有规范**，不是上游文档。上游约定见根 `AGENTS.md` 与 `src/apps/mobile/AGENTS.md`。
-建立于 2026-10-29，基线 = 上游 tag `v1.0.7`（commit `db7d365`）。
+建立于 2026-10-29，起于上游 tag `v1.0.7`（commit `db7d365`），已同步至 `v1.0.8`（commit `f883190`）。
+
+## 0. 现状快照（2026-10-29）
+
+| 项 | 状态 |
+|---|---|
+| 分支 / HEAD | `fork/mobile`，基线 = 上游 `v1.0.8`（commit `f883190`） |
+| 上游历史 | 已 `--unshallow`，5832 commits，`v1.0.7` 是 `v1.0.8` 的祖先 |
+| 私有差异 | 全部带 `fork:` 前缀，用 `git log --grep='^fork' v1.0.8..HEAD` 列出 |
+| 工作树 | 干净 |
+| 可装机产物 | `OpenBitFun-Fork-1.0.8-fork.1-android.apk`（4.94 MB，v2 签名） |
+| 协议号 | 三端仍为 `2`，与你桌面 1.0.7 兼容 |
+| **未闭环** | 真机握手验收（无设备、BIOS 未开 VT-x）、GitHub fork 远端（需你点） |
 
 ## 1. 这个 fork 是什么
 
@@ -38,15 +50,16 @@ origin   = git@github.com:<你的账户>/OpenBitFun.git  # 可推，备份用
 ```
 
 - `fork/mobile` — 日常开发区。
-- `release/<versionName>` — 每次真正装机前打一条，`git tag fork-v<versionName>` 固定住"哪个 commit 出了哪个 APK"。
+- `fork-v<versionName>` — 每个装机的 APK 打一条，固定"哪个 commit 出了哪个 APK"。已打 `fork-v1.0.8-fork.1`。
 
-> ⚠️ 现状：本仓库只有 `origin` 指向 GCWing，因为 fork 还没建（`gh` 未装、`api.github.com` 无 token，这步只能你在网页上点 Fork）。你的 SSH key 认证为账户 **`Andykpa`**。建好后执行：
+> ⚠️ 现状（2026-10-29）：本仓库只有 `origin` 指向 GCWing，因为 fork 还没建——`gh` 未安装、`api.github.com` 无 token，**这步只能你在网页上点 Fork**。你的 SSH key 认证为账户 **`Andykpa`**。建好后执行：
 > ```
 > git remote rename origin upstream
 > git remote add origin git@github.com:Andykpa/OpenBitFun.git
-> git push -u origin fork/mobile
+> git push -u origin fork/mobile --follow-tags
 > ```
-> **不要用 HTTPS 推**：`github.com:443` 在本机被墙，只有 `22` 端口通（见 `portable-toolchain` 技能）。
+> 在此之前 `sync-upstream.ps1` 把 `origin` 当上游用（脚本会自动优先取 `upstream`，改名后无需改脚本）。
+> **不要用 HTTPS 推**：`github.com:443` 在本机被墙，只有 `22` 端口通，且 22 端口**间歇性 connection reset**（实测同一命令第一次通、第二次断），所以同步脚本对 fetch 做了三次重试 + 本地已有 tag 则完全跳过网络。见 `portable-toolchain` 技能。
 
 ## 4. 版本标识（可升级性的核心）
 
@@ -96,7 +109,12 @@ Set-Location D:\dy\obf_moblie\OpenBitFun
 
 产物落 `D:\software\qwnpawagent\android-apk\OpenBitFun-Fork-<versionName>-android.apk`。
 
-已记账的第一版：`1.0.7-fork.1` / code `1000701` / sha256 `22FDD3007C356A7408C1161511B7FDE32F297652ABECF3B755574D79909EE7B5` / head `db7d365`。
+已出两版，均实测通过（验签 + `aapt2` 复核 versionCode 真进了产物）：
+
+| versionName | code | sha256 | head |
+|---|---|---|---|
+| `1.0.7-fork.1` | 1000701 | `22FDD3007C356A7408C1161511B7FDE32F297652ABECF3B755574D79909EE7B5` | `db7d365` |
+| `1.0.8-fork.1` | 1000801 | `A9A0CDC9874347928FC1F967999C7E447220B2CAED5E6A855FD4B6D8D87C2C1E` | `5e83e97` |
 
 装机：`tools\android\platform-tools\adb.exe install -r <apk>`（`-r` 保留数据；报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE` 说明装过官方包或别的签名，必须先卸载）。
 
@@ -110,6 +128,10 @@ Set-Location D:\dy\obf_moblie\OpenBitFun
 Relay 会逐步加 capability 协商（`host_stream_v1`、`device_alias_v1` 等），缺 capability 就降级。
 **不要改成"猜着发未知命令"**——那是这个 fork 能长期跟住上游的前提。
 
+> 同步的前提是**完整历史**。clone 时用了 `--depth 1` 会让 `merge-base` 算不出来、rebase 无从谈起；本仓库已 `git fetch --unshallow`（5832 commits）。若以后重新 clone，务必取全量历史，或至少 `--deepen=40` 到最近两个 tag 有共同祖先。
+>
+> `v1.0.7 → v1.0.8` 的实测：上游对 `src/apps/mobile` **零改动**，rebase 无冲突，门禁 4 条违规在同步前后完全一致（新增 0）。脚本对已同步的 tag 重复执行是幂等的。
+
 ## 8. 已知上游缺陷（别追，别修，别拿来当自己的责任）
 
 在**未改一行的 v1.0.7 干净树**上实测，以下三项本来就红：
@@ -118,9 +140,11 @@ Relay 会逐步加 capability 协商（`host_stream_v1`、`device_alias_v1` 等�
 |---|---|---|
 | `mobile:architecture` → `sharedReachesPlatformTrees` | `ClientBuildContractTest.kt:60` 读 `harmonyos/**/ClientBuild.ets` | 检查脚本 `scripts/check-mobile-architecture.mjs` 的规则 6 **不排除测试源码集**，且 L419-431 的 `expected` 全硬编码 `[]`、**没有 baseline 机制**。是门禁 bug |
 | `mobile:architecture` → `defaultArgsInFeatureApi` | `AccountUiState.kt:21`、`RemoteSidebarPresentation.kt:36`、`ConversationModels.kt:40` | 规则理由是 Kotlin 默认参数传不到 Swift；已核实 `main` 上仍在，上游自己没跑过这条 |
-| `shared/ jvmTest` | `RemoteSessionStoreTest.kt:1757` `expected:<[photo-1]> but was:<null>` | 757 例仅此 1 败，3 次复现稳定、非 flaky |
+| `shared/ jvmTest` | `RemoteSessionStoreTest.kt:1757` `expected:<[photo-1]> but was:<null>` | 757 例仅此 1 败，3 次复现稳定、非 flaky；**v1.0.8 仍是 757/1 同一个用例**，上游未修 |
 
 `mobile:architecture` **不被任何 GitHub workflow 引用**（`ci.yml` / `desktop-package.yml` / `mobile-package.yml` 全无，根 `AGENTS.md` 也没有）——纯 contributor 手动脚本，所以上游带着它发版不奇怪。
+
+另：在 Windows 主机跑 `shared/ gradlew` 会打印 `Cross Compilation with Cinterop Not Supported in project 'core-crypto'`（iOS 目标的 `openBitFunArgon2` cinterop 无法在 `mingw_x64` 处理）。这是 **warning 不是 error**——本 fork 只构建安卓，忽略即可。
 
 fork 的约定：**不为了让门禁变绿去改上游 `shared/`，也不削弱检查脚本**。`sync-upstream.ps1` 会先取上游基线违规数，只要求**不新增**。
 
