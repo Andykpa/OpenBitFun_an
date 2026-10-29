@@ -91,14 +91,14 @@
       "zcode": "ZCode"
     },
     "details": {
-      "codex": "ChatGPT 訂閱",
-      "antigravity": "Google 訂閱",
-      "opencode": "Console · Zen",
-      "grok": "SuperGrok 訂閱",
-      "hermes": "Nous Portal 訂閱",
+      "codex": "ChatGPT",
+      "antigravity": "Google",
+      "opencode": "Zen",
+      "grok": "SuperGrok",
+      "hermes": "Nous Portal",
       "workbuddy": "已下線 · 廠商不再支援訂閱授權",
       "workbuddy_ai": "已下線 · 國際版",
-      "zcode": "GLM Coding Plan"
+      "zcode": "GLM Coding"
     },
     "regions": {
       "zai": "Z.ai（國際版）",
@@ -754,7 +754,7 @@
     "subscriptions": "訂閱服務",
     "importedSummary": "已匯入 {{providers}} 個服務，共 {{models}} 個模型",
     "noneImported": "尚未匯入訂閱服務",
-    "import": "匯入",
+    "addSubscription": "新增訂閱",
     "importTitle": "匯入訂閱服務",
     "loadFailed": "無法讀取訂閱服務，請重試；既有模型設定仍會保留",
     "noServices": "目前主機沒有可匯入的訂閱服務",

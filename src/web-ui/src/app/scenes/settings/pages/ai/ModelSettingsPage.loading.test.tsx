@@ -123,6 +123,10 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(update).not.toHaveBeenCalled();
     await act(async () => summary.querySelector<HTMLButtonElement>('[data-testid="settings-subscription-more"] button')!.click());
     const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.getAttribute('data-preset')).toBe('panel');
+    expect(dialog.getAttribute('data-size')).toBe('xl');
+    expect(dialog.querySelector('[data-openbitfun-part="header"] [data-openbitfun-part="description"]')).toBeNull();
+    expect(dialog.querySelector(`button[aria-label="${copy('subscriptionAuth.rescan')}"]`)).not.toBeNull();
     expect(dialog.textContent).toContain('shared@example.invalid');
     const quota = dialog.querySelector('[data-account-id="codex"] [data-openbitfun-part="subscriptionQuota"]')!;
     expect(quota.closest('.openbitfun-config-page-row__description')).not.toBeNull();
@@ -411,8 +415,9 @@ describe('ModelSettingsPage loading and provider actions', () => {
     vi.spyOn(aiApi, 'cancelSubscriptionLogin').mockResolvedValue(undefined);
     vi.spyOn(systemAPI, 'openExternal').mockResolvedValue(undefined);
     await act(async () => root.render(<ModelSettingsPage />));
-    await act(async () => button('acquisition.import').click());
+    await act(async () => button('acquisition.addSubscription').click());
     const dialog = () => document.querySelector<HTMLElement>('.openbitfun-model-settings__subscription-dialog:not([aria-hidden="true"])')!;
+    expect(dialog().querySelector(`button[aria-label="${copy('subscriptionAuth.rescan')}"]`)).toBeNull();
     const login = (provider: string) => [...dialog().querySelectorAll<HTMLButtonElement>(`[data-provider="${provider}"] button`)]
       .find(element => element.textContent === copy('subscriptionAuth.login'))!;
     expect(dialog().querySelector('[data-testid="settings-subscription-provider"]')).toBeNull();
@@ -429,6 +434,13 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(quota).not.toHaveBeenCalled();
     if (loginProvider === 'zcode_cn') {
       const zcode = dialog().querySelector<HTMLElement>('[data-provider="zcode"]')!;
+      const capsule = zcode.querySelector('[data-openbitfun-component="capsule"]')!;
+      expect(capsule.getAttribute('data-layout')).toBe('split');
+      expect(capsule.getAttribute('data-split-sizing')).toBe('content');
+      expect(capsule.querySelector('[data-openbitfun-component="select"]')?.getAttribute('data-width')).toBe('content');
+      expect(capsule.children).toHaveLength(2);
+      expect(capsule.querySelector('[role="combobox"]')).not.toBeNull();
+      expect(login('zcode').parentElement).toBe(capsule);
       expect(zcode.querySelector('[role="combobox"]')?.textContent).toBe(copy('subscriptionAuth.regionsShort.zai'));
       await act(async () => zcode.querySelector<HTMLButtonElement>('[role="combobox"]')!.click());
       await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')]
@@ -464,7 +476,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     const start = vi.spyOn(aiApi, 'startSubscriptionAccountLogin').mockRejectedValue(new Error('Authorization unavailable'));
     vi.spyOn(aiApi, 'cancelSubscriptionLogin').mockResolvedValue(undefined);
     await act(async () => root.render(<ModelSettingsPage />));
-    await act(async () => button('acquisition.import').click());
+    await act(async () => button('acquisition.addSubscription').click());
     const dialog = document.querySelector<HTMLElement>('.openbitfun-model-settings__subscription-dialog')!;
     const action = (key: string) => [...dialog.querySelectorAll<HTMLButtonElement>('button')]
       .find(element => element.textContent === copy(key))!;
@@ -515,7 +527,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     await act(async () => root.render(<ModelSettingsPage />));
     await act(async () => inModelEditor
       ? container.querySelector<HTMLButtonElement>('[data-testid="settings-subscription-services"] button')!.click()
-      : button('acquisition.import').click());
+      : button('acquisition.addSubscription').click());
     const dialog = () => [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].at(-1)!;
     const dialogButton = (key: string) => [...dialog().querySelectorAll<HTMLButtonElement>('button')]
       .find(element => element.textContent === copy(key))!;
@@ -598,7 +610,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(selectors().every(element => element.disabled)).toBe(true);
     expect(button('actions.addModel').disabled).toBe(true);
     expect(container.querySelector<HTMLButtonElement>('[data-testid="settings-smart-mode-configure"]')?.disabled).toBe(true);
-    expect(button('acquisition.import').disabled).toBe(false);
+    expect(button('acquisition.addSubscription').disabled).toBe(false);
 
     await act(async () => {
       reads.get('ai.models')!.resolve([model]);
@@ -803,7 +815,9 @@ describe('ModelSettingsPage loading and provider actions', () => {
         const editor = document.querySelector<HTMLElement>('.openbitfun-model-settings__editor-dialog')!;
         const brand = editor.querySelector<HTMLElement>('[data-testid="settings-provider-editor-brand"]')!;
         expect(brand.getAttribute('aria-label')).toBe(model.name);
-        expect(editor.querySelector('.openbitfun-model-settings__provider-editor-header [data-openbitfun-part="heading"]')?.classList.contains('sr-only')).toBe(true);
+        expect(editor.getAttribute('data-preset')).toBe('panel');
+        expect(editor.querySelector('[data-openbitfun-part="title"]')?.classList.contains('sr-only')).toBe(true);
+        expect(brand.closest('[data-openbitfun-part="heading"]')).not.toBeNull();
         if (kind === 'subscription') expect(brand.querySelector<HTMLElement>('[data-product-logo="codex"]')?.style.width).toBe('64px');
         else {
           expect(brand.getAttribute('role')).toBe('heading');
