@@ -247,6 +247,14 @@
         "openai": "OpenAI兼容格式-默認"
       }
     },
+    "openai": {
+      "name": "OpenAI",
+      "description": "OpenAI GPT 與推理模型",
+      "urlOptions": {
+        "default": "Responses API（預設）",
+        "chatCompletions": "Chat Completions API"
+      }
+    },
     "gemini": {
       "name": "Google Gemini",
       "description": "Google Gemini 系列模型"
