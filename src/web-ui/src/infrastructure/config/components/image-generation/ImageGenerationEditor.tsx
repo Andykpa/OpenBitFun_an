@@ -39,7 +39,7 @@ export default function ImageGenerationEditor({ open, initial, credentials, serv
   const [outcome, setOutcome] = useState<ImageServiceTestOutcome>();
   const version = useRef(0);
   const original = useRef('');
-  const checkPrompt = 'A simple red circle centered on a plain white background';
+  const checkPrompt = 'A cute minimalist mascot icon with a rounded-rectangle body, two small friendly oval eyes, and a short top antenna ending in a round joystick knob. Use a playful, harmonious color palette selected randomly for each generation, with no fixed colors. Centered composition, clean uncluttered background, polished product illustration.';
 
   useEffect(() => {
     version.current += 1; setOutcome(undefined); setTesting(false); setSaving(false); setTestConfirmOpen(false);
