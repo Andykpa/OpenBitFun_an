@@ -12,27 +12,21 @@
 
 #![allow(dead_code)]
 
+use super::macos_ax_dispatch::{
+    is_attribute_settable as AXUIElementIsAttributeSettable,
+    perform_action as AXUIElementPerformAction,
+    set_input_attribute_value as AXUIElementSetAttributeValue,
+};
 use crate::computer_use::macos_ax_dump::AxRef;
 use core_foundation::base::{CFTypeRef, TCFType};
 use core_foundation::boolean::CFBoolean;
-use core_foundation::string::{CFString, CFStringRef};
+use core_foundation::string::CFString;
 
 type AXUIElementRef = *const std::ffi::c_void;
 
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
     fn AXUIElementGetPid(element: AXUIElementRef, pid: *mut i32) -> i32;
-    fn AXUIElementIsAttributeSettable(
-        element: AXUIElementRef,
-        attribute: CFStringRef,
-        settable: *mut u8,
-    ) -> i32;
-    fn AXUIElementPerformAction(element: AXUIElementRef, action: CFStringRef) -> i32;
-    fn AXUIElementSetAttributeValue(
-        element: AXUIElementRef,
-        attribute: CFStringRef,
-        value: CFTypeRef,
-    ) -> i32;
 }
 
 /// Result of an AX-first attempt.
