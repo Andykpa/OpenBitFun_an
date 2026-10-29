@@ -53,6 +53,9 @@
     "rescan": "Refresh status",
     "import": "Use as model",
     "login": "Sign in",
+    "loginTitle": "{{provider}} sign-in",
+    "backToProviders": "Back to providers",
+    "cancelAndBack": "Cancel sign-in and go back",
     "browserLogin": "Browser sign-in",
     "deviceLogin": "Device-code sign-in",
     "cancel": "Cancel",
@@ -98,8 +101,12 @@
       "zcode": "GLM Coding Plan"
     },
     "regions": {
-      "zai": "Z.ai",
+      "zai": "Z.ai (International)",
       "bigmodel": "BigModel (China)"
+    },
+    "regionsShort": {
+      "zai": "Global",
+      "bigmodel": "China"
     },
     "options": {
       "opencode": "OpenCode",
@@ -750,7 +757,9 @@
     "import": "Import",
     "importTitle": "Import subscriptions",
     "loadFailed": "Could not load subscriptions. Retry to refresh; existing model configurations are retained.",
-    "noServices": "No subscriptions are available to import on this host"
+    "noServices": "No subscriptions are available to import on this host",
+    "more": "More",
+    "noSignedInAccounts": "No signed-in accounts"
   },
   "selectionModes": {
     "unavailable": "Not available yet",
