@@ -33,20 +33,20 @@ $env:PATH = ((Join-Path $ToolsRoot 'node') + ';' + $env:PATH)
 
 # The checker prints one "actual:" line per failing rule holding a JSON array.
 # Parse that as JSON - string munging here would silently under-count.
+# Emits one violation per pipeline item; callers wrap in @() so a single
+# violation still collects into a 1-element array rather than a bare string.
 function Get-GateViolations([string]$workTree) {
   Push-Location $workTree
   try {
     $out = cmd /c 'node scripts/check-mobile-architecture.mjs 2>&1'
-    $all = [System.Collections.Generic.List[string]]::new()
     foreach ($l in $out) {
       $s = "$l".Trim()
       if ($s -notlike 'actual:*') { continue }
       $json = ($s -replace '^actual:\s*', '')
       if (-not $json -or $json -eq '[]') { continue }
-      try { foreach ($v in ($json | ConvertFrom-Json)) { $all.Add("$v") } }
+      try { foreach ($v in @($json | ConvertFrom-Json)) { "$v" } }
       catch { throw "could not parse gate output as JSON: $json" }
     }
-    return , @($all | Sort-Object -Unique)
   }
   finally { Pop-Location }
 }
@@ -63,9 +63,23 @@ Write-Host "[sync] branch = $branch"
 
 $up = Resolve-UpstreamRemote
 Write-Host "[sync] remote = $up"
-git -C $repo fetch --tags --force $up "refs/tags/${To}:refs/tags/${To}" 2>&1 |
-  ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Last 2
-if ($LASTEXITCODE -or -not (git -C $repo rev-parse --verify -q "refs/tags/$To")) { throw "fetch of tag $To failed" }
+# GitHub over port 22 resets intermittently on this network, so a tag we already
+# have locally must not require the network at all - otherwise a completed rebase
+# looks like a failed sync.
+if (git -C $repo rev-parse --verify -q "refs/tags/$To") {
+  Write-Host "[sync] tag $To already present locally; skipping fetch"
+}
+else {
+  $fetched = $false
+  foreach ($try in 1..3) {
+    git -C $repo fetch --tags --force $up "refs/tags/${To}:refs/tags/${To}" 2>&1 |
+      ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Last 2
+    if (git -C $repo rev-parse --verify -q "refs/tags/$To") { $fetched = $true; break }
+    Write-Host "[sync] fetch attempt $try failed (port 22 is flaky here); retrying in 5s"
+    Start-Sleep -Seconds 5
+  }
+  if (-not $fetched) { throw "could not fetch tag $To after 3 attempts" }
+}
 Write-Host "[sync] upstream $To = $(git -C $repo rev-parse --short $To)"
 
 # --- what would move -------------------------------------------------------
@@ -113,7 +127,7 @@ else {
   if (Test-Path $wt) { git -C $repo worktree remove --force $wt 2>&1 | Out-Null }
   git -C $repo worktree add --detach $wt $To 2>&1 | ForEach-Object { "$_".Trim() } | Select-Object -Last 1
   Write-Host '[sync] measuring gate violations on the pristine upstream tree ...'
-  $baseline = @(Get-GateViolations $wt)
+  $baseline = @((Get-GateViolations $wt | Sort-Object))
   Write-Host "[sync] upstream baseline = $($baseline.Count) violations"
   @($baseline) | ConvertTo-Json -Compress | Set-Content $cache -Encoding ascii
   git -C $repo worktree remove --force $wt 2>&1 | Out-Null
@@ -136,7 +150,7 @@ Write-Host "[sync] rebased onto $To ; head = $(git -C $repo rev-parse --short HE
 
 # --- verify: no NEW gate violations --------------------------------------
 Write-Host '[sync] re-checking the gate on the rebased fork tree ...'
-$after = @(Get-GateViolations $repo)
+$after = @((Get-GateViolations $repo | Sort-Object))
 $new = @($after | Where-Object { $baseline -notcontains $_ })
 Write-Host "[sync] violations upstream=$($baseline.Count) fork=$($after.Count) new=$($new.Count)"
 if ($new.Count -gt 0) {
