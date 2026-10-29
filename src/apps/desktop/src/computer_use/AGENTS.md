@@ -61,6 +61,7 @@ remaining native acceptance scenarios separately.
 - `desktop_host/observation.rs`, `observation_cache.rs` — observation identity and bounded screenshot geometry; never input authority
 - `desktop_host/state.rs` — derived host feedback and view caches
 - `macos_*` / `windows_*` — platform AX, capture, list-apps, shortcuts
+- `macos_ax_dispatch` — per-element AX thread routing and native exception boundary
 - `windows_capture.rs` — WGC frame conversion and authoritative window bounds
 - `windows_wgc_capture.rs` — Windows.Graphics.Capture (Direct3D11)
 - `windows_window_target.rs` — Win32 window facts and portable default-target policy
@@ -110,6 +111,21 @@ from region size, or let a zoom read pixels outside the bound window. Only
 inputs that can name a screenshot_id require one after a zoom.
 
 ## Target-local macOS focus acceptance
+
+AX walks and cached-node operations run on a blocking worker. Route each native
+message by the element's serving PID through `macos_ax_dispatch`: same-process
+AppKit callbacks require main, while WebKit subprocess messages need main free
+to answer synchronous IPC, including AX client authentication. Never dispatch an
+entire walk based on its root PID; a single tree spans both processes.
+`AXUIElementGetPid` reports the presenter for WebKit descendants; thread routing
+uses dynamically resolved `_AXUIElementGetActualPid`. Keep the presenter PID for
+target/permission validation. If the serving-PID SPI is unavailable, report an
+explicit unsupported state instead of guessing a thread. Keep the
+control token across same-process dispatch and catch Objective-C exceptions on
+the executing thread. Recheck input authority there before actions or user
+attribute writes, because Stop may revoke a queued message. Observation-only
+AX enablement does not acquire input authority. Enigo / HIToolbox input retains
+its main-thread wrapper.
 
 The directed-input route can change a target application's internal
 focus without changing the human foreground application. Its window-addressed
@@ -187,6 +203,9 @@ node scripts/test-macos-input-controls.mjs --latency
 node scripts/test-macos-input-controls.mjs
 # Full Tool -> provider -> native loop on a dedicated window, with main-thread runloop.
 node scripts/test-macos-control-roundtrip.mjs
+# Same-process AppKit + real WebKit subtree: observe, capture, click once,
+# observe the actual DOM result, read shortcuts and Stop; external deadlock watchdog.
+node scripts/test-macos-computer-use-self.mjs
 # Same-process popup panel over a dedicated window, once as an attached child
 # window (inherits layer 0) and once at the pop-up menu level: composited pixels
 # and auxiliary metadata, popup-routed press without focus preparation
