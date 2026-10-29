@@ -11,7 +11,7 @@ const run = (command, args, options = {}) => new Promise((resolve, reject) => {
   let output = '';
   child.stdout?.on('data', chunk => { output += String(chunk); });
   child.once('error', reject);
-  child.once('exit', (code, signal) => code === 0 ? resolve(output) : reject(new Error(`${command} failed: code=${code} signal=${signal}`)));
+  child.once('close', (code, signal) => code === 0 ? resolve(output) : reject(new Error(`${command} failed: code=${code} signal=${signal}`)));
 });
 const args = ['test', '--locked', '-p', 'openbitfun-desktop', '--features', 'devtools', '--test', 'computer_use_native_roundtrip'];
 let executable = process.env.OPENBITFUN_TEST_BINARY;

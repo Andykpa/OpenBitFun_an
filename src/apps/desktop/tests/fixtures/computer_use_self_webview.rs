@@ -28,7 +28,15 @@ pub(super) fn create() -> Retained<NSWindow> {
             <h1>Self observation ready</h1>
             <button onclick="document.getElementById('result').textContent='Self click count '+(++window.clicks)">Self test button</button>
             <label>Self test field<input aria-label="Self test field"></label>
-            <p id="result">Self click count 0</p><script>window.clicks=0</script>
+            <p id="result">Self click count 0</p><p id="input-result">Self input value: </p>
+            <script>
+            window.clicks=0;
+            setInterval(() => {
+                const result = document.getElementById('input-result');
+                const value = 'Self input value: ' + document.querySelector('input').value;
+                if (result.textContent !== value) result.textContent = value;
+            }, 50);
+            </script>
             </body></html>"#,
         );
         let _: *mut AnyObject =

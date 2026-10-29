@@ -127,6 +127,11 @@ attribute writes, because Stop may revoke a queued message. Observation-only
 AX enablement does not acquire input authority. Enigo / HIToolbox input retains
 its main-thread wrapper.
 
+Cross-process AX proxies can advertise a writable `AXSelectedText` whose setter
+does nothing (WebKit). Select the existing directed-keyboard route before
+submission for these proxies; native controls retain AX insertion at the current
+selection. Never retry a submitted text write based only on unchanged AX state.
+
 The directed-input route can change a target application's internal
 focus without changing the human foreground application. Its window-addressed
 focus pair at local `(-8,-8)` must remain outside content; the requested gesture
@@ -203,8 +208,8 @@ node scripts/test-macos-input-controls.mjs --latency
 node scripts/test-macos-input-controls.mjs
 # Full Tool -> provider -> native loop on a dedicated window, with main-thread runloop.
 node scripts/test-macos-control-roundtrip.mjs
-# Same-process AppKit + real WebKit subtree: observe, capture, click once,
-# observe the actual DOM result, read shortcuts and Stop; external deadlock watchdog.
+# Same-process AppKit + real WebKit subtree: observe, capture, image/node clicks,
+# exact text, actual DOM results, shortcuts and Stop; external deadlock watchdog.
 node scripts/test-macos-computer-use-self.mjs
 # Same-process popup panel over a dedicated window, once as an attached child
 # window (inherits layer 0) and once at the pop-up menu level: composited pixels

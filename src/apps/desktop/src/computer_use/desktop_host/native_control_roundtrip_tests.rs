@@ -629,13 +629,47 @@ async fn self_webview_roundtrip() {
             .contains("Self click count 1"),
         "{clicked}"
     );
+    let button_idx = observed_node_index(&clicked, "Self test button");
+    let clicked = call(
+        &tool,
+        &context,
+        json!({"action":"app_click", "app":app,
+        "observation_id":clicked["app_state"]["observation_id"],
+        "target":{"kind":"node_idx", "idx":button_idx}}),
+    )
+    .await;
+    assert!(
+        clicked["app_state"]["tree_text"]
+            .as_str()
+            .unwrap()
+            .contains("Self click count 2"),
+        "{clicked}"
+    );
+    let field_idx = observed_node_index(&clicked, "text field title=\"Self test field\"");
+    let typed = call(
+        &tool,
+        &context,
+        json!({"action":"app_type_text", "app":app, "text":"Self input ✓",
+        "observation_id":clicked["app_state"]["observation_id"],
+        "focus":{"kind":"node_idx", "idx":field_idx}}),
+    )
+    .await;
+    let typed_tree = typed["app_state"]["tree_text"].as_str().unwrap();
+    assert!(
+        typed_tree.contains("Self input value: Self input ✓"),
+        "The DOM must contain the exact inserted text: {typed}"
+    );
+    assert!(
+        typed_tree.contains("Self click count 2"),
+        "Text focus must not activate the button again: {typed}"
+    );
     call(
         &tool,
         &context,
         json!({"action":"get_app_shortcuts","app":app}),
     )
     .await;
-    let native_idx = observed_node_index(&clicked, "Computer Use Self WebView Fixture");
+    let native_idx = observed_node_index(&typed, "Computer Use Self WebView Fixture");
     let native_target =
         crate::computer_use::macos_ax_dump::retained_cached_target(pid as i32, native_idx).unwrap();
     let lease = crate::computer_use::control_session::acquire(OWNER, "app_click").unwrap();
@@ -676,7 +710,7 @@ async fn self_webview_roundtrip() {
     .await
     .unwrap();
     call(&tool, &context, json!({"action":"stop_control"})).await;
-    eprintln!("PASS same-process AppKit/WebKit observations, screenshot, one button click, shortcuts and Stop with stale-input rejection through ComputerUse");
+    eprintln!("PASS same-process AppKit/WebKit observations, screenshot, exact image/node clicks, Unicode text, shortcuts and Stop with stale-input rejection through ComputerUse");
 }
 
 async fn run_covered_semantic() {
