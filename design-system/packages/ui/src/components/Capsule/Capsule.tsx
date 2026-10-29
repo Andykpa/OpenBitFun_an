@@ -7,7 +7,7 @@ import styles from "./Capsule.module.css";
 export interface CapsuleProps extends HTMLAttributes<HTMLSpanElement> {
   /** Join two independent controls into one capsule. */
   layout?: "inline" | "split";
-  /** Fit the leading split control to its content, or use equal halves. */
+  /** Fit both split controls and the capsule to their content, or use equal halves. */
   splitSizing?: "equal" | "content";
   /** One IconButton (optionally wrapped in Tooltip), rendered beside the content. */
   action?: ReactNode;

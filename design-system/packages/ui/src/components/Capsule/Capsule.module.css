@@ -35,7 +35,8 @@
   }
 
   .root[data-layout="split"][data-split-sizing="content"] {
-    grid-template-columns: max-content minmax(0, 1fr);
+    grid-template-columns: repeat(2, max-content);
+    inline-size: max-content;
   }
 
   .root[data-layout="split"] > [data-openbitfun-component="select"],
@@ -44,7 +45,8 @@
     inline-size: 100%;
   }
 
-  .root[data-layout="split"][data-split-sizing="content"] > :first-child {
+  .root[data-layout="split"][data-split-sizing="content"] > [data-openbitfun-component="select"],
+  .root[data-layout="split"][data-split-sizing="content"] > [data-openbitfun-component="button"] {
     inline-size: max-content;
     max-inline-size: 100%;
   }
