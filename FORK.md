@@ -13,7 +13,8 @@
 | 工作树 | 干净 |
 | 可装机产物 | `OpenBitFun-Fork-1.0.8-fork.1-android.apk`（4.94 MB，v2 签名） |
 | 协议号 | 三端仍为 `2`，与你桌面 1.0.7 兼容 |
-| **未闭环** | 真机握手验收（无设备、BIOS 未开 VT-x）、GitHub fork 远端（需你点） |
+| 远端 | `upstream`=GCWing（push 已禁用）、`origin`=Andykpa/OpenBitFun_an，`fork/mobile` 与 `fork-v1.0.8-fork.1` 均已推送 |
+| **未闭环** | 真机握手验收（无设备、BIOS 未开 VT-x） |
 
 ## 1. 这个 fork 是什么
 
@@ -45,21 +46,60 @@
 ## 3. 分支与远端
 
 ```
-upstream = git@github.com:GCWing/OpenBitFun.git   # 只读，跟进用
-origin   = git@github.com:<你的账户>/OpenBitFun.git  # 可推，备份用
+upstream = git@github.com:GCWing/OpenBitFun.git        # 只读，跟进用；push URL 已禁用
+origin   = git@github.com:Andykpa/OpenBitFun_an.git   # 可推，备份用
 ```
 
 - `fork/mobile` — 日常开发区。
-- `fork-v<versionName>` — 每个装机的 APK 打一条，固定"哪个 commit 出了哪个 APK"。已打 `fork-v1.0.8-fork.1`。
+- `fork-v<versionName>` — 每个装机的 APK 打一条，固定"哪个 commit 出了哪个 APK"。
+- `main` — 上游镜像，不本地开发；GitHub 上它仍是默认分支。
 
-> ⚠️ 现状（2026-10-29）：本仓库只有 `origin` 指向 GCWing，因为 fork 还没建——`gh` 未安装、`api.github.com` 无 token，**这步只能你在网页上点 Fork**。你的 SSH key 认证为账户 **`Andykpa`**。建好后执行：
+> ✅ 已配置（2026-10-29）：`fork/mobile`（`57d58e2`）与 `fork-v1.0.8-fork.1` 均已推送到 origin，远端 tag 解引用为 `5e83e97`，与账本 `git_head` 一致。
+>
+> **推送时故意没有用 `--follow-tags`**：本地 53 个上游 tag 里混着轻量 tag，而 `--follow-tags` 只推 annotated tag——上游恰好有个 annotated 的 `v1.0.3-beta.1`，用它会替上游推一个不属于我们的 tag。所以只显式推自己的：
 > ```
-> git remote rename origin upstream
-> git remote add origin git@github.com:Andykpa/OpenBitFun.git
-> git push -u origin fork/mobile --follow-tags
+> git push -u origin fork/mobile
+> git push origin refs/tags/fork-v<versionName>
 > ```
-> 在此之前 `sync-upstream.ps1` 把 `origin` 当上游用（脚本会自动优先取 `upstream`，改名后无需改脚本）。
-> **不要用 HTTPS 推**：`github.com:443` 在本机被墙，只有 `22` 端口通，且 22 端口**间歇性 connection reset**（实测同一命令第一次通、第二次断），所以同步脚本对 fetch 做了三次重试 + 本地已有 tag 则完全跳过网络。见 `portable-toolchain` 技能。
+>
+> **防误推**：`git remote set-url --push upstream DISABLED-no-push-to-upstream` 已执行，`git remote -v` 里 upstream 的 push URL 不是真地址。推错仓库不可逆，别把它改回来。
+>
+> **不要用 HTTPS**：`github.com:443` 在本机被墙，只有 `22` 端口通，且 22 **间歇性 connection reset**（实测同一命令第一次断、重试即通），所以对 fetch/push 要做重试；`sync-upstream.ps1` 已内置三次重试 + 本地已有 tag 则完全跳过网络。见 `portable-toolchain` 技能。
+
+### 为什么是全量 fork，不是只摘 APK 部分
+
+GitHub 的 Fork 是仓库级对象共享，**没有"选目录"这种选项**；能选的只有本地检出范围（`git sparse-checkout`）。实测不划算：
+
+| 事实 | 数字 |
+|---|---|
+| tracked 工作树总计 | 173 MB / 9831 files |
+| `.git` 对象（sparse **省不到**） | 311 MB |
+| 必须完整的历史 | 5832 commits（浅历史会让 `merge-base` 算不出来、rebase 直接瘫掉） |
+
+而且按直觉把 `harmonyos/`、`crates/` 剔掉会**制造新违规**——APK 的硬依赖链伸到 mobile 目录之外：
+
+- `app/build.gradle.kts:118` 的 `preBuild` 跑 `generate.cjs android`，它读 `src/crates/contracts/product-domains/src/miniapp`（3.56 MB / 90 files）
+- `app/build.gradle.kts:26` 的 assets 指 `src/shared/terminal/webview/generated`（已入库 3 个文件，**因此不需要 cargo/构建桌面端**）
+- `shared/core-transport/build.gradle.kts:80` 从**仓库根** `package.json` 取 `WORKSPACE_PACKAGE_VERSION`
+- `ClientBuildContractTest.kt:20` 靠"同时存在 `Cargo.toml` 与 `package.json`"定位仓库根，再读 `crates/.../account.rs`（L26）和 `harmonyos/**/ClientBuild.ets`（L60）钉死三端协议号——这些文件一缺，测试就因**文件不存在**而失败，变成 fork 自己引入的红灯
+
+省下的只有 `src/web-ui`（80 MB）+ `src/crates` 其余（36 MB），却换来门禁假阳性的风险。真要瘦身，用下面这条不动 git 的办法。
+
+### 编辑器排除索引（不改 git，安全）
+
+安卓开发永远用不到 `src/web-ui`（3970 files），但它是搜索和文件监听的头号噪音源。**排除索引不等于从磁盘删除**——文件仍在原地供测试与构建使用，所以不会触发上面那类"文件缺失"失败。
+
+配置落在 `.vscode/settings.json`，该路径已被上游 `.gitignore:72`（`.vscode/*`）忽略，**不入库、不弄脏工作树、不影响 rebase**。排除的靶子：
+
+| 排除项 | 理由 |
+|---|---|
+| `src/web-ui`、`third_party` | 与安卓无关的体积大头（3970 + 214 files） |
+| `**/build`、`**/.gradle` | Gradle 产物，数量最大且变动最频繁（watcher 杀手） |
+| `png`、`docs/interactive-capabilities` | 单个 1.1 MB 的生成 JSON / 大图片，纯噪音 |
+| `src/crates/.../generated` | 生成的 catalog JSON，只读、体量大 |
+
+⚠️ 别把这些加进 `.gitignore`，也别用 `git sparse-checkout`——那会从磁盘/索引里真拿掉文件，撞上 `ClientBuildContractTest` 与 `generate.cjs` 的依赖。
+
 
 ## 4. 版本标识（可升级性的核心）
 
