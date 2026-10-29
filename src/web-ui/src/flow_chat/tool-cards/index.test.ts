@@ -17,6 +17,7 @@ import { AgentInteractionToolCard } from './AgentInteractionToolCard';
 import { OpenBitFunControlToolCard } from './OpenBitFunControlToolCard';
 import { DefaultToolCard } from './DefaultToolCard';
 import { compatibilityToolPresentationOwners, genericToolNames } from '@openbitfun/flow-chat-presentation/registry';
+import { GenerateImageToolCard } from './GenerateImageToolCard';
 
 // These cards remain available for rendering historical or explicitly
 // configured tool calls, but are no longer part of the current presentation
@@ -29,6 +30,11 @@ describe('tool card registry', () => {
     expect(getToolCardComponent('OpenBitFunControl')).toBe(OpenBitFunControlToolCard);
     expect(usesDefaultToolCard('OpenBitFunControl')).toBe(false);
     expect(isCollapsibleTool('OpenBitFunControl')).toBe(false);
+  });
+
+  it('uses the dedicated always-open image card for generated images', () => {
+    expect(getToolCardComponent('generate_image')).toBe(GenerateImageToolCard);
+    expect(isCollapsibleTool('generate_image')).toBe(false);
   });
   it('projects managed Review workers through the unified coverage card', () => {
     expect(getToolCardComponent('LaunchReviewAgent')).toBe(TaskToolDisplay);
