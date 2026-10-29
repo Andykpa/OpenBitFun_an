@@ -1466,10 +1466,6 @@
     font-variant-numeric: tabular-nums;
   }
 
-  &__subscription-management {
-    padding-inline: var(--openbitfun-space-6);
-  }
-
   &__endpoint-row {
     > .openbitfun-config-page-row__meta {
       display: flex;
@@ -1680,10 +1676,6 @@
     max-width: 100%;
   }
 
-  &__model-discovery-dialog {
-    block-size: min(420px, calc(100vh - 2 * var(--openbitfun-overlay-dialog-viewport-gutter)));
-  }
-
   &__model-discovery-body {
     gap: var(--openbitfun-space-3);
     overflow: hidden;
@@ -1843,75 +1835,17 @@
     border-top: 1px dashed var(--openbitfun-color-field-border-hover);
   }
 
-  &__editor-dialog {
-    block-size: auto;
-    max-block-size: calc(100dvh - 2 * var(--openbitfun-overlay-dialog-viewport-gutter));
-  }
-
-  &__editor-heading-group {
-    flex: 1 1 auto;
-  }
-
-  &__provider-editor-header {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-    align-items: start;
-
-    > .openbitfun-model-settings__editor-heading-group {
-      grid-column: 1;
-      grid-row: 1;
-    }
-
-    > [data-openbitfun-part='close'] {
-      grid-column: 3;
-      grid-row: 1;
-      justify-self: end;
-    }
-  }
-
   &__provider-editor-brand {
     display: flex;
-    grid-column: 2;
-    grid-row: 1;
     align-items: center;
     justify-content: center;
-    min-inline-size: var(--openbitfun-space-16);
-    min-block-size: var(--openbitfun-space-16);
-    margin-block-start: var(--openbitfun-space-10);
     color: var(--openbitfun-color-content-primary);
     text-align: center;
     overflow-wrap: anywhere;
-    font-family: var(--openbitfun-type-heading-page-font-family);
-    font-size: var(--openbitfun-type-heading-page-font-size);
-    font-weight: var(--openbitfun-type-heading-page-font-weight);
-    line-height: var(--openbitfun-type-heading-page-line-height);
-  }
-
-  &__provider-editor-body > .openbitfun-model-settings__form--modal {
-    max-inline-size: var(--openbitfun-overlay-dialog-max-inline-size-large);
-    margin-inline: auto;
-  }
-
-  &__provider-editor-body .openbitfun-model-settings__form-content {
-    gap: var(--openbitfun-space-4);
-  }
-
-  &__model-editor-header {
-    align-items: center;
-
-    [data-openbitfun-part='heading'] {
-      justify-content: center;
-      min-block-size: var(--openbitfun-control-icon-button-xs-size);
-    }
-
-    [data-openbitfun-part='title'] {
-      color: var(--openbitfun-color-content-primary);
-      font-family: var(--openbitfun-type-label-selected-font-family);
-      font-size: var(--openbitfun-type-label-selected-font-size);
-      font-weight: var(--openbitfun-type-label-selected-font-weight);
-      line-height: var(--openbitfun-type-action-row-line-height);
-      letter-spacing: var(--openbitfun-type-label-selected-letter-spacing);
-    }
+    font-family: var(--openbitfun-type-heading-dialog-font-family);
+    font-size: var(--openbitfun-type-heading-dialog-font-size);
+    font-weight: var(--openbitfun-type-heading-dialog-font-weight);
+    line-height: var(--openbitfun-type-heading-dialog-line-height);
   }
 
   &__form--modal {
@@ -1928,15 +1862,18 @@
     }
   }
 
+  &__single-model-fields .openbitfun-config-page-row {
+    padding: var(--openbitfun-space-3) var(--openbitfun-space-4);
+  }
+
   &__advanced-settings-content {
     padding-inline: 0;
   }
 
   &__form-content {
-    padding-inline: var(--openbitfun-space-6);
     display: flex;
     flex-direction: column;
-    gap: var(--openbitfun-space-6);
+    gap: var(--openbitfun-space-4);
 
     > * {
       flex-shrink: 0;
@@ -2544,13 +2481,6 @@
 }
 
 .openbitfun-model-settings {
-  &__subscription-dialog {
-    max-block-size: min(
-      640px,
-      calc(100dvh - 2 * var(--openbitfun-overlay-dialog-viewport-gutter))
-    );
-  }
-
   &__subscription-content {
     container: config-panel / inline-size;
     display: grid;
@@ -2865,10 +2795,6 @@
     .openbitfun-config-page-row--multiline.openbitfun-config-page-row--wide .openbitfun-config-page-row__control {
       grid-column: 1;
     }
-  }
-
-  .openbitfun-model-settings__form-content {
-    padding-inline: var(--openbitfun-space-4);
   }
 
   .openbitfun-model-settings__connection-section > .openbitfun-config-page-section__body {

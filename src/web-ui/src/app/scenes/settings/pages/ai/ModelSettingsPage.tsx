@@ -130,10 +130,10 @@ import {
   Dialog,
   DialogBody,
   DialogClose,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogHeaderActions,
+  DialogHeaderLeading,
   DialogHeading,
   DialogTitle,
   Disclosure,
@@ -3654,6 +3654,7 @@ const ModelSettingsPage: React.FC = () => {
       return (
         <FieldGroup
           data-testid="settings-model-editor"
+          className="openbitfun-model-settings__single-model-fields"
           appearance="subtle"
           dividers={false}
           fieldSurface="default"
@@ -4800,8 +4801,8 @@ const ModelSettingsPage: React.FC = () => {
                     </span>
                   )}
                 </div>
-                <Button size="sm" onClick={() => { setSubscriptionDialogMode('import'); setShowSubscriptionManager(true); }}>
-                  {t('acquisition.import')}
+                <Button size="sm" onClick={() => { setSubscriptionDialogMode('import'); setShowSubscriptionManager(true); }} leadingIcon={<Icon name="plus" size="sm" />}>
+                  {t('acquisition.addSubscription')}
                 </Button>
               </div>
             )}
@@ -4956,7 +4957,7 @@ const ModelSettingsPage: React.FC = () => {
             ) : (
               <ConfigEmptyState data-openbitfun-component="model-settings" data-openbitfun-part="empty"
                 icon={<Wifi aria-hidden="true" />} description={t('pool.empty')}
-                actions={<Button size="sm" onClick={() => { setSubscriptionDialogMode('import'); setShowSubscriptionManager(true); }}>{t('acquisition.import')}</Button>} />
+                actions={<Button size="sm" onClick={() => { setSubscriptionDialogMode('import'); setShowSubscriptionManager(true); }} leadingIcon={<Icon name="plus" size="sm" />}>{t('acquisition.addSubscription')}</Button>} />
             )}
           </ConfigPageSection>
         </div>
@@ -5073,6 +5074,7 @@ const ModelSettingsPage: React.FC = () => {
 
       <Dialog open={showSubscriptionManager}
         className="openbitfun-model-settings__subscription-dialog"
+        preset="panel"
         onOpenChange={open => {
           if (open || loggingInProvider) return;
           setShowSubscriptionManager(false);
@@ -5080,17 +5082,15 @@ const ModelSettingsPage: React.FC = () => {
             setSubscriptionLoginPanel(null);
             setSubscriptionLoginAccountId(null);
           }
-        }}
-        size={subscriptionDialogMode === 'import' ? 'lg' : 'xl'}>
+        }}>
         <DialogHeader>
           <DialogHeading>
             <DialogTitle>{subscriptionDialogMode === 'import' && subscriptionLoginPanel
               ? t('subscriptionAuth.loginTitle', { provider: t(`subscriptionAuth.products.${isZcodeProvider(subscriptionLoginPanel.provider) ? 'zcode' : subscriptionLoginPanel.provider}`) })
               : t(subscriptionDialogMode === 'import' ? 'acquisition.importTitle' : 'subscriptionAuth.manageAccount')}</DialogTitle>
-            {!(subscriptionDialogMode === 'import' && subscriptionLoginPanel) && <DialogDescription>{t('subscriptionAuth.sectionDescription')}</DialogDescription>}
           </DialogHeading>
           <DialogHeaderActions>
-            {!(subscriptionDialogMode === 'import' && subscriptionLoginPanel) && <Tooltip content={t('subscriptionAuth.rescan')}>
+            {subscriptionDialogMode === 'accounts' && <Tooltip content={t('subscriptionAuth.rescan')}>
               <IconButton size="sm" aria-label={t('subscriptionAuth.rescan')}
                 onClick={() => void refreshSubscriptionAccounts(true)} disabled={isLoadingSubscriptions}
                 icon={<Icon name="refresh" size="sm" />} />
@@ -5117,7 +5117,7 @@ const ModelSettingsPage: React.FC = () => {
       {routerAvailable && routerSettingsScope?.isCurrent() && <ModelRouterSettings models={aiModels} initialStatus={routerAvailability?.status}
         onClose={() => setRouterSettingsScope(null)} onSaved={() => { void loadConfig(); }} />}
 
-      <Dialog open={showProviderManager} onOpenChange={setShowProviderManager} size="xl">
+      <Dialog open={showProviderManager} onOpenChange={setShowProviderManager} preset="panel">
         <DialogHeader>
           <DialogHeading><DialogTitle>{t('pool.manageConnections')}</DialogTitle></DialogHeading>
           <DialogClose />
@@ -5234,13 +5234,13 @@ const ModelSettingsPage: React.FC = () => {
         </DialogBody>
       </Dialog>
 
-      <Dialog open={showTagSyncNotice} onOpenChange={setShowTagSyncNotice} size="sm">
+      <Dialog open={showTagSyncNotice} onOpenChange={setShowTagSyncNotice} preset="panel">
         <DialogHeader>
           <DialogHeading><DialogTitle>{t('pool.syncTags')}</DialogTitle></DialogHeading>
           <DialogClose />
         </DialogHeader>
         <DialogBody><p>{t('pool.recommendationsUnavailable')}</p></DialogBody>
-        <DialogFooter>
+        <DialogFooter appearance="floating">
           <Button size="sm" variant="primary" onClick={() => setShowTagSyncNotice(false)}>{t('pool.acknowledge')}</Button>
         </DialogFooter>
       </Dialog>
@@ -5248,18 +5248,20 @@ const ModelSettingsPage: React.FC = () => {
       <Dialog
         open={showModelsDevDetails}
         onOpenChange={(nextOpen) => { if (!nextOpen) setShowModelsDevDetails(false); }}
-        size="sm"
+        preset="panel"
       >
         <DialogHeader>
           <DialogHeading>
             <DialogTitle>{t('modelsDevCatalog.detailsTitle')}</DialogTitle>
           </DialogHeading>
-          <Tooltip content={t('modelsDevCatalog.refreshNow')}>
-            <IconButton size="sm" aria-label={t('modelsDevCatalog.refreshNow')}
-              loading={isRefreshingModelsDev} onClick={() => void handleRefreshModelsDev()}
-              icon={<Icon name="refresh" size="sm" />} />
-          </Tooltip>
-          <DialogClose />
+          <DialogHeaderActions>
+            <Tooltip content={t('modelsDevCatalog.refreshNow')}>
+              <IconButton size="sm" aria-label={t('modelsDevCatalog.refreshNow')}
+                loading={isRefreshingModelsDev} onClick={() => void handleRefreshModelsDev()}
+                icon={<Icon name="refresh" size="sm" />} />
+            </Tooltip>
+            <DialogClose />
+          </DialogHeaderActions>
         </DialogHeader>
         <DialogBody inset="none">
           <div className="openbitfun-model-settings__catalog-details">
@@ -5341,7 +5343,7 @@ const ModelSettingsPage: React.FC = () => {
       <Dialog
         open={!!subscriptionLogoutRequest}
         onOpenChange={(nextOpen) => { if (!nextOpen) setSubscriptionLogoutRequest(null); }}
-        size="sm"
+        preset="panel"
         closeOnPointerOutside={false}
       >
         <DialogHeader>
@@ -5371,7 +5373,7 @@ const ModelSettingsPage: React.FC = () => {
             <p>{t('subscriptionAuth.logoutConsequence')}</p>
           </div>
         </DialogBody>
-        <DialogFooter>{(
+        <DialogFooter appearance="floating">{(
           <>
             <Button
               size="sm"
@@ -5400,69 +5402,61 @@ const ModelSettingsPage: React.FC = () => {
           }
         }}
         className="openbitfun-model-settings__editor-dialog"
-        size={editingConfig?.id ? 'lg' : 'xl'}
+        preset="panel"
       >
-        <DialogHeader className={showProviderBrandHeader
-          ? 'openbitfun-model-settings__provider-editor-header'
-          : modelPanelDraft && !reasoningPanelDraft ? 'openbitfun-model-settings__model-editor-header' : undefined}>
-          <ToolbarGroup
-            className="openbitfun-model-settings__editor-heading-group"
-            gap={modelPanelDraft && !reasoningPanelDraft ? 'sm' : 'md'}
-          >
-            {(modelPanelDraft || managingSubscriptionProvider) && !reasoningPanelDraft && (
+        <DialogHeader>
+          {(modelPanelDraft || managingSubscriptionProvider) && !reasoningPanelDraft && (
+            <DialogHeaderLeading>
               <IconButton
                 variant="quiet"
-                size={modelPanelDraft ? 'xs' : 'sm'}
+                size="sm"
                 aria-label={t('actions.back')}
                 data-testid="settings-model-back-btn"
                 icon={<Icon name="chevron-left" size="sm" />}
                 onClick={managingSubscriptionProvider ? finishSubscriptionManagement : finishModelPanel}
                 disabled={isEditorSaving || !!loggingInProvider}
               />
-            )}
-            <DialogHeading className={showProviderBrandHeader ? 'sr-only' : undefined}>
-              <DialogTitle>{managingSubscriptionProvider
-                ? t('subscriptionAuth.manageAccount')
-                : reasoningPanelDraft
-                ? t('reasoningPresets.dialogTitle', {
-                  provider: editingConfig?.name?.trim()
-                    || currentTemplate?.name
-                    || editingConfig?.provider
-                    || '',
-                  model: reasoningPanelDraft.modelName,
-                })
-                : modelPanelDraft && editingConfig
-                  ? t('modelEditorTitle', {
-                    model: modelPanelDraft.modelName || t('editModel'),
-                    provider: getProviderDisplayName(editingConfig),
-                  })
-                : singleModelEditorDraft
-                  ? singleModelEditorDraft.modelName || t('editModel')
-                  : (providerIdentityLocked
-                    ? t('editProvider')
-                    : (currentTemplate ? `${t('newProvider')} - ${currentTemplate.name}` : t('newProvider')))}</DialogTitle>
-              {editingConfig && !modelPanelDraft && (singleModelEditorDraft || managingSubscriptionProvider) && !reasoningPanelDraft && (
-                <DialogDescription>{getProviderDisplayName(editingConfig)}</DialogDescription>
-              )}
-            </DialogHeading>
-          </ToolbarGroup>
-          {showProviderBrandHeader && <div className="openbitfun-model-settings__provider-editor-brand"
-            role={editorUsesSubscription ? 'img' : 'heading'} aria-level={editorUsesSubscription ? undefined : 2}
-            aria-label={editorProviderName} data-testid="settings-provider-editor-brand">
-            {!editorUsesSubscription ? editorProviderName : editorBrandId && getProductBrandIcon(editorBrandId)
-              ? <ProductBrandIcon productId={editorBrandId} size={64} />
-              : <span aria-hidden="true">{editorProviderName.slice(0, 1)}</span>}
-          </div>}
-          {managingSubscriptionProvider && (
-            <IconButton size="sm" aria-label={t('subscriptionAuth.rescan')}
-              onClick={() => void refreshSubscriptionAccounts(true)} disabled={isLoadingSubscriptions || !!loggingInProvider}
-              icon={<Icon name="refresh" size="sm" />} />
+            </DialogHeaderLeading>
           )}
-          <DialogClose disabled={isEditorSaving || !!(managingSubscriptionProvider && loggingInProvider)} />
+          <DialogHeading>
+            <DialogTitle className={showProviderBrandHeader ? 'sr-only' : undefined}>{managingSubscriptionProvider
+              ? t('subscriptionAuth.manageAccount')
+              : reasoningPanelDraft
+              ? t('reasoningPresets.dialogTitle', {
+                provider: editingConfig?.name?.trim()
+                  || currentTemplate?.name
+                  || editingConfig?.provider
+                  || '',
+                model: reasoningPanelDraft.modelName,
+              })
+              : modelPanelDraft && editingConfig
+                ? t('modelEditorTitle', {
+                  model: modelPanelDraft.modelName || t('editModel'),
+                  provider: getProviderDisplayName(editingConfig),
+                })
+              : singleModelEditorDraft
+                ? singleModelEditorDraft.modelName || t('editModel')
+                : (providerIdentityLocked
+                  ? t('editProvider')
+                  : (currentTemplate ? `${t('newProvider')} - ${currentTemplate.name}` : t('newProvider')))}</DialogTitle>
+            {showProviderBrandHeader && <div className="openbitfun-model-settings__provider-editor-brand"
+              role={editorUsesSubscription ? 'img' : 'heading'} aria-level={editorUsesSubscription ? undefined : 2}
+              aria-label={editorProviderName} data-testid="settings-provider-editor-brand">
+              {!editorUsesSubscription ? editorProviderName : editorBrandId && getProductBrandIcon(editorBrandId)
+                ? <ProductBrandIcon productId={editorBrandId} size={64} />
+                : <span aria-hidden="true">{editorProviderName.slice(0, 1)}</span>}
+            </div>}
+          </DialogHeading>
+          <DialogHeaderActions>
+            {managingSubscriptionProvider && (
+              <IconButton size="sm" aria-label={t('subscriptionAuth.rescan')}
+                onClick={() => void refreshSubscriptionAccounts(true)} disabled={isLoadingSubscriptions || !!loggingInProvider}
+                icon={<Icon name="refresh" size="sm" />} />
+            )}
+            <DialogClose disabled={isEditorSaving || !!(managingSubscriptionProvider && loggingInProvider)} />
+          </DialogHeaderActions>
         </DialogHeader>
         <DialogBody
-          inset="none"
-          className={showProviderBrandHeader ? 'openbitfun-model-settings__provider-editor-body' : undefined}
           aria-busy={isEditorSaving}
           {...(isEditorSaving ? { inert: '' } : {})}
         >
