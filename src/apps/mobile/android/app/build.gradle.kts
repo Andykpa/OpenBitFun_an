@@ -19,6 +19,9 @@ val allowUnsignedRelease = providers.gradleProperty("allowUnsignedRelease")
     .map { it.equals("true", ignoreCase = true) }
     .orElse(false)
     .get()
+// Fork delta: the fork's own monotonic build identity, applied below.
+val forkVersionCode = providers.environmentVariable("FORK_VERSION_CODE").orNull?.toIntOrNull()
+val forkVersionName = providers.environmentVariable("FORK_VERSION_NAME").orNull
 android {
     sourceSets.getByName("main").assets.srcDir(file("../../../../shared/terminal/webview/generated"))
     namespace = "com.openbitfun.mobile.app"
@@ -32,6 +35,17 @@ android {
         versionCode = 1
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // Fork delta (see FORK.md): an APK we ship must be able to upgrade the one
+    // already installed, which needs a strictly increasing versionCode. Upstream
+    // pins 1 because it never published mobile upgrades, and its release-version
+    // checker reads the literals above — so they stay byte-identical and the
+    // override lands here instead. Both come from the environment so no fork
+    // value is committed: FORK_VERSION_CODE / FORK_VERSION_NAME.
+    defaultConfig {
+        forkVersionCode?.let { versionCode = it }
+        forkVersionName?.let { versionName = it }
     }
 
     buildFeatures {
