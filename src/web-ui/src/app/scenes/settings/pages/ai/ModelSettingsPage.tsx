@@ -4,9 +4,14 @@ import { ModelDiscoveryPicker, type ModelDiscoveryOption } from './ModelDiscover
 import { ModelPoolsSection } from './ModelPoolsSection';
 import { ModelPoolCardActions } from './ModelPoolCardActions';
 import { ZcodeSubscriptionGroup } from './ZcodeSubscriptionGroup';
+import { SubscriptionProviderPicker } from './SubscriptionProviderPicker';
 import { OpenCodeModelQuota } from './OpenCodeModelQuota';
 import { SubscriptionQuotaPanel } from './SubscriptionQuotaPanel';
 import { SubscriptionAuthorizationExpiry } from './SubscriptionAuthorizationExpiry';
+import { SubscriptionCapsuleList } from './SubscriptionCapsuleList';
+import { SubscriptionProviderBrowser } from './SubscriptionProviderBrowser';
+import { ProductBrandIcon } from '@/shared/ui/ProductBrandIcon';
+import { getProductBrandIcon } from '@/shared/ui/productBrandIcons';
 import { SubscriptionAccountList, SubscriptionServiceGroup } from './SubscriptionServiceGroup';
 import { managedSubscriptionAccounts, modelsUsingSubscriptionAccount, groupSubscriptionServices, isRetiredSubscriptionProvider, isZcodeProvider, preferredZcodeProvider, subscriptionManagerAccounts } from './subscriptionServices';
 import { aiApi, systemAPI } from '@/infrastructure/api';
@@ -482,6 +487,7 @@ const ModelSettingsPage: React.FC = () => {
   const [poolProvider, setPoolProvider] = useState('');
   const [showTagSyncNotice, setShowTagSyncNotice] = useState(false);
   const [showSubscriptionManager, setShowSubscriptionManager] = useState(false);
+  const [subscriptionDialogMode, setSubscriptionDialogMode] = useState<'import' | 'accounts'>('import');
   const [showProviderManager, setShowProviderManager] = useState(false);
   const [routerSettingsScope, setRouterSettingsScope] = useState<ReturnType<typeof getActiveSurfaceScope> | null>(null);
   const [routerAvailability, setRouterAvailability] = useState<{ surfaceKey: string; status: ModelRoutingStatus } | null>(null);
@@ -1653,6 +1659,7 @@ const ModelSettingsPage: React.FC = () => {
         });
         setManagingSubscriptionProvider(null);
       }
+      if (showSubscriptionManager && subscriptionDialogMode === 'import') setShowSubscriptionManager(false);
       notification.success(t('subscriptionAuth.loginSuccess'));
     } catch (e) {
       if (!scope.isCurrent()) return;
@@ -1740,7 +1747,7 @@ const ModelSettingsPage: React.FC = () => {
         }
       }
     }
-  }, [notification, pollSubscriptionLogin, refreshSubscriptionAccounts, t]);
+  }, [notification, pollSubscriptionLogin, refreshSubscriptionAccounts, showSubscriptionManager, subscriptionDialogMode, t]);
 
   const handleCancelSubscriptionLogin = useCallback(async (provider: SubscriptionProvider) => {
     const operation = loginCoordinatorRef.current.requestCancel(provider);
@@ -2631,7 +2638,14 @@ const ModelSettingsPage: React.FC = () => {
   }, [aiModels, providerOrder]);
 
   const apiProviderGroups = providerGroups.filter(group => !subscriptionProviderOf(group.models[0].auth));
-  const subscriptionProviderGroups = providerGroups.filter(group => !!subscriptionProviderOf(group.models[0].auth));
+  const subscriptionProviderGroups = providerGroups
+    .filter(group => !!subscriptionProviderOf(group.models[0].auth))
+    .map(group => {
+      const accountLabels = availableSubscriptionAccounts
+        .filter(({ account, accountId }) => modelsUsingSubscriptionAccount(group.models, account.provider, accountId).length > 0)
+        .map(({ account }) => account.account?.trim() || t('subscriptionAuth.accountIdentityUnavailable'));
+      return { ...group, label: [group.providerName, ...accountLabels].join(' · ') };
+    });
   const editingProviderGroup = providerGroups.find(group => editingTargetKey === `provider:${group.key}`);
   const unconfiguredSubscriptionAccounts = availableSubscriptionAccounts.filter(({ account, accountId }) => (
     !modelsUsingSubscriptionAccount(aiModels, account.provider, accountId).length
@@ -3445,6 +3459,7 @@ const ModelSettingsPage: React.FC = () => {
             ?? { missing: true as const, account_id: id }),
         ...providerInstances.filter(instance => !selectedAccounts.includes(instance.account_id)),
       ];
+      const showAccountSelection = ordered.length > 1;
       return (
         <div className="openbitfun-model-settings__connection-row openbitfun-model-settings__connection-row--single openbitfun-model-settings__subscription-account-row">
           <ConfigPageRow label={t('subscriptionAuth.pool.label')} align="start" wide>
@@ -3463,7 +3478,7 @@ const ModelSettingsPage: React.FC = () => {
                       ? t('subscriptionAuth.pool.missing')
                       : subscriptionStatusLabels[state];
                   const accountName = instance ? instanceLabel(instance) : entry.account_id;
-                  const checkboxId = `${accountSelectionId}-${entry.account_id}`;
+                  const checkboxId = showAccountSelection ? `${accountSelectionId}-${entry.account_id}` : undefined;
                   const accountLabel = <label htmlFor={checkboxId} className="openbitfun-model-settings__account-pool-label">
                     <OverflowText className="openbitfun-model-settings__subscription-account-name">{accountName}</OverflowText>
                   </label>;
@@ -3487,7 +3502,7 @@ const ModelSettingsPage: React.FC = () => {
                       />
                     </ToolbarGroup>
                   ) : null;
-                  const accountSelection = (
+                  const accountSelection = showAccountSelection ? (
                     <Checkbox
                       className="openbitfun-model-settings__account-pool-choice"
                       id={checkboxId}
@@ -3499,7 +3514,7 @@ const ModelSettingsPage: React.FC = () => {
                         ? [...selectedAccounts, entry.account_id]
                         : selectedAccounts.filter(id => id !== entry.account_id))}
                     />
-                  );
+                  ) : null;
                   return (
                     <div key={entry.account_id} className="openbitfun-model-settings__account-pool-entry" data-testid="settings-model-account-pool-item">
                       <div className="openbitfun-model-settings__account-pool-content">
@@ -3508,7 +3523,7 @@ const ModelSettingsPage: React.FC = () => {
                             identity={`${instance.upstream_account_id || ''}:${instance.account.expires_at || ''}`}
                             active={isEditing && checked && !managingSubscriptionProvider}
                             supported={canQuerySubscriptionQuota && (instance.account.provider !== 'grok' || canQueryGrokQuotaOnSurface(Boolean(peerDevice?.peerMode.active), peerDevice?.currentPeerCapabilities ?? null))}
-                            refreshVersion={quotaRefreshVersions[instance.account.provider]} compact
+                            refreshVersion={quotaRefreshVersions[instance.account.provider]} compact inline
                             accountLabel={accountLabel} headerLeading={accountSelection} headerActions={orderActions} />
                         ) : (
                           <div className="openbitfun-model-settings__account-pool-item">
@@ -3601,7 +3616,7 @@ const ModelSettingsPage: React.FC = () => {
             identity={`${matchedSubscription.account || ''}:${matchedSubscription.expires_at || ''}`}
             active={isEditing && !managingSubscriptionProvider}
             supported={canQuerySubscriptionQuota && (selectedSubscriptionProvider !== 'grok' || canQueryGrokQuotaOnSurface(Boolean(peerDevice?.peerMode.active), peerDevice?.currentPeerCapabilities ?? null))}
-            refreshVersion={quotaRefreshVersions[selectedSubscriptionProvider]} compact />
+            refreshVersion={quotaRefreshVersions[selectedSubscriptionProvider]} compact inline />
         )}
         {subscriptionAccountHint && (
           <div className="openbitfun-model-settings__subscription-account-hint" aria-live="polite">
@@ -3665,16 +3680,24 @@ const ModelSettingsPage: React.FC = () => {
         <Disclosure
           data-testid="settings-model-advanced-toggle"
           summary={t('advancedSettings.title')}
-          description={isProviderScopedEditing ? t('advancedSettings.description') : undefined}
           className={isProviderScopedEditing
             ? 'openbitfun-model-settings__advanced-settings'
             : 'openbitfun-model-settings__single-model-advanced'}
-          contentInnerClassName={isProviderScopedEditing ? undefined : 'openbitfun-model-settings__single-model-advanced-content'}
+          renderHeader={isProviderScopedEditing ? trigger => (
+            <button {...trigger} data-overflow-trigger className="openbitfun-model-settings__advanced-settings-trigger">
+              <Icon name="chevron-right" size="sm" aria-hidden="true"
+                className="openbitfun-model-settings__advanced-settings-indicator" />
+              <span className="openbitfun-model-settings__advanced-settings-heading">
+                <OverflowText className="openbitfun-model-settings__advanced-settings-title">{t('advancedSettings.title')}</OverflowText>
+              </span>
+            </button>
+          ) : undefined}
+          contentInnerClassName="openbitfun-model-settings__advanced-settings-content"
           open={showAdvancedSettings}
           onOpenChange={setShowAdvancedSettings}
         >
           {showAdvancedSettings && (
-            <FieldGroup appearance={isProviderScopedEditing ? 'plain' : 'subtle'} dividers={false}>
+            <FieldGroup appearance="subtle" dividers={false}>
               {(editingConfig.provider === 'openai' || editingConfig.provider === 'anthropic') && (
                 <ConfigPageRow
                   label={t('advancedSettings.inlineThinkInText.label')}
@@ -4020,40 +4043,38 @@ const ModelSettingsPage: React.FC = () => {
             {isProviderScopedEditing ? (
               <ConfigPageSection
                 title={t('title')}
-                className="openbitfun-model-settings__edit-section"
+                className="openbitfun-model-settings__edit-section openbitfun-model-settings__model-section"
+                bodySurface={false}
                 fieldSurface="default"
-              >
-                <ConfigPageRow label={t('form.modelSelection')} required wide className="openbitfun-model-settings__model-selection-row">
-                  <div className="openbitfun-model-settings__control-stack">
-                    <div className="openbitfun-model-settings__model-selection-actions">
-                      <ModelDiscoveryPicker
-                        open={modelPickerOpen}
-                        onOpenChange={handleModelSelectionOpenChange}
-                        options={fetchedOrPresetModelOptions}
-                        value={selectedModelValues}
-                        onValueChange={value => syncSelectedModelDrafts(value, editingConfig, false)}
-                        loading={isFetchingRemoteModels}
-                        fetched={remoteModelOptions.length > 0}
-                        hint={modelFetchHint}
-                        error={!!remoteModelsError}
-                        invalid={showModelValidation && missingModelFields.model}
-                        onRefresh={() => void fetchRemoteModels(editingConfig, true)}
-                      />
-                      <Button
-                        ref={manualModelAddButtonRef}
-                        data-testid="settings-model-add-custom-btn"
-                        variant="outline"
-                        size="xs"
-                        disabled={isEditorSaving || isAddingCustomModel}
-                        onClick={startManualModelDraft}
-                      >
-                        {t('providerSelection.addCustomModel')}
-                      </Button>
-                    </div>
-                    {renderSelectedModelRows()}
+                extra={(
+                  <div className="openbitfun-model-settings__model-selection-actions">
+                    <ModelDiscoveryPicker
+                      open={modelPickerOpen}
+                      onOpenChange={handleModelSelectionOpenChange}
+                      options={fetchedOrPresetModelOptions}
+                      value={selectedModelValues}
+                      onValueChange={value => syncSelectedModelDrafts(value, editingConfig, false)}
+                      loading={isFetchingRemoteModels}
+                      fetched={remoteModelOptions.length > 0}
+                      hint={modelFetchHint}
+                      error={!!remoteModelsError}
+                      invalid={showModelValidation && missingModelFields.model}
+                      onRefresh={() => void fetchRemoteModels(editingConfig, true)}
+                    />
+                    <Button
+                      ref={manualModelAddButtonRef}
+                      data-testid="settings-model-add-custom-btn"
+                      variant="outline"
+                      size="xs"
+                      disabled={isEditorSaving || isAddingCustomModel}
+                      onClick={startManualModelDraft}
+                    >
+                      {t('providerSelection.addCustomModel')}
+                    </Button>
                   </div>
-                </ConfigPageRow>
-                {renderAdvancedSettings()}
+                )}
+              >
+                {renderSelectedModelRows()}
               </ConfigPageSection>
             ) : (
               <>
@@ -4061,6 +4082,7 @@ const ModelSettingsPage: React.FC = () => {
                 {renderAdvancedSettings()}
               </>
             )}
+            {isProviderScopedEditing && renderAdvancedSettings()}
           </div>
 
         </div>
@@ -4068,14 +4090,93 @@ const ModelSettingsPage: React.FC = () => {
     );
   };
 
-  const renderSubscriptionManagerContent = (provider?: SubscriptionProvider) => {
-    const accounts = subscriptionManagerAccounts(subscriptionAccounts, provider, providerIdentityLocked);
+  const renderSubscriptionLoginPanel = (loginPanel: SubscriptionLoginPanelState) => {
+    const remainingSeconds = loginPanel?.deadlineMs
+      ? Math.max(0, Math.ceil((loginPanel.deadlineMs - subscriptionLoginClock) / 1000))
+      : 0;
+    const countdown = `${Math.floor(remainingSeconds / 60)}:${String(remainingSeconds % 60).padStart(2, '0')}`;
+    return (
+      <div
+        className={`openbitfun-model-settings__subscription-login-panel openbitfun-model-settings__subscription-login-panel--${loginPanel.status}`}
+        data-openbitfun-component="model-settings"
+        data-openbitfun-part="subscriptionPanel"
+        data-openbitfun-status={loginPanel.status}
+        role={loginPanel.status === 'failed' ? 'alert' : undefined}
+      >
+        <div className="openbitfun-model-settings__subscription-login-summary" data-openbitfun-component="model-settings" data-openbitfun-part="subscriptionSummary">
+          <strong role={loginPanel.status === 'failed' ? undefined : 'status'}>
+            {loginPanel.status === 'failed'
+              ? t('subscriptionAuth.loginNeedsRetry')
+              : loginPanel.status === 'cancelling'
+                ? t('subscriptionAuth.loginCancelling')
+                : t('subscriptionAuth.loginPending')}
+          </strong>
+          {loginPanel.status === 'pending' && (
+            <>
+              <span>
+                {t(!loginPanel.userCode
+                  ? 'subscriptionAuth.browserInstructions'
+                  : 'subscriptionAuth.deviceInstructions')}
+              </span>
+              <span>{t('subscriptionAuth.timeRemaining', { time: countdown })}</span>
+            </>
+          )}
+          {loginPanel.status === 'failed' && loginPanel.error && (
+            <span>{t('subscriptionAuth.loginFailedInline', { error: loginPanel.error })}</span>
+          )}
+        </div>
+
+        {loginPanel.status === 'pending' && loginPanel.userCode && (
+          <div className="openbitfun-model-settings__subscription-code" data-openbitfun-component="model-settings" data-openbitfun-part="subscriptionCode">
+            <span>{t('subscriptionAuth.verificationCode')}</span>
+            <code>{loginPanel.userCode}</code>
+          </div>
+        )}
+
+        {loginPanel.status === 'pending' && (
+          <div className="openbitfun-model-settings__subscription-login-actions" data-openbitfun-component="model-settings" data-openbitfun-part="subscriptionActions">
+            {loginPanel.userCode && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void handleCopySubscriptionCode(loginPanel.userCode!)}
+              >
+                {t('subscriptionAuth.copyCode')}
+              </Button>
+            )}
+            {loginPanel.authorizationUrl && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void handleOpenSubscriptionAuthorization(loginPanel.authorizationUrl)}
+                leadingIcon={<Icon name="arrow-up-right" size="sm" aria-hidden="true" />}
+              >
+                {t('subscriptionAuth.openAuthorization')}
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderSubscriptionManagerContent = (provider?: SubscriptionProvider, filter: SubscriptionProvider | 'all' = 'all') => {
+    const importing = !provider && subscriptionDialogMode === 'import';
+    const browsingAccounts = !provider && !importing;
+    const accounts = subscriptionManagerAccounts(subscriptionAccounts, provider, providerIdentityLocked)
+      .filter(account => !importing || !isRetiredSubscriptionProvider(account.provider))
+      .filter(account => filter === 'all' || (isZcodeProvider(filter) ? isZcodeProvider(account.provider) : account.provider === filter));
     const managed = managedSubscriptionAccounts(accounts, accountInstances, subscriptionLoginPanel
       ? { provider: subscriptionLoginPanel.provider, accountId: subscriptionLoginAccountId || subscriptionLoginPanel.provider } : null);
+    const signedInAccounts = managed.filter(item => item.account.connected);
     const startAccount = (target: SubscriptionProvider) => {
       const canAdd = canEditAccountPools && accountInstances.some(instance => instance.account.provider === target && instance.supports_multiple_accounts !== false);
       const hasAccount = managed.some(item => item.account.provider === target);
-      void handleSubscriptionLogin(target, canAdd && hasAccount ? newAccountSlotId(target) : undefined);
+      const retrySlot = importing && subscriptionLoginPanel?.provider === target && subscriptionLoginPanel.status === 'failed'
+        ? subscriptionLoginAccountId : null;
+      void handleSubscriptionLogin(target, retrySlot
+        ? (retrySlot === target ? undefined : retrySlot)
+        : canAdd && hasAccount ? newAccountSlotId(target) : undefined);
     };
     const renderAccount = (account: SubscriptionAccount, groupedRegion = false, slot: string = account.provider, enabled = true) => {
       const retiredAccount = isRetiredSubscriptionProvider(account.provider);
@@ -4083,7 +4184,8 @@ const ModelSettingsPage: React.FC = () => {
       const authorizationExpiry = !retiredAccount && account.connected && account.expires_at
         ? account.expires_at
         : null;
-      const descriptionParts: string[] = slot === account.provider ? [] : [t('subscriptionAuth.accountMarker', { marker: slot.slice(-8) })];
+      const descriptionParts: string[] = browsingAccounts && isZcodeProvider(account.provider) ? [subscriptionRegionName(account.provider)] : [];
+      if (slot !== account.provider) descriptionParts.push(t('subscriptionAuth.accountMarker', { marker: slot.slice(-8) }));
       if (!enabled) descriptionParts.push(t('subscriptionAuth.pool.disabled'));
       if (retiredAccount) {
         descriptionParts.push(t('subscriptionAuth.retiredProvider'));
@@ -4102,14 +4204,17 @@ const ModelSettingsPage: React.FC = () => {
       const loginPanel = subscriptionLoginPanel?.provider === account.provider && (subscriptionLoginAccountId || account.provider) === slot
         ? subscriptionLoginPanel
         : null;
-      const remainingSeconds = loginPanel?.deadlineMs
-        ? Math.max(0, Math.ceil((loginPanel.deadlineMs - subscriptionLoginClock) / 1000))
-        : 0;
-      const countdown = `${Math.floor(remainingSeconds / 60)}:${String(remainingSeconds % 60).padStart(2, '0')}`;
+
       const renderRow = (plan: React.ReactNode = null, quota: React.ReactNode = null, quotaLoading = false) => (
         <React.Fragment key={slot}>
           <ConfigPageRow
             label={<span className="openbitfun-model-settings__cli-account-heading">
+              {browsingAccounts && <span className="openbitfun-model-settings__subscription-provider-logo"
+                role="img" aria-label={subscriptionName(account)} data-provider-logo={account.provider}>
+                {getProductBrandIcon(account.provider)
+                  ? <ProductBrandIcon productId={account.provider} />
+                  : subscriptionName(account).slice(0, 1)}
+              </span>}
               <span>{`${groupedRegion ? `${subscriptionRegionName(account.provider)} · ` : ''}${account.account || t(loginPanel ? 'subscriptionAuth.newAccount' : 'subscriptionAuth.accountIdentityUnavailable')}`}</span>
               {plan}
             </span>}
@@ -4195,69 +4300,7 @@ const ModelSettingsPage: React.FC = () => {
             </div>
           </ConfigPageRow>
 
-          {loginPanel && (
-            <div
-              className={`openbitfun-model-settings__subscription-login-panel openbitfun-model-settings__subscription-login-panel--${loginPanel.status}`}
-              data-openbitfun-component="model-settings"
-              data-openbitfun-part="subscriptionPanel"
-              data-openbitfun-status={loginPanel.status}
-              role={loginPanel.status === 'failed' ? 'alert' : undefined}
-            >
-              <div className="openbitfun-model-settings__subscription-login-summary" data-openbitfun-component="model-settings" data-openbitfun-part="subscriptionSummary">
-                <strong>
-                  {loginPanel.status === 'failed'
-                    ? t('subscriptionAuth.loginNeedsRetry')
-                    : loginPanel.status === 'cancelling'
-                      ? t('subscriptionAuth.loginCancelling')
-                      : t('subscriptionAuth.loginPending')}
-                </strong>
-                {loginPanel.status === 'pending' && (
-                  <>
-                    <span>
-                      {t(!loginPanel.userCode
-                        ? 'subscriptionAuth.browserInstructions'
-                        : 'subscriptionAuth.deviceInstructions')}
-                    </span>
-                    <span>{t('subscriptionAuth.timeRemaining', { time: countdown })}</span>
-                  </>
-                )}
-                {loginPanel.status === 'failed' && loginPanel.error && (
-                  <span>{t('subscriptionAuth.loginFailedInline', { error: loginPanel.error })}</span>
-                )}
-              </div>
-
-              {loginPanel.status === 'pending' && loginPanel.userCode && (
-                <div className="openbitfun-model-settings__subscription-code" data-openbitfun-component="model-settings" data-openbitfun-part="subscriptionCode">
-                  <span>{t('subscriptionAuth.verificationCode')}</span>
-                  <code>{loginPanel.userCode}</code>
-                </div>
-              )}
-
-              {loginPanel.status === 'pending' && (
-                <div className="openbitfun-model-settings__subscription-login-actions" data-openbitfun-component="model-settings" data-openbitfun-part="subscriptionActions">
-                  {loginPanel.userCode && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => void handleCopySubscriptionCode(loginPanel.userCode!)}
-                    >
-                      {t('subscriptionAuth.copyCode')}
-                    </Button>
-                  )}
-                  {loginPanel.authorizationUrl && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => void handleOpenSubscriptionAuthorization(loginPanel.authorizationUrl)}
-                      leadingIcon={<Icon name="arrow-up-right" size="sm" aria-hidden="true" />}
-                    >
-                      {t('subscriptionAuth.openAuthorization')}
-                    </Button>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+          {loginPanel && renderSubscriptionLoginPanel(loginPanel)}
         </React.Fragment>
       );
       return showQuota ? <SubscriptionQuotaPanel
@@ -4278,11 +4321,38 @@ const ModelSettingsPage: React.FC = () => {
             loading={isLoadingSubscriptions} onRetry={() => void refreshSubscriptionAccounts()} />
         )}
         {isLoadingSubscriptions && <p className="openbitfun-model-settings__dialog-status" role="status">{t('messages.loading')}</p>}
-        {!isLoadingSubscriptions && !subscriptionLoadError && accounts.length === 0 && (
-          <ConfigEmptyState icon={<Wifi aria-hidden="true" />} description={t(provider ? 'subscriptionAuth.serviceUnavailable' : 'acquisition.noServices')} />
+        {!isLoadingSubscriptions && !subscriptionLoadError && (browsingAccounts ? signedInAccounts.length === 0 : accounts.length === 0) && (
+          <ConfigEmptyState icon={<Wifi aria-hidden="true" />} description={t(browsingAccounts ? 'acquisition.noSignedInAccounts' : provider ? 'subscriptionAuth.serviceUnavailable' : 'acquisition.noServices')} />
         )}
-        <div className="openbitfun-model-settings__cli-discovery" data-openbitfun-component="model-settings" data-openbitfun-part="subscriptionArea">
-          {groupSubscriptionServices(accounts).map(group => isZcodeProvider(group[0].provider) ? (
+        {importing ? <SubscriptionProviderPicker
+          key={accountSurface.key('subscription-provider-picker')}
+          options={groupSubscriptionServices(accounts).map(group => ({
+            provider: group[0].provider,
+            title: subscriptionName(group[0]),
+            description: t(`subscriptionAuth.details.${isZcodeProvider(group[0].provider) ? 'zcode' : group[0].provider}`),
+            ...(isZcodeProvider(group[0].provider) ? {
+              regions: group.map(account => ({
+                provider: account.provider,
+                label: subscriptionRegionName(account.provider),
+                shortLabel: t(account.provider === 'zcode_cn' ? 'subscriptionAuth.regionsShort.bigmodel' : 'subscriptionAuth.regionsShort.zai'),
+              })),
+            } : {}),
+          }))}
+          disabled={isLoadingSubscriptions || subscriptionLoadError}
+          loginStatus={subscriptionLoginPanel}
+          onLogin={startAccount}
+          onCancel={target => { void handleCancelSubscriptionLogin(target); }}
+          onBack={() => { setSubscriptionLoginPanel(null); setSubscriptionLoginAccountId(null); }}
+          renderAuthorization={target => subscriptionLoginPanel?.provider === target
+            ? renderSubscriptionLoginPanel(subscriptionLoginPanel) : null}
+        /> : <div className="openbitfun-model-settings__cli-discovery" data-openbitfun-component="model-settings" data-openbitfun-part="subscriptionArea">
+          {browsingAccounts ? signedInAccounts.length > 0 && (
+            <FieldGroup appearance="subtle" dividers={false} className="openbitfun-model-settings__signed-in-accounts">
+              <SubscriptionAccountList accounts={signedInAccounts}
+                renderAccount={item => renderAccount(item.account, false, item.accountId, item.enabled)} />
+            </FieldGroup>
+          )
+            : groupSubscriptionServices(accounts).map(group => isZcodeProvider(group[0].provider) ? (
             <ZcodeSubscriptionGroup
               key={`${modelDiscoverySurface}:${provider || 'all'}:zcode`}
               accounts={group.map(account => ({ ...account, connected: managed.some(item => item.account.provider === account.provider && item.account.connected) }))}
@@ -4330,7 +4400,7 @@ const ModelSettingsPage: React.FC = () => {
                 renderAccount={item => renderAccount(item.account, false, item.accountId, item.enabled)} />
             </SubscriptionServiceGroup>
           ))}
-        </div>
+        </div>}
       </div>
     );
   };
@@ -4647,6 +4717,15 @@ const ModelSettingsPage: React.FC = () => {
   const proxyPlaceholder = proxyLoadState === 'loading'
     ? t('messages.loading')
     : proxyLoadState === 'error' ? tDefault('messages.loadFailed') : undefined;
+  const showProviderBrandHeader = !!editingConfig && !editingConfig.id
+    && !modelPanelDraft && !reasoningPanelDraft && !managingSubscriptionProvider;
+  const editorProviderId = editingConfig
+    ? subscriptionProviderOf(editingConfig.auth) || selectedProviderId || getProviderTemplateId(editingConfig)
+    : undefined;
+  const editorBrandId = editorProviderId === 'openai' ? 'codex'
+    : editorProviderId === 'anthropic' ? 'claude-code' : editorProviderId;
+  const editorProviderName = editingConfig ? getProviderDisplayName(editingConfig) : t('newProvider');
+  const editorUsesSubscription = !!editingConfig && !!subscriptionProviderOf(editingConfig.auth);
 
   return (
     <ConfigPageLayout className="openbitfun-model-settings" data-openbitfun-component="model-settings" data-openbitfun-part="root" data-openbitfun-view="settings">
@@ -4721,7 +4800,7 @@ const ModelSettingsPage: React.FC = () => {
                     </span>
                   )}
                 </div>
-                <Button size="sm" onClick={() => setShowSubscriptionManager(true)}>
+                <Button size="sm" onClick={() => { setSubscriptionDialogMode('import'); setShowSubscriptionManager(true); }}>
                   {t('acquisition.import')}
                 </Button>
               </div>
@@ -4733,7 +4812,9 @@ const ModelSettingsPage: React.FC = () => {
                   loading={isLoadingSubscriptions} onRetry={() => void refreshSubscriptionAccounts()} />
               )}
               {subscriptionProviderGroups.length > 0 || unconfiguredSubscriptionAccounts.length > 0 ? (
-                <ul className="openbitfun-model-settings__import-summary" aria-label={t('acquisition.subscriptions')}>
+                <SubscriptionCapsuleList key={accountSurface.key('subscription-capsules')}
+                  label={t('acquisition.subscriptions')} moreLabel={t('acquisition.more')}
+                  onMore={() => { setSubscriptionDialogMode('accounts'); setShowSubscriptionManager(true); }}>
                   {subscriptionProviderGroups.map(group => (
                     <li key={group.key} className="openbitfun-model-settings__import-item">
                       <Capsule size="sm" actionPlacement="reserved" action={(
@@ -4751,16 +4832,16 @@ const ModelSettingsPage: React.FC = () => {
                         </Tooltip>
                       )}>
                         <Button size="sm" variant="outline" className="openbitfun-model-settings__source-pill"
-                          aria-label={t('acquisition.configureProvider', { provider: group.providerName })}
+                          aria-label={t('acquisition.configureProvider', { provider: group.label })}
                           onClick={() => handleEditProvider(group.models[0])}>
-                          {group.providerName}
+                          {group.label}
                         </Button>
                       </Capsule>
                     </li>
                   ))}
                   {unconfiguredSubscriptionAccounts.map(({ account, accountId, enabled }) => (
                     <li key={`${account.provider}:${accountId}`} className="openbitfun-model-settings__import-item" data-account-id={accountId}>
-                      <Button size="sm" variant="outline" onClick={() => setShowSubscriptionManager(true)}>
+                      <Button size="sm" variant="outline" onClick={() => { setSubscriptionDialogMode('accounts'); setShowSubscriptionManager(true); }}>
                         {subscriptionName(account)} · {account.account || t('subscriptionAuth.accountIdentityUnavailable')}
                         {accountId !== account.provider ? ` · ${t('subscriptionAuth.accountMarker', { marker: accountId.slice(-8) })}` : ''}
                         {!enabled ? ` · ${t('subscriptionAuth.pool.disabled')}`
@@ -4770,7 +4851,7 @@ const ModelSettingsPage: React.FC = () => {
                       </Button>
                     </li>
                   ))}
-                </ul>
+                </SubscriptionCapsuleList>
               ) : !modelConfigReady ? pendingConfigSummary
                 : isLoadingSubscriptions ? <ConfigLoadingState label={t('subscriptionAuth.loadingAccount')} variant="list" />
                   : !subscriptionLoadError && <span className="openbitfun-model-settings__pool-caption">{t('acquisition.noneImported')}</span>}
@@ -4875,7 +4956,7 @@ const ModelSettingsPage: React.FC = () => {
             ) : (
               <ConfigEmptyState data-openbitfun-component="model-settings" data-openbitfun-part="empty"
                 icon={<Wifi aria-hidden="true" />} description={t('pool.empty')}
-                actions={<Button size="sm" onClick={() => setShowSubscriptionManager(true)}>{t('acquisition.import')}</Button>} />
+                actions={<Button size="sm" onClick={() => { setSubscriptionDialogMode('import'); setShowSubscriptionManager(true); }}>{t('acquisition.import')}</Button>} />
             )}
           </ConfigPageSection>
         </div>
@@ -4992,23 +5073,44 @@ const ModelSettingsPage: React.FC = () => {
 
       <Dialog open={showSubscriptionManager}
         className="openbitfun-model-settings__subscription-dialog"
-        onOpenChange={open => { if (!open && !loggingInProvider) setShowSubscriptionManager(false); }} size="xl">
+        onOpenChange={open => {
+          if (open || loggingInProvider) return;
+          setShowSubscriptionManager(false);
+          if (subscriptionDialogMode === 'import') {
+            setSubscriptionLoginPanel(null);
+            setSubscriptionLoginAccountId(null);
+          }
+        }}
+        size={subscriptionDialogMode === 'import' ? 'lg' : 'xl'}>
         <DialogHeader>
           <DialogHeading>
-            <DialogTitle>{t('acquisition.importTitle')}</DialogTitle>
-            <DialogDescription>{t('subscriptionAuth.sectionDescription')}</DialogDescription>
+            <DialogTitle>{subscriptionDialogMode === 'import' && subscriptionLoginPanel
+              ? t('subscriptionAuth.loginTitle', { provider: t(`subscriptionAuth.products.${isZcodeProvider(subscriptionLoginPanel.provider) ? 'zcode' : subscriptionLoginPanel.provider}`) })
+              : t(subscriptionDialogMode === 'import' ? 'acquisition.importTitle' : 'subscriptionAuth.manageAccount')}</DialogTitle>
+            {!(subscriptionDialogMode === 'import' && subscriptionLoginPanel) && <DialogDescription>{t('subscriptionAuth.sectionDescription')}</DialogDescription>}
           </DialogHeading>
           <DialogHeaderActions>
-            <Tooltip content={t('subscriptionAuth.rescan')}>
+            {!(subscriptionDialogMode === 'import' && subscriptionLoginPanel) && <Tooltip content={t('subscriptionAuth.rescan')}>
               <IconButton size="sm" aria-label={t('subscriptionAuth.rescan')}
                 onClick={() => void refreshSubscriptionAccounts(true)} disabled={isLoadingSubscriptions}
                 icon={<Icon name="refresh" size="sm" />} />
-            </Tooltip>
+            </Tooltip>}
             <DialogClose disabled={!!loggingInProvider} />
           </DialogHeaderActions>
         </DialogHeader>
         <DialogBody>
-          {renderSubscriptionManagerContent()}
+          {subscriptionDialogMode === 'accounts' ? (
+            <SubscriptionProviderBrowser key={accountSurface.key('subscription-browser')}
+              disabled={!!loggingInProvider}
+              providers={groupSubscriptionServices(availableSubscriptionAccounts.filter(item => item.account.connected).map(item => item.account)).map(group => ({
+                value: isZcodeProvider(group[0].provider) ? 'zcode' : group[0].provider,
+                label: subscriptionName(group[0]),
+                icon: getProductBrandIcon(group[0].provider)
+                  ? <ProductBrandIcon productId={group[0].provider} size="100%" /> : undefined,
+              }))}>
+              {filter => renderSubscriptionManagerContent(undefined, filter)}
+            </SubscriptionProviderBrowser>
+          ) : renderSubscriptionManagerContent()}
         </DialogBody>
       </Dialog>
 
@@ -5300,9 +5402,9 @@ const ModelSettingsPage: React.FC = () => {
         className="openbitfun-model-settings__editor-dialog"
         size={editingConfig?.id ? 'lg' : 'xl'}
       >
-        <DialogHeader className={modelPanelDraft && !reasoningPanelDraft
-          ? 'openbitfun-model-settings__model-editor-header'
-          : undefined}>
+        <DialogHeader className={showProviderBrandHeader
+          ? 'openbitfun-model-settings__provider-editor-header'
+          : modelPanelDraft && !reasoningPanelDraft ? 'openbitfun-model-settings__model-editor-header' : undefined}>
           <ToolbarGroup
             className="openbitfun-model-settings__editor-heading-group"
             gap={modelPanelDraft && !reasoningPanelDraft ? 'sm' : 'md'}
@@ -5318,7 +5420,7 @@ const ModelSettingsPage: React.FC = () => {
                 disabled={isEditorSaving || !!loggingInProvider}
               />
             )}
-            <DialogHeading>
+            <DialogHeading className={showProviderBrandHeader ? 'sr-only' : undefined}>
               <DialogTitle>{managingSubscriptionProvider
                 ? t('subscriptionAuth.manageAccount')
                 : reasoningPanelDraft
@@ -5344,6 +5446,13 @@ const ModelSettingsPage: React.FC = () => {
               )}
             </DialogHeading>
           </ToolbarGroup>
+          {showProviderBrandHeader && <div className="openbitfun-model-settings__provider-editor-brand"
+            role={editorUsesSubscription ? 'img' : 'heading'} aria-level={editorUsesSubscription ? undefined : 2}
+            aria-label={editorProviderName} data-testid="settings-provider-editor-brand">
+            {!editorUsesSubscription ? editorProviderName : editorBrandId && getProductBrandIcon(editorBrandId)
+              ? <ProductBrandIcon productId={editorBrandId} size={64} />
+              : <span aria-hidden="true">{editorProviderName.slice(0, 1)}</span>}
+          </div>}
           {managingSubscriptionProvider && (
             <IconButton size="sm" aria-label={t('subscriptionAuth.rescan')}
               onClick={() => void refreshSubscriptionAccounts(true)} disabled={isLoadingSubscriptions || !!loggingInProvider}
@@ -5353,6 +5462,7 @@ const ModelSettingsPage: React.FC = () => {
         </DialogHeader>
         <DialogBody
           inset="none"
+          className={showProviderBrandHeader ? 'openbitfun-model-settings__provider-editor-body' : undefined}
           aria-busy={isEditorSaving}
           {...(isEditorSaving ? { inert: '' } : {})}
         >

@@ -53,6 +53,9 @@
     "rescan": "重新整理狀態",
     "import": "匯入使用",
     "login": "登入",
+    "loginTitle": "{{provider}} 登入",
+    "backToProviders": "返回服務商清單",
+    "cancelAndBack": "取消登入並返回",
     "browserLogin": "瀏覽器登入",
     "deviceLogin": "裝置碼登入",
     "cancel": "取消",
@@ -98,8 +101,12 @@
       "zcode": "GLM Coding Plan"
     },
     "regions": {
-      "zai": "Z.ai",
-      "bigmodel": "智譜"
+      "zai": "Z.ai（國際版）",
+      "bigmodel": "智譜 BigModel（中國版）"
+    },
+    "regionsShort": {
+      "zai": "國際",
+      "bigmodel": "國內"
     },
     "options": {
       "opencode": "OpenCode",
@@ -742,7 +749,9 @@
     "import": "匯入",
     "importTitle": "匯入訂閱服務",
     "loadFailed": "無法讀取訂閱服務，請重試；既有模型設定仍會保留",
-    "noServices": "目前主機沒有可匯入的訂閱服務"
+    "noServices": "目前主機沒有可匯入的訂閱服務",
+    "more": "更多",
+    "noSignedInAccounts": "暫無已登入帳號"
   },
   "selectionModes": {
     "unavailable": "暫未開放",

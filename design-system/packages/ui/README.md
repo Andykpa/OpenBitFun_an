@@ -591,7 +591,11 @@ Use `Select` for simple options; its hidden native control preserves form
 participation. `width="content"` fits the collapsed control to the selected label;
 `popupWidth="content"` independently fits the expanded surface to its options,
 within the viewport. The defaults remain a full-width control and a popup that
-matches the trigger. `Combobox` adds searchable single
+matches the trigger. `variant="pill"` uses badge typography, spacing and rounded
+ends while retaining the selected control size. An option's `selectedLabel`
+shortens only the closed trigger; the expanded header, listbox and native form
+option retain its full `label`. Combine these with content widths for compact
+inline platform or scope selectors. `Combobox` adds searchable single
 selection, grouped options, explicit custom-value creation and async loading
 states. `MultiSelect` owns multiple selection, removable tags and select-all.
 Controlled values are authoritative; option discovery remains host-owned.
