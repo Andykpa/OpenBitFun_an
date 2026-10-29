@@ -8,7 +8,7 @@
 | 项 | 状态 |
 |---|---|
 | 分支 / HEAD | `fork/mobile`，基线 = 上游 `v1.0.8`（commit `f883190`） |
-| 上游历史 | 已 `--unshallow`，5832 commits，`v1.0.7` 是 `v1.0.8` 的祖先 |
+| 上游历史 | 已 `--unshallow`（6000+ commits，以 `git rev-list --count HEAD` 为准），`v1.0.7` 是 `v1.0.8` 的祖先 |
 | 私有差异 | 全部带 `fork:` 前缀，用 `git log --grep='^fork' v1.0.8..HEAD` 列出 |
 | 工作树 | 干净 |
 | 可装机产物 | `OpenBitFun-Fork-1.0.8-fork.1-android.apk`（4.94 MB，v2 签名） |
@@ -54,7 +54,7 @@ origin   = git@github.com:Andykpa/OpenBitFun_an.git   # 可推，备份用
 - `fork-v<versionName>` — 每个装机的 APK 打一条，固定"哪个 commit 出了哪个 APK"。
 - `main` — 上游镜像，不本地开发；GitHub 上它仍是默认分支。
 
-> ✅ 已配置（2026-10-29）：`fork/mobile`（`57d58e2`）与 `fork-v1.0.8-fork.1` 均已推送到 origin，远端 tag 解引用为 `5e83e97`，与账本 `git_head` 一致。
+> ✅ 已配置（2026-10-29）：`fork/mobile` 与 `fork-v1.0.8-fork.1` 均已推送到 origin，且 `fork/mobile` 与远端同步（比对用 `git status -sb`，别在文档里记 hash）。tag 解引用为 `5e83e97`，与账本 `git_head` 一致——**这个对应关系是刻意的**：tag 钉的是"哪个 commit 出了这个 APK"，之后的文档提交不再进 tag。
 >
 > **推送时故意没有用 `--follow-tags`**：本地 53 个上游 tag 里混着轻量 tag，而 `--follow-tags` 只推 annotated tag——上游恰好有个 annotated 的 `v1.0.3-beta.1`，用它会替上游推一个不属于我们的 tag。所以只显式推自己的：
 > ```
@@ -74,12 +74,12 @@ GitHub 的 Fork 是仓库级对象共享，**没有"选目录"这种选项**；�
 |---|---|
 | tracked 工作树总计 | 173 MB / 9831 files |
 | `.git` 对象（sparse **省不到**） | 311 MB |
-| 必须完整的历史 | 5832 commits（浅历史会让 `merge-base` 算不出来、rebase 直接瘫掉） |
+| 必须完整的历史 | 6000+ commits（浅历史会让 `merge-base` 算不出来、rebase 直接瘫掉） |
 
 而且按直觉把 `harmonyos/`、`crates/` 剔掉会**制造新违规**——APK 的硬依赖链伸到 mobile 目录之外：
 
-- `app/build.gradle.kts:118` 的 `preBuild` 跑 `generate.cjs android`，它读 `src/crates/contracts/product-domains/src/miniapp`（3.56 MB / 90 files）
-- `app/build.gradle.kts:26` 的 assets 指 `src/shared/terminal/webview/generated`（已入库 3 个文件，**因此不需要 cargo/构建桌面端**）
+- `app/build.gradle.kts` 的 `generateMiniApps` 任务跑 `generate.cjs android`，它读 `src/crates/contracts/product-domains/src/miniapp`（3.56 MB / 90 files），并由 `tasks.named("preBuild")` 挂进构建
+- `app/build.gradle.kts` 顶部 `sourceSets.getByName("main").assets.srcDir(...)` 指 `src/shared/terminal/webview/generated`（已入库 3 个文件，**因此不需要 cargo/构建桌面端**）
 - `shared/core-transport/build.gradle.kts:80` 从**仓库根** `package.json` 取 `WORKSPACE_PACKAGE_VERSION`
 - `ClientBuildContractTest.kt:20` 靠"同时存在 `Cargo.toml` 与 `package.json`"定位仓库根，再读 `crates/.../account.rs`（L26）和 `harmonyos/**/ClientBuild.ets`（L60）钉死三端协议号——这些文件一缺，测试就因**文件不存在**而失败，变成 fork 自己引入的红灯
 
@@ -168,7 +168,7 @@ Set-Location D:\dy\obf_moblie\OpenBitFun
 Relay 会逐步加 capability 协商（`host_stream_v1`、`device_alias_v1` 等），缺 capability 就降级。
 **不要改成"猜着发未知命令"**——那是这个 fork 能长期跟住上游的前提。
 
-> 同步的前提是**完整历史**。clone 时用了 `--depth 1` 会让 `merge-base` 算不出来、rebase 无从谈起；本仓库已 `git fetch --unshallow`（5832 commits）。若以后重新 clone，务必取全量历史，或至少 `--deepen=40` 到最近两个 tag 有共同祖先。
+> 同步的前提是**完整历史**。clone 时用了 `--depth 1` 会让 `merge-base` 算不出来、rebase 无从谈起；本仓库已 `git fetch --unshallow`。若以后重新 clone，务必取全量历史，或至少 `--deepen=40` 到最近两个 tag 有共同祖先。
 >
 > `v1.0.7 → v1.0.8` 的实测：上游对 `src/apps/mobile` **零改动**，rebase 无冲突，门禁 4 条违规在同步前后完全一致（新增 0）。脚本对已同步的 tag 重复执行是幂等的。
 
