@@ -37,7 +37,7 @@ test("capsules without actions preserve ordinary content and do not add a focus 
   assert.doesNotMatch(markup, /tabindex|role=|data-openbitfun-part="action"|data-action-placement/);
 });
 
-test("split capsules align filled edges with equal or content-sized leading widths", async () => {
+test("split capsules align filled edges with equal or compact content-sized widths", async () => {
   const markup = renderToStaticMarkup(h(Capsule, { layout: "split", splitSizing: "content", size: "sm", role: "group", "aria-label": "Provider" },
     h(Select, { size: "sm", variant: "pill", width: "content", "aria-label": "Region", options: [{ value: "international", label: "International" }] }),
     h(Button, { size: "sm", variant: "primary" }, "Sign in"),
@@ -55,7 +55,8 @@ test("split capsules align filled edges with equal or content-sized leading widt
   const styles = await readFile(new URL("../dist/styles.css", import.meta.url), "utf8");
   const splitRules = styles.match(/\[data-layout=split\][^{}]*\{[^}]*\}/g)?.join("\n") ?? "";
   assert.match(splitRules, /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
-  assert.match(splitRules, /\[data-split-sizing=content\]\{grid-template-columns:max-content minmax\(0,1fr\)/);
+  assert.match(splitRules, /\[data-split-sizing=content\]\{grid-template-columns:repeat\(2,max-content\);inline-size:max-content/);
+  assert.match(splitRules, /\[data-split-sizing=content\]>\[data-openbitfun-component=button\]\{inline-size:max-content;max-inline-size:100%/);
   assert.match(splitRules, /\[data-openbitfun-component=select\]>\[data-openbitfun-part=trigger\]\{border-color:transparent;background-clip:padding-box\}/);
   assert.match(splitRules, /border-inline-end-width:0/);
   assert.match(splitRules, /border-inline-start-width:0/);

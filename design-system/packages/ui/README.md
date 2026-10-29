@@ -538,8 +538,8 @@ action offsets, backgrounds, or visibility.
 
 `Capsule layout="split"` joins two direct child controls into equal-width halves
 with square inner corners, rounded outer ends, and no mismatched child borders.
-Set `splitSizing="content"` to fit the leading control to its content and give the
-remaining width to the trailing action. Use a `Select variant="pill"` followed by
+Set `splitSizing="content"` to fit both controls and the overall capsule to their
+content. Use a `Select variant="pill"` followed by
 a `Button`, with the same explicit size; set the Select's `width="content"` for
 content sizing or `width="full"` for equal halves. Each control
 keeps its own focus, disabled state, and action; the select popup remains portalled.
