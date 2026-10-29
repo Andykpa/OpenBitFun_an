@@ -48,6 +48,7 @@
 
 .heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: var(--openbitfun-space-2);
@@ -55,13 +56,9 @@
   min-inline-size: 0;
 }
 
-.regionSelect {
-  flex: none;
-  max-inline-size: 6.5rem;
-}
-
 .plan {
   min-inline-size: 0;
+  max-inline-size: 100%;
   color: var(--openbitfun-color-content-primary);
   font-family: var(--openbitfun-type-heading-card-font-family);
   font-size: var(--openbitfun-type-heading-card-font-size);

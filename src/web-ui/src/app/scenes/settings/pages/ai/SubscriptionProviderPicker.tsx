@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Button, Card, CardBody, CardFooter, OverflowText, Select, Spinner } from '@openbitfun/ui';
+import { Button, Capsule, Card, CardBody, CardFooter, OverflowText, Select, Spinner } from '@openbitfun/ui';
 import type { SubscriptionProvider } from '@/infrastructure/config/types';
 import { useI18n } from '@/infrastructure/i18n';
 import { ProductBrandIcon } from '@/shared/ui/ProductBrandIcon';
@@ -67,6 +67,11 @@ export function SubscriptionProviderPicker({ options, disabled, loginStatus, onL
       {options.map(option => {
         const region = regions[option.provider];
         const provider = option.regions?.find(item => item.provider === region)?.provider ?? option.provider;
+        const loginButton = <Button size="sm" variant="primary" disabled={disabled}
+          ref={button => { if (button) loginButtons.current.set(option.provider, button); else loginButtons.current.delete(option.provider); }}
+          onClick={() => { lastProvider.current = option.provider; onLogin(provider); }}>
+          {t('subscriptionAuth.login')}
+        </Button>;
         return <Card key={option.provider} appearance="neutral" padding="sm"
           className={styles.card} role="group" aria-label={option.title}
           data-testid="settings-subscription-provider" data-provider={option.provider}>
@@ -74,19 +79,17 @@ export function SubscriptionProviderPicker({ options, disabled, loginStatus, onL
             <ProductBrandIcon productId={option.provider} size={40} />
             <div className={styles.heading}>
               <span className={styles.plan}><OverflowText>{option.description}</OverflowText></span>
-              {option.regions && <Select size="sm" variant="pill" width="content" popupWidth="content" className={styles.regionSelect}
-                aria-label={t('subscriptionAuth.chooseRegion')} disabled={disabled}
-                options={option.regions.map(item => ({ value: item.provider, label: item.label, selectedLabel: item.shortLabel, tooltip: item.label }))}
-                value={provider} onValueChange={value => setRegions(current => ({ ...current, [option.provider]: value as SubscriptionProvider }))} />}
             </div>
           </CardBody>
           <CardFooter align="center" className={styles.footer}>
             <div className={styles.actions} data-openbitfun-component="model-settings" data-openbitfun-part="subscriptionActions">
-              <Button size="sm" variant="primary" disabled={disabled}
-                ref={button => { if (button) loginButtons.current.set(option.provider, button); else loginButtons.current.delete(option.provider); }}
-                onClick={() => { lastProvider.current = option.provider; onLogin(provider); }}>
-                {t('subscriptionAuth.login')}
-              </Button>
+              {option.regions ? <Capsule layout="split" splitSizing="content" size="sm" role="group" aria-label={option.title}>
+                <Select size="sm" variant="pill" width="content" popupWidth="content"
+                  aria-label={t('subscriptionAuth.chooseRegion')} disabled={disabled}
+                  options={option.regions.map(item => ({ value: item.provider, label: item.label, selectedLabel: item.shortLabel, tooltip: item.label }))}
+                  value={provider} onValueChange={value => setRegions(current => ({ ...current, [option.provider]: value as SubscriptionProvider }))} />
+                {loginButton}
+              </Capsule> : loginButton}
             </div>
           </CardFooter>
         </Card>;
