@@ -80,6 +80,7 @@ import { OpenBitFunControlToolCard } from './OpenBitFunControlToolCard';
 import { ListModelsToolCard } from './ListModelsToolCard';
 import { ControlHubToolCard } from './ControlHubToolCard';
 import { BuiltinToolCard } from './BuiltinToolCard';
+import { GenerateImageToolCard } from './GenerateImageToolCard';
 
 /**
  * Standard tool adapters backed by concrete `@openbitfun/ui/flow-chat` views.
@@ -152,7 +153,7 @@ export const STANDARD_TOOL_CARD_ADAPTERS = {
   'AgentDelete': AgentDeleteToolCard,
   'SessionHistory': BuiltinToolCard,
   'analyze_image': BuiltinToolCard,
-  'generate_image': BuiltinToolCard,
+  'generate_image': GenerateImageToolCard,
   'GetTime': BuiltinToolCard,
   'ListMCPResources': BuiltinToolCard,
   'ReadMCPResource': BuiltinToolCard,
