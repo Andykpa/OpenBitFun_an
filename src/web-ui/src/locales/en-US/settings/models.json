@@ -247,6 +247,14 @@
         "openai": "OpenAI Compatible Format - Default"
       }
     },
+    "openai": {
+      "name": "OpenAI",
+      "description": "OpenAI GPT and reasoning models",
+      "urlOptions": {
+        "default": "Responses API - Default",
+        "chatCompletions": "Chat Completions API"
+      }
+    },
     "gemini": {
       "name": "Google Gemini",
       "description": "Google Gemini series models"
