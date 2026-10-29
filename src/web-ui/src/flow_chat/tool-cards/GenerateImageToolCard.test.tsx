@@ -52,23 +52,26 @@ describe('GenerateImageToolCard', () => {
     ));
   }
 
-  it('shows generated image attachments in an always-open card', () => {
+  it('shows generated image attachments with metadata collapsed by default', () => {
     render();
 
     const imageElement = host.querySelector<HTMLImageElement>('[data-openbitfun-part="media"] img');
     expect(imageElement?.src).toBe(`data:image/png;base64,${image}`);
     expect(host.querySelector('[data-openbitfun-part="details"]')).not.toBeNull();
-    expect(host.querySelector('[data-openbitfun-expandable="false"]')).not.toBeNull();
-    expect(host.querySelector('[aria-expanded]')).toBeNull();
+    expect(host.querySelector('[data-openbitfun-expandable="true"]')).not.toBeNull();
+    expect(host.querySelector('[data-openbitfun-component="disclosure"]')?.getAttribute('data-open')).toBe('false');
   });
 
-  it('does not hide the image when the card surface is clicked', () => {
+  it('keeps metadata folded while allowing the image card to collapse', () => {
     render();
 
     const surface = host.querySelector<HTMLElement>('[data-openbitfun-part="surface"]');
     expect(surface).not.toBeNull();
+    const details = host.querySelector<HTMLButtonElement>('[data-openbitfun-component="disclosure"] button[aria-expanded]');
+    expect(details?.getAttribute('aria-expanded')).toBe('false');
+
     act(() => surface?.click());
-    expect(host.querySelector('[data-openbitfun-part="media"] img')).not.toBeNull();
+    expect(host.querySelector('[data-openbitfun-part="expandedCollapse"]')?.getAttribute('data-open')).toBe('false');
   });
 
   it('keeps failures visible while preserving the image card anatomy', () => {
