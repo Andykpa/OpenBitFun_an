@@ -349,8 +349,9 @@ and rechecks its authorization binding before publishing the result. Model-scope
 requests require the separately advertised `subscription_model_quota_v1` capability;
 legacy requests retain the exact account-slot path. These tests do not contact billing.
 
-For workspace HTML gateway authentication, chunking, cancellation and peer
-capability negotiation and encrypted loopback Relay transfer, run:
+For workspace HTML gateway authentication, chunking, cancellation, site-root
+entry URLs, document-route fallback, owner-error preservation, peer capability
+negotiation and encrypted loopback Relay transfer, run:
 
 ```bash
 cargo test --locked -p openbitfun-desktop --lib html_preview
