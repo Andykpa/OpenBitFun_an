@@ -44,7 +44,7 @@ describe('ModelSettingsPage dialog presentation', () => {
     expect(editorDialog).not.toContain('openbitfun-model-settings__editor-dialog-footer');
     expect(editorDialog).not.toContain('openbitfun-model-settings__editor-dialog-cancel');
     expect(styles).toMatch(
-      /&__editor-dialog\s*{\s*block-size:\s*min\(\s*640px,\s*calc\(100vh - 2 \* var\(--openbitfun-overlay-dialog-viewport-gutter\)\)\s*\);/,
+      /&__editor-dialog\s*{\s*block-size:\s*auto;\s*max-block-size:\s*calc\(100dvh - 2 \* var\(--openbitfun-overlay-dialog-viewport-gutter\)\);/,
     );
     expect(styles).not.toContain('&__editor-dialog-footer');
     expect(styles).not.toContain('&__editor-dialog-cancel');
