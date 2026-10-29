@@ -27,11 +27,11 @@
 
 ### 为什么不用官方 APK 长期使用
 
-官方移动端只有 **1 个** release：`mobile-v1.0.0`（2026-10-10，`prerelease`，标题自带 "debug signing"，4.69 MB），无应用商店上架，iOS/鸿蒙只有源码。它的签名来自 `mobile-package.yml:78` —— **每次 CI 用当场新生成的 runner debug keystore**。结论：官方包之间**无法互相覆盖安装**（换签名必卸载），也不与任何正式签名兼容。这不是缺陷，是上游明确写的"生产 key 以后再引入"（`:99`）。所以自建 + 自有稳定 keystore 是唯一能长期升级的路。
+官方移动端只有 **1 个** release：`mobile-v1.0.0`（2026-10-10，`prerelease`，标题自带 "debug signing"，4.69 MB），无应用商店上架，iOS/鸿蒙只有源码。它的签名来自 `mobile-package.yml:78` —— **每次 CI 用当场新生成的 runner debug keystore**。结论：官方包之间**无法互相覆盖安装**（换签名必卸载），也不与任何正式签名兼容。这不是缺陷，是上游写明的阶段性安排（`docs/development/releasing.md:99`："A production signing key can be introduced later"）。所以自建 + 自有稳定 keystore 是唯一能长期升级的路。
 
 ## 2. 提交规范
 
-沿用上游的 **Conventional Commits**（`CONTRIBUTING.md:138`）。fork 的额外约定：
+沿用上游的 **Conventional Commits**（`CONTRIBUTING.md` 的 "PR title and description" 节）。fork 的额外约定：
 
 | 前缀 | 用途 |
 |---|---|
@@ -41,7 +41,7 @@
 
 判断标准很简单：**会往上游提 PR 的改动不许带 `fork:` 前缀**。这样 `git log --grep='^fork'` 就能一键列出全部私有差异，是每次同步的冲突预告清单。
 
-**上游 `main` 是唯一协作分支**（`CONTRIBUTING.md:164`），我们不动它的默认分支假设。
+上游把 **`main` 作为默认协作分支、且接受 feature PR**（`CONTRIBUTING.md` 的 "Branch management" 节，原文是 "default collaboration branch"，不是"唯一"）。我们不动它的默认分支假设：fork 的 `main` 只当上游镜像，日常开发在 `fork/mobile`。
 
 ## 3. 分支与远端
 
@@ -194,10 +194,10 @@ MIT（`LICENSE`，Copyright (c) 2026 CWing）。分发时必须保留版权与�
 
 ## 10. 品牌改名 touchpoint（备用，尚未执行）
 
-- `app/build.gradle.kts`：`applicationId`（L32）、debug 后缀 `.debug`（L56 区）、`namespace`（L27）
+- `app/build.gradle.kts`：`applicationId`（L32）、debug 后缀 `.debug`（L70）、`namespace`（L27）
 - `app/src/main/res/values/strings.xml:4` **和** `values-zh/strings.xml:4` 的 `app_name` —— 规则 8 强制两个 key 集合完全同步，必须一起改（`app_name` 在 `untranslatedByDesign` 白名单，可同值）
 - launcher mipmaps（`res/mipmap-*`）、`res/values/themes.xml` 的 `Theme.OpenBitFun`、`ui/theme/Theme.kt`
 - `ui/shell/` 下 `StartupBrandReveal.kt`、`WelcomeBrandFlow.kt`、`WelcomeHome.kt`、`OpenBitFunCompactDrawer.kt`
 - `AndroidManifest.xml:30` 的深链 scheme —— 改了就撞上第 1 节说的上游白名单，慎之
 
-UI 层的缝已核实：`app` 只依赖 **一个** 共享模块 `com.openbitfun.mobile:core-feature`（`build.gradle.kts:78`），跨缝只走 UiState / Intent。自研 UI 只许动 `app/src/main/kotlin/**/ui/**` 与 `res/**`；会话历史分页、审批 mailbox、`host_stream_v1`/`STREAM_EVENT_GAP`、终端 PTY 游标这些语义**不得在 UI 层重实现或绕过**。
+UI 层的缝已核实：`app` 只依赖 **一个** 共享模块 `com.openbitfun.mobile:core-feature`（`build.gradle.kts:92`），跨缝只走 UiState / Intent。自研 UI 只许动 `app/src/main/kotlin/**/ui/**` 与 `res/**`；会话历史分页、审批 mailbox、`host_stream_v1`/`STREAM_EVENT_GAP`、终端 PTY 游标这些语义**不得在 UI 层重实现或绕过**。
