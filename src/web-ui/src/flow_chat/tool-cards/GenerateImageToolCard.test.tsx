@@ -52,26 +52,26 @@ describe('GenerateImageToolCard', () => {
     ));
   }
 
-  it('shows generated image attachments with metadata collapsed by default', () => {
+  it('keeps the image and metadata inside one collapsed card by default', () => {
     render();
 
-    const imageElement = host.querySelector<HTMLImageElement>('[data-openbitfun-part="media"] img');
-    expect(imageElement?.src).toBe(`data:image/png;base64,${image}`);
-    expect(host.querySelector('[data-openbitfun-part="details"]')).not.toBeNull();
     expect(host.querySelector('[data-openbitfun-expandable="true"]')).not.toBeNull();
-    expect(host.querySelector('[data-openbitfun-component="disclosure"]')?.getAttribute('data-open')).toBe('false');
+    expect(host.querySelector('[data-openbitfun-expanded-shell="false"]')).not.toBeNull();
+    expect(host.querySelector('[data-openbitfun-part="media"] img')).toBeNull();
   });
 
-  it('keeps metadata folded while allowing the image card to collapse', () => {
+  it('reveals the image while keeping metadata folded when expanded', () => {
     render();
 
     const surface = host.querySelector<HTMLElement>('[data-openbitfun-part="surface"]');
     expect(surface).not.toBeNull();
+    act(() => surface?.click());
+
+    const imageElement = host.querySelector<HTMLImageElement>('[data-openbitfun-part="media"] img');
+    expect(imageElement?.src).toBe(`data:image/png;base64,${image}`);
+    expect(host.querySelector('[data-openbitfun-expanded-shell="true"]')).not.toBeNull();
     const details = host.querySelector<HTMLButtonElement>('[data-openbitfun-component="disclosure"] button[aria-expanded]');
     expect(details?.getAttribute('aria-expanded')).toBe('false');
-
-    act(() => surface?.click());
-    expect(host.querySelector('[data-openbitfun-part="expandedCollapse"]')?.getAttribute('data-open')).toBe('false');
   });
 
   it('keeps failures visible while preserving the image card anatomy', () => {
@@ -80,6 +80,7 @@ describe('GenerateImageToolCard', () => {
       toolResult: { success: false, error: 'Image service unavailable', result: null },
     }));
 
+    act(() => host.querySelector<HTMLElement>('[data-openbitfun-part="surface"]')?.click());
     expect(host.querySelector('[data-openbitfun-part="error"]')?.textContent).toContain('Image service unavailable');
     expect(host.querySelector('[data-openbitfun-part="surface"]')).not.toBeNull();
   });

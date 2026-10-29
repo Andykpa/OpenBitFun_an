@@ -16,12 +16,12 @@ import { getToolCardStatusDescription } from './toolCardStatus';
 import { useToolCardHeightContract } from './useToolCardHeightContract';
 
 /**
- * Generated images stay visible in the expanded result while request metadata
- * remains available from a separate, closed-by-default disclosure.
+ * Generated images and request metadata stay inside one collapsible result
+ * card. The compact header is the default presentation in the transcript.
  */
 export const GenerateImageToolCard: React.FC<ToolCardProps> = ({ toolItem, onExpand }) => {
   const { t, formatNumber } = useI18n('flow-chat');
-  const [isExpanded, setExpanded] = useToolCardDisclosure('isExpanded', true);
+  const [isExpanded, setExpanded] = useToolCardDisclosure('isExpanded', false);
   const model = useMemo(
     () => buildBuiltinToolCardModel(toolItem, 'generate_image', t, formatNumber),
     [toolItem, t, formatNumber],
