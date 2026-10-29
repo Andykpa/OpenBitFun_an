@@ -572,10 +572,12 @@ fn serve_model_response(
             .to_string(),
         )
         .expect("write scripted tool response");
-        write_chunk(stream, b"data: [DONE]\n\n").expect("finish scripted tool SSE");
-        // The client may close as soon as it consumes [DONE]. A Windows
+        // The client may close as soon as it consumes the finish reason. A Windows
         // ConnectionAborted here must not kill the server for the next tool
         // response; all required SSE data was already written successfully.
+        if write_chunk(stream, b"data: [DONE]\n\n").is_err() {
+            return;
+        }
         let _ = stream.write_all(b"0\r\n\r\n");
         let _ = stream.flush();
         return;
@@ -771,8 +773,10 @@ fn serve_product_control_response(stream: &mut TcpStream, attempt: usize) {
         .expect("write product-control completion chunk");
     }
 
-    write_chunk(stream, b"data: [DONE]\n\n").expect("finish product-control SSE");
-    // Match the ordinary streaming response: EOF after [DONE] is normal.
+    // Match the ordinary streaming response: EOF after completion is normal.
+    if write_chunk(stream, b"data: [DONE]\n\n").is_err() {
+        return;
+    }
     let _ = stream.write_all(b"0\r\n\r\n");
     let _ = stream.flush();
 }
