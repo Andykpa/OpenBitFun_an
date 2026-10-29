@@ -573,10 +573,11 @@ fn serve_model_response(
         )
         .expect("write scripted tool response");
         write_chunk(stream, b"data: [DONE]\n\n").expect("finish scripted tool SSE");
-        stream
-            .write_all(b"0\r\n\r\n")
-            .expect("finish scripted response");
-        stream.flush().expect("flush scripted response");
+        // The client may close as soon as it consumes [DONE]. A Windows
+        // ConnectionAborted here must not kill the server for the next tool
+        // response; all required SSE data was already written successfully.
+        let _ = stream.write_all(b"0\r\n\r\n");
+        let _ = stream.flush();
         return;
     }
 
@@ -771,10 +772,9 @@ fn serve_product_control_response(stream: &mut TcpStream, attempt: usize) {
     }
 
     write_chunk(stream, b"data: [DONE]\n\n").expect("finish product-control SSE");
-    stream
-        .write_all(b"0\r\n\r\n")
-        .expect("finish product-control chunked response");
-    stream.flush().expect("flush product-control response");
+    // Match the ordinary streaming response: EOF after [DONE] is normal.
+    let _ = stream.write_all(b"0\r\n\r\n");
+    let _ = stream.flush();
 }
 
 fn write_http_403(stream: &mut TcpStream, reason: &str) -> std::io::Result<()> {
